@@ -15,13 +15,15 @@ let package = Package(
         // Built by scripts/build_xcframework.sh from the pinned engine (engine/), with ZF_RELEASE on: the exact
         // engine, the V4 tajweed library (zf_tajweed.h: streams and scorer) and the CoreML sidecar rebuild (zf/zfs.h).
         .binaryTarget(name: "TajweedFormerCore", path: "TajweedFormerCore.xcframework"),
-        // libopus 1.6.1 for sharing (module COpus), built by scripts/opus/build_opus_xcframework.sh
-        // (reproducible: the same zip from any checkout) and attached to the release opus-1.6.1-2.
-        // The release asset of this repository (opus-1.6.1-2).
-        .binaryTarget(
+        // libopus 1.6.1 for sharing, compiled from its source like any other target (scripts/opus/vendor_opus.sh).
+        .target(
             name: "COpus",
-            url: "https://github.com/Quran-Lab/tajweedformer-apple/releases/download/opus-1.6.1-2/Opus.xcframework.zip",
-            checksum: "d091db4aa9b73e02b68f1ac19f1b13c44f2d70d477d5cafd6e4217cdfecd3857"
+            exclude: ["COPYING"],
+            cSettings: [
+                .define("HAVE_CONFIG_H"), .define("OPUS_BUILD"),
+                .headerSearchPath("."), .headerSearchPath("include/COpus"), .headerSearchPath("celt"),
+                .headerSearchPath("silk"), .headerSearchPath("silk/float"), .headerSearchPath("silk/fixed"),
+            ]
         ),
         .target(
             name: "TajweedFormer",

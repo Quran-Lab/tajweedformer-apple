@@ -5,8 +5,8 @@ The QuranLab SDK includes the following third-party software.
 ## libopus 1.6.1
 
 The Opus audio codec, https://opus-codec.org, from https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz
-(SHA-256 6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1), compiled into the `COpus` binary
-target by `scripts/opus/build_opus_xcframework.sh` and used to encode shared sessions. BSD-3-Clause licence,
+(SHA-256 6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1), compiled from source as the `COpus`
+target (`Sources/COpus`, from `scripts/opus/vendor_opus.sh`) and used to encode shared sessions. BSD-3-Clause licence,
 reproduced from the release's COPYING file:
 
 ```

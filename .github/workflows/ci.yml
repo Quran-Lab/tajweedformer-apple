@@ -74,8 +74,6 @@ jobs:
         with:
           name: engine-conformance
           path: engine/conformance
-      - name: GitHub token for the COpus release asset
-        run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
       - name: Model fixtures (optional)
         run: |
           echo "TAJWEED_V4_EXPECTED=$GITHUB_WORKSPACE/engine/conformance" >> "$GITHUB_ENV"
@@ -111,8 +109,6 @@ jobs:
           path: ${{ runner.temp }}/xcf
       - name: Use it
         run: rm -rf TajweedFormerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" TajweedFormerCore.xcframework
-      - name: GitHub token for the COpus release asset
-        run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
       - name: Package, iOS device
         run: xcodebuild -scheme TajweedFormer -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" build CODE_SIGNING_ALLOWED=NO
       - name: Package, iOS Simulator (arm64)

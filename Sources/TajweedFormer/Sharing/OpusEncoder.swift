@@ -64,7 +64,7 @@ protocol OpusEncoding: AnyObject {
     var finalGranulePosition: Int64 { get }
 }
 
-/// Opus from libopus 1.6.1 (the `COpus` binary target, float build with NEON), set up per
+/// Opus from libopus 1.6.1 (the `COpus` target, float build with NEON), set up per
 /// `OpusSettings`. Non-finite input samples are coded as silence. Not thread safe: one instance
 /// from one thread or actor at a time.
 final class LibOpusEncoder: OpusEncoding {
