@@ -1,6 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
-import ZipformerCore
+import TajweedFormerCore
 
 /// Audio into the model's format: 16 kHz, mono, Float in -1...1.
 enum AudioFormat {

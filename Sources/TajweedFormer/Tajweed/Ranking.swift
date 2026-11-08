@@ -1,5 +1,5 @@
 import Foundation
-import ZipformerCore
+import TajweedFormerCore
 
 /// Any head with a distribution, ranked per frame to any depth (zf_tajweed.h top-K): the token heads (log_probs,
 /// inter1, inter4, id, timing: 38 entries, k 1 to 38, 38 being the whole ranked list) and the class heads (gem 2,

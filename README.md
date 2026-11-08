@@ -180,7 +180,7 @@ a learner's recordings, and there is no call to do so for another learner. On a 
 ```sh
 git clone --recurse-submodules https://github.com/Quran-Lab/tajweedformer-apple
 cd tajweedformer-apple
-scripts/build_xcframework.sh     # ZipformerCore.xcframework from the pinned engine
+scripts/build_xcframework.sh     # TajweedFormerCore.xcframework from the pinned engine
 swift test
 ```
 

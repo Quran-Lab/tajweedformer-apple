@@ -212,7 +212,7 @@ final class AcceleratorTests: XCTestCase {
         XCTAssertEqual(set.expected["Husary_001001"]?.flaggedSites, [])
         XCTAssertEqual(set.expected["Husary_112001_planted"]?.flaggedSites, ["2|vowel_sub"], "the planted mistake is expected flagged")
         XCTAssertEqual(set.expected["Husary_112001_planted"]?.flaggedWords, [0])
-        XCTAssertNil(SelfTestSet.load(Fixtures.v4mini().appendingPathComponent("decoded"), context: "c24_l256"))
+        XCTAssertNil(try SelfTestSet.load(Fixtures.v4mini().appendingPathComponent("decoded"), context: "c24_l256"))
     }
 
     /// Flags are compared as sets in both directions: the planted mistake missed fails, an extra flag fails, exact passes.

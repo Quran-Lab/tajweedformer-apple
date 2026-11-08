@@ -1,7 +1,7 @@
 import CoreML
 import CoreVideo
 import Foundation
-import ZipformerCore
+import TajweedFormerCore
 
 /// The V4 TajweedFormer CoreML build on the Neural Engine: one
 /// multifunction package, each context's two functions selected with MLModelConfiguration.functionName:

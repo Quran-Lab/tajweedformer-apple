@@ -217,21 +217,33 @@ final class AcceleratorController: @unchecked Sendable {
             _ = await g.next()
             g.cancelAll()
             // a timeout leaves the waiter registered: wake it so its task ends
-            self.lock.lock()
-            let w = self.waiters
-            self.waiters = []
-            self.lock.unlock()
-            for c in w { c.resume() }
+            for c in self.takeWaiters() { c.resume() }
         }
         return state == .ready
     }
 
+    // NSLock.lock() and unlock() are unavailable from async code in the current SDKs: the critical sections an async
+    // function needs live in these synchronous methods.
+    private func takeWaiters() -> [CheckedContinuation<Void, Never>] {
+        lock.lock()
+        defer { lock.unlock() }
+        let w = waiters
+        waiters = []
+        return w
+    }
+
+    /// True the first time only.
+    private func markStarted() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if started { return false }
+        started = true
+        return true
+    }
+
     /// Loads the package and self-tests it (once per controller). `load` runs with the timeout; `selfTest` runs after.
     func prepare(load: @escaping Load, selfTest: @escaping SelfTest) async {
-        lock.lock()
-        if started { lock.unlock(); return }
-        started = true
-        lock.unlock()
+        guard markStarted() else { return }
         if case .disabled = state { return }
         if let why = env.denied() { return disable(why, reason: .other, persist: false) }
         let t0 = Date()

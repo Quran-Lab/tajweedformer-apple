@@ -14,18 +14,18 @@ let package = Package(
     targets: [
         // Built by scripts/build_xcframework.sh from the pinned engine (engine/), with ZF_RELEASE on: the exact
         // engine, the V4 tajweed library (zf_tajweed.h: streams and scorer) and the CoreML sidecar rebuild (zf/zfs.h).
-        .binaryTarget(name: "ZipformerCore", path: "ZipformerCore.xcframework"),
+        .binaryTarget(name: "TajweedFormerCore", path: "TajweedFormerCore.xcframework"),
         // libopus 1.6.1 for sharing (module COpus), built by scripts/opus/build_opus_xcframework.sh
-        // (reproducible: the same zip from any checkout) and attached to the release libopus-1.6.1-1.
-        // The release asset of this repository (libopus-1.6.1-1).
+        // (reproducible: the same zip from any checkout) and attached to the release opus-1.6.1-2.
+        // The release asset of this repository (opus-1.6.1-2).
         .binaryTarget(
             name: "COpus",
-            url: "https://github.com/Quran-Lab/tajweedformer-apple/releases/download/libopus-1.6.1-1/Opus.xcframework.zip",
-            checksum: "7729c0e3e06d86956c2d3dc066a0e3863a84e86ea0fee618cbaf42f6b9cfd48d"
+            url: "https://github.com/Quran-Lab/tajweedformer-apple/releases/download/opus-1.6.1-2/Opus.xcframework.zip",
+            checksum: "d091db4aa9b73e02b68f1ac19f1b13c44f2d70d477d5cafd6e4217cdfecd3857"
         ),
         .target(
             name: "TajweedFormer",
-            dependencies: ["ZipformerCore", "COpus"],
+            dependencies: ["TajweedFormerCore", "COpus"],
             resources: [.copy("Resources/SelfTest"), .copy("Resources/SharingCopy")]
         ),
         .testTarget(name: "TajweedFormerTests", dependencies: ["TajweedFormer", "COpus"],

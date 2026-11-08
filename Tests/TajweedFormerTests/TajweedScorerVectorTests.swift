@@ -3,7 +3,7 @@ import XCTest
 @testable import TajweedFormer
 
 /// the reference vectors through the SDK's scorer (the engine's, in
-/// ZipformerCore): flags identical at every site, madd, qalqalah and gemination item, LLRs within 1e-3. The fixture
+/// TajweedFormerCore): flags identical at every site, madd, qalqalah and gemination item, LLRs within 1e-3. The fixture
 /// (release asset tajweed_scorer_fixture.tar.gz, made by make_scorer_fixture.py from the reference vectors) is
 /// TAJWEED_SCORER_FIXTURE: model/ (calibration.json, tokens.txt, a test expected table), vectors.json, per vector
 /// its heads (float32) and the reference verdicts per preset. The comparison is the engine's own

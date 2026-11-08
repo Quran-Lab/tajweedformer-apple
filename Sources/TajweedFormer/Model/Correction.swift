@@ -1,5 +1,5 @@
 import Foundation
-import ZipformerCore
+import TajweedFormerCore
 
 /// The correction file (`coreml/engine.zfs`, the engine's ZFS1 sidecar): what the exact CPU engine needs besides the
 /// CoreML package's weights. With the package's `weights/weight.bin` it rebuilds the engine's weight files

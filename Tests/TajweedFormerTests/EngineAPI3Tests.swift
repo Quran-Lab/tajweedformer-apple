@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-import ZipformerCore
+import TajweedFormerCore
 @testable import TajweedFormer
 
 /// The SDK against zf_tajweed.h API 3: the head bits, the open options' layout, and the decoded layer's top-2 from

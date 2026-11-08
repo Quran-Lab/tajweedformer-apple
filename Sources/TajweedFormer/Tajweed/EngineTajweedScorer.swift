@@ -1,7 +1,7 @@
-import ZipformerCore
+import TajweedFormerCore
 import Foundation
 
-/// The engine's tajweed scorer (zf_tajweed.h API 2, in ZipformerCore.xcframework from the pinned engine): double
+/// The engine's tajweed scorer (zf_tajweed.h API 2, in TajweedFormerCore.xcframework from the pinned engine): double
 /// precision with a fixed summation order, built without FMA contraction, so the same heads give the same verdicts as
 /// on Android, the web and the engine's own conformance (it reproduces the reference vectors:
 /// TajweedScorerVectorTests).

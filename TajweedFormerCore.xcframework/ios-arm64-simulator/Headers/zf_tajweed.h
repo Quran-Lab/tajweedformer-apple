@@ -41,7 +41,20 @@
  * calibration backend_overrides apply), the features "madd", "qalqalah" and "gemination" in
  * zf_tajweed_config_set_class_preset / _clear_class and under the remote block's "overrides" (a preset
  * only), and resolution exactly as the shared settings rules (zf_tajweed_config_json gives
- * its output layout, with "dropped" and "refused"). */
+ * its output layout, with "dropped" and "refused").
+ *
+ * API version 3 (additive; every API 1 and 2 declaration unchanged): the per-word score: for every word of the
+ * scored path, the largest clipped fused LLR over every single-unit edit inside the word, flagged when it
+ * reaches the word threshold. Word settings: a word preset ("strict", "general", "beginner") or a custom
+ * threshold (clamped to calibration's custom_range, never below its floor), app > remote ("word" in the
+ * block) > calibration's default_preset; the check "word" (ZF_TJ_CHECK_WORD) switches it as any other
+ * check. Results: zf_tajweed_result_words, zf_tajweed_result_path, and "words" in the result's JSON.
+ * API 3 also has, for every stream and model: which heads a stream computes (zf_tajweed_stream_set_heads;
+ * a NEW stream computes the scorer's heads, ZF_TAJWEED_HEADS_SCORER, and ZF_TAJWEED_HEADS_ALL is API 2's
+ * behaviour), the decoded layer's per-frame top-1 and runner-up (zf_tajweed_top2,
+ * zf_tajweed_stream_top2), and ZfTajweedOpenOptions.no_pin (the engine's threads not pinned to cores).
+ * The decoded layer goes to any depth with top-K (zf_tajweed_topk, zf_tajweed_stream_topk): every token head
+ * and every class head ranked per frame, k = 1 to all of it; top-2 is top-K at k = 2. */
 #ifndef ZF_TAJWEED_H
 #define ZF_TAJWEED_H
 
@@ -59,7 +72,7 @@ extern "C" {
 #define ZF_TAJWEED_API
 #endif
 
-#define ZF_TAJWEED_API_VERSION 2
+#define ZF_TAJWEED_API_VERSION 3
 /* The vocabulary: tj3, 38 tokens, blank 0 (tokens.txt). */
 #define ZF_TAJWEED_VOCAB 38
 #define ZF_TAJWEED_BLANK 0
@@ -160,9 +173,17 @@ typedef struct {
   int sample_rate;      /* the rate audio is pushed at: 0 or 16000, or 8000 .. 48000 through the
                            engine's resampler */
   int batch;            /* engine chunks run together (stored audio); 0 or 1 for live audio */
+  /* API 3, appended */
+  int no_pin;           /* 0: the engine pins its threads one to a core (one stream on a phone).
+                           1: no pinning (desktops, servers, several streams at once). The default
+                           (zf_tajweed_open_default_options, and a caller whose header predates the
+                           field) depends on the platform: 0 on Android and iOS, 1 on Windows,
+                           Linux, macOS and WebAssembly. Setting it overrides either way. Timing
+                           only, never a bit. */
 } ZfTajweedOpenOptions;
 
-/* context NULL, load_engine 1, threads 0, sample_rate 0, batch 1. */
+/* context NULL, load_engine 1, threads 0, sample_rate 0, batch 1, no_pin by platform (0 on Android and
+ * iOS, 1 on Windows, Linux, macOS and WebAssembly). */
 ZF_TAJWEED_API ZfTajweedOpenOptions zf_tajweed_open_default_options(void);
 
 /* `model_dir` is the model folder (sdk/v4.0). Reads and checks calibration.json (format, model_id,
@@ -249,6 +270,70 @@ ZF_TAJWEED_API int zf_tajweed_stream_heads(const ZfTajweedStream *s, ZfTajweedHe
 ZF_TAJWEED_API int zf_tajweed_stream_greedy(const ZfTajweedStream *s, int *ids, int max);
 ZF_TAJWEED_API const char *zf_tajweed_stream_last_error(const ZfTajweedStream *s);
 
+/* API 3. The heads a stream computes, as ZfTajweedHeads' fields. A head that is not asked for is
+ * not computed at all (the engine skips every node that feeds only heads nobody asked for), and its
+ * ZfTajweedHeads pointer is NULL; asking for one costs exactly its own nodes, and every head that is
+ * computed is the same bits whatever else is asked for. A new stream computes
+ * ZF_TAJWEED_HEADS_SCORER, what zf_tajweed_score reads; ZF_TAJWEED_HEADS_ALL computes all twelve
+ * (API 2's behaviour). log_probs is always computed. */
+enum {
+  ZF_TAJWEED_HEAD_LOG_PROBS = 1 << 0,
+  ZF_TAJWEED_HEAD_INTER1 = 1 << 1,
+  ZF_TAJWEED_HEAD_INTER4 = 1 << 2,
+  ZF_TAJWEED_HEAD_ID = 1 << 3,
+  ZF_TAJWEED_HEAD_TIMING = 1 << 4,
+  ZF_TAJWEED_HEAD_GEM = 1 << 5,
+  ZF_TAJWEED_HEAD_TAFKHEEM = 1 << 6,
+  ZF_TAJWEED_HEAD_GHUNNA = 1 << 7,
+  ZF_TAJWEED_HEAD_QALQALAH = 1 << 8,
+  ZF_TAJWEED_HEAD_FACE = 1 << 9,
+  ZF_TAJWEED_HEAD_BOUNDARY = 1 << 10,
+  ZF_TAJWEED_HEAD_CONF = 1 << 11,
+  ZF_TAJWEED_HEADS_SCORER = ZF_TAJWEED_HEAD_LOG_PROBS | ZF_TAJWEED_HEAD_INTER1 | ZF_TAJWEED_HEAD_TIMING |
+                            ZF_TAJWEED_HEAD_GEM | ZF_TAJWEED_HEAD_QALQALAH,
+  ZF_TAJWEED_HEADS_ALL = (1 << 12) - 1
+};
+/* Set at the start of a take (after create or reset, before the first push): returns 0, or -1 once
+ * the take has chunks (the kept arrays would have holes). Unknown bits are ignored. */
+ZF_TAJWEED_API int zf_tajweed_stream_set_heads(ZfTajweedStream *s, unsigned heads);
+ZF_TAJWEED_API unsigned zf_tajweed_stream_get_heads(const ZfTajweedStream *s);
+/* A head's name in the graph and README_heads.txt ("inter1_log_probs", ...) for one ZF_TAJWEED_HEAD_
+ * bit, its frame period (40 or 20 ms) and values per frame; NULL for anything else. */
+ZF_TAJWEED_API const char *zf_tajweed_head_info(unsigned head, int *frame_ms, int *cols);
+
+/* API 3. The decoded layer: per 40 ms CTC frame of log_probs, the best token and the runner-up with
+ * their log-probs (one scan of the row; ties go to the lower id, the engine decoder's rule, so
+ * `token` is the greedy decode's argmax). margin = log_prob - runner_up_log_prob >= 0. */
+typedef struct {
+  int token, runner_up;
+  float log_prob, runner_up_log_prob, margin;
+} ZfTajweedTop2;
+/* For log-probs from any source ([frames, vocab] row major, vocab >= 2). Returns frames, or -1. */
+ZF_TAJWEED_API int zf_tajweed_top2(const float *log_probs, int frames, int vocab, ZfTajweedTop2 *out);
+/* The take so far, kept by the stream as chunks arrive (n40 entries, valid until the next push,
+ * finish or reset). Returns the count, or -1. */
+ZF_TAJWEED_API int zf_tajweed_stream_top2(const ZfTajweedStream *s, const ZfTajweedTop2 **out);
+
+/* API 3 (top-K). The decoded layer for any head with a distribution, to any depth: per frame the k best
+ * entries, ranked. The token heads (log_probs, inter1, inter4, id, timing: 38 tokens, k 1 to 38, 38 being
+ * the whole ranked list) and the class heads (gem 2, attr_tafkheem 3, attr_ghunna 5, attr_qalqalah 3,
+ * attr_face 4 classes, k up to their count). boundary and conf are single logits and have no ranking.
+ * The order is by value, highest first, and equal values by the lower id: exactly a stable argsort of
+ * the negated row, so k = cols is the full argsort and k = 2 gives zf_tajweed_top2's token and
+ * runner-up. ids, values and margins are [frames, k] row major (values and margins may be NULL);
+ * margins[j] = values[j] - the value ranked j + 1 (even when that one is beyond k), and 0 for the last
+ * entry of the row (rank cols - 1). Nothing is ranked unless it is asked for: a partial selection,
+ * k passes over the row, per frame. */
+/* For any [frames, cols] values (cols >= 1, 1 <= k <= cols). Returns frames, or -1. */
+ZF_TAJWEED_API int zf_tajweed_topk(const float *values, int frames, int cols, int k, int *ids, float *values_out,
+                                   float *margins);
+/* For a head the stream keeps (a ZF_TAJWEED_HEAD_* bit: a token or class head it computes, see
+ * zf_tajweed_stream_set_heads), over the whole take so far: writes the first min(frames, max_frames)
+ * frames and returns the take's frame count at that head's rate (n40 or n20), or -1 (no stream, a head
+ * that is not kept or has no ranking, k out of range). */
+ZF_TAJWEED_API int zf_tajweed_stream_topk(const ZfTajweedStream *s, unsigned head, int k, int *ids,
+                                          float *values_out, float *margins, int max_frames);
+
 /* ---------------------------------------------------------------------------------------------
  * Configuration: calibration.json < portal (remote) < app code
  * ------------------------------------------------------------------------------------------- */
@@ -293,6 +378,49 @@ ZF_TAJWEED_API void zf_tajweed_config_set_debug_build(ZfTajweedConfig *c, int de
  * zf_tajweed_config_set_class_threshold refuses those three. In the remote block, "v" must be 1 or the
  * whole block is ignored. */
 ZF_TAJWEED_API int zf_tajweed_config_set_backend(ZfTajweedConfig *c, const char *backend);
+
+/* API 3: the word level. The check "word": zf_tajweed_check_name(ZF_TJ_CHECK_WORD) is "word" and
+ * zf_tajweed_check_from_name("word") gives it; zf_tajweed_config_set_check takes it, and the remote
+ * block's "checks" may carry it. It is outside ZfTajweedEffective's check arrays (their size is API 1's),
+ * so its state is read with zf_tajweed_config_word. */
+#define ZF_TJ_CHECK_WORD 7
+
+/* Word presets (calibration.json word.presets), and ZF_TJ_WORD_CUSTOM for a custom threshold. */
+typedef enum {
+  ZF_TJ_WORD_STRICT = 0,   /* "strict": fewest false flags */
+  ZF_TJ_WORD_GENERAL = 1,  /* "general": the default */
+  ZF_TJ_WORD_BEGINNER = 2, /* "beginner": catches the most */
+  ZF_TJ_WORD_PRESET_COUNT = 3,
+  ZF_TJ_WORD_CUSTOM = -1
+} ZfTajweedWordPreset;
+ZF_TAJWEED_API const char *zf_tajweed_word_preset_name(int preset);   /* "custom" for ZF_TJ_WORD_CUSTOM */
+ZF_TAJWEED_API int zf_tajweed_word_preset_from_name(const char *name); /* -1 (also for "custom") */
+
+/* App code, as the other setters: a word preset (NULL removes the app's word setting), or a custom
+ * threshold (any finite number; it is clamped to calibration's custom_range and floor when resolved, as
+ * the reference does). Return 0, or -1 for an unknown preset or a threshold that is not finite. */
+ZF_TAJWEED_API int zf_tajweed_config_set_word_preset(ZfTajweedConfig *c, const char *preset);
+ZF_TAJWEED_API int zf_tajweed_config_set_word_threshold(ZfTajweedConfig *c, double threshold);
+ZF_TAJWEED_API int zf_tajweed_config_clear_word(ZfTajweedConfig *c);
+
+/* The word level resolved (for the context the config asks for, as zf_tajweed_config_effective). The
+ * remote block takes "word": {"preset": name} or {"threshold": number} (exactly one; else dropped as
+ * "remote.word"). */
+typedef struct {
+  size_t struct_size;   /* set by the caller: sizeof(ZfTajweedWordSettings) */
+  int available;        /* the context's calibration has a word block */
+  int status;           /* ZF_TJ_STATUS_* of the block */
+  int enabled;          /* scored and flagged: the check "word" as any other check (validated: on unless
+                           turned off; experimental: only when turned on; off: app + debug build only) */
+  int enabled_source;   /* ZF_TJ_SOURCE_* of the check value in force */
+  int preset;           /* ZF_TJ_WORD_* in force, or ZF_TJ_WORD_CUSTOM */
+  int preset_source;    /* ZF_TJ_SOURCE_* */
+  double threshold;     /* the tau in force: the preset's, or the custom threshold clamped */
+  double floor;         /* calibration word.floor */
+  double custom_lo, custom_hi;              /* calibration word.custom_range */
+  double preset_tau[ZF_TJ_WORD_PRESET_COUNT]; /* each preset's tau (floor applied) */
+} ZfTajweedWordSettings;
+ZF_TAJWEED_API int zf_tajweed_config_word(const ZfTajweedConfig *c, ZfTajweedWordSettings *out);
 
 /* The effective settings, resolved. */
 typedef struct {
@@ -389,8 +517,37 @@ ZF_TAJWEED_API int zf_tajweed_result_gemination(const ZfTajweedResult *r, const 
 ZF_TAJWEED_API int zf_tajweed_result_summary(const ZfTajweedResult *r, ZfTajweedSummary *out);
 /* The whole result as JSON (UTF-8, the reference scorer's verdict layout: "sites", "madd",
  * "qalqalah", "gemination", "summary", with class, check and token names spelled out), valid until
- * the result is freed. */
+ * the result is freed. API 3 adds "words" when the word check is enabled. */
 ZF_TAJWEED_API const char *zf_tajweed_result_json(ZfTajweedResult *r);
+
+/* API 3. The scored path: the tj3 tokens the sites and the words are scored on (the legal reading closest
+ * to the greedy decode, '|' left out), and each token's word. Return the token count. */
+ZF_TAJWEED_API int zf_tajweed_result_path(const ZfTajweedResult *r, const int **tokens, const int **word_of_token);
+
+/* API 3. One word of the scored path: score = the largest clipped fused LLR over every single-unit edit
+ * inside the word (a consonant, or the ikhfa nasal, swapped for each of the 28 consonants and the nasal; a
+ * vowel for each other vowel; any unit deleted, unless that empties the word; a vowel inserted after a
+ * consonant with no vowel after it), fused = a * LLR(log_probs) + (1 - a) * LLR(inter1_log_probs) with a
+ * by the edit's class, clipped to [-30, 30]. The first edit in that order wins ties. flagged = score >=
+ * threshold (note: at or above, where sites flag above). */
+typedef enum { ZF_TJ_EDIT_SUB = 0, ZF_TJ_EDIT_DEL = 1, ZF_TJ_EDIT_INS = 2 } ZfTajweedEdit;
+typedef struct {
+  int word;             /* 0-based word of the ayah */
+  int tok_lo, tok_hi;   /* the word's tokens on the scored path: [tok_lo, tok_hi) of zf_tajweed_result_path */
+  int has_score;        /* 0: the word has no alternative (one unit with nothing to swap), never flagged */
+  double score;         /* the best edit's fused LLR, clipped */
+  double threshold;     /* the word tau in force */
+  int flagged;
+  int cls;              /* ZF_TJ_* class of the best edit */
+  int edit;             /* ZF_TJ_EDIT_* */
+  int edit_pos;         /* path index of the unit edited (an insertion goes after it) */
+  int expected;         /* path token at edit_pos */
+  int alt;              /* the token put in (substitution, insertion); -1 for a deletion */
+  double llr_final;     /* the best edit's LLR on log_probs, clipped */
+  double llr_inter1;    /* on inter1_log_probs, clipped */
+} ZfTajweedWord;
+/* The words scored, in order (none when the word check is not enabled). Returns the count. */
+ZF_TAJWEED_API int zf_tajweed_result_words(const ZfTajweedResult *r, const ZfTajweedWord **words);
 
 #ifdef __cplusplus
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# ZipformerCore.xcframework from the pinned engine (engine/, the tajweedformer-sdk submodule; ZF_ENGINE_DIR
+# TajweedFormerCore.xcframework from the pinned engine (engine/, the tajweedformer-sdk submodule; ZF_ENGINE_DIR
 # overrides it): the exact engine, its ONNX-Runtime-free graph runner, the stream API and (2.0.0) the V4 tajweed
 # library with its streams (zf_tajweed.h, target zf_tajweed_engine) and the CoreML sidecar rebuild (zf/zfs.h,
 # zf/vfs.h) as one static library per platform,
@@ -29,26 +29,26 @@ build() { # name sdk system deployment
     -DCMAKE_ASM_COMPILER=$CC >/dev/null
   cmake --build "$B" --target zf_engine zf_ort_ops zf_rt zf_stream zf_tajweed_engine -j 8 >/dev/null
   mkdir -p "$OUT/$name"
-  libtool -static -o "$OUT/$name/libZipformerCore.a" "$B/engine/libzf_engine.a" \
+  libtool -static -o "$OUT/$name/libTajweedFormerCore.a" "$B/engine/libzf_engine.a" \
     "$B/accel/libzf_ort_ops.a" "$B/accel/libzf_rt.a" "$B/accel/libzf_stream.a" "$B/tajweed/libzf_tajweed_engine.a" 2>/dev/null
 }
 build ios iphoneos iOS 15.0
 build sim iphonesimulator iOS 15.0
 build mac macosx Darwin 12.0
 H=$OUT/Headers
-rm -rf "$H" && mkdir -p "$H/zf" "$H/ZipformerCore"
+rm -rf "$H" && mkdir -p "$H/zf" "$H/TajweedFormerCore"
 cp "$ENG"/accel/include/zf/stream.h "$ENG"/engine/include/zf/decode.h "$ENG"/engine/include/zf/fbank.h \
   "$ENG"/engine/include/zf/resample.h "$ENG"/engine/include/zf/zfs.h "$ENG"/engine/include/zf/vfs.h "$H/zf/"
 cp "$ENG"/tajweed/include/zf_tajweed.h "$H/"
-printf '#include "zf/stream.h"\n#include "zf/fbank.h"\n#include "zf/resample.h"\n#include "zf/zfs.h"\n#include "zf/vfs.h"\n#include "zf_tajweed.h"\n' > "$H/ZipformerCore.h"
+printf '#include "zf/stream.h"\n#include "zf/fbank.h"\n#include "zf/resample.h"\n#include "zf/zfs.h"\n#include "zf/vfs.h"\n#include "zf_tajweed.h"\n' > "$H/TajweedFormerCore.h"
 # the module map in its own folder: Xcode copies every static xcframework's headers into one
 # include/ directory, where a second top-level module.modulemap (COpus's) would collide
-printf 'module ZipformerCore {\n  header "../ZipformerCore.h"\n  export *\n}\n' > "$H/ZipformerCore/module.modulemap"
-rm -rf "$ROOT/ZipformerCore.xcframework"
+printf 'module TajweedFormerCore {\n  header "../TajweedFormerCore.h"\n  export *\n}\n' > "$H/TajweedFormerCore/module.modulemap"
+rm -rf "$ROOT/TajweedFormerCore.xcframework"
 xcodebuild -create-xcframework \
-  -library "$OUT/ios/libZipformerCore.a" -headers "$H" \
-  -library "$OUT/sim/libZipformerCore.a" -headers "$H" \
-  -library "$OUT/mac/libZipformerCore.a" -headers "$H" \
-  -output "$ROOT/ZipformerCore.xcframework" >/dev/null
-(cd "$ROOT" && rm -f ZipformerCore.xcframework.zip && zip -qry ZipformerCore.xcframework.zip ZipformerCore.xcframework)
-echo "$ROOT/ZipformerCore.xcframework ($(du -sh "$ROOT/ZipformerCore.xcframework" | cut -f1)); zip checksum $(swift package compute-checksum "$ROOT/ZipformerCore.xcframework.zip")"
+  -library "$OUT/ios/libTajweedFormerCore.a" -headers "$H" \
+  -library "$OUT/sim/libTajweedFormerCore.a" -headers "$H" \
+  -library "$OUT/mac/libTajweedFormerCore.a" -headers "$H" \
+  -output "$ROOT/TajweedFormerCore.xcframework" >/dev/null
+(cd "$ROOT" && rm -f TajweedFormerCore.xcframework.zip && zip -qry TajweedFormerCore.xcframework.zip TajweedFormerCore.xcframework)
+echo "$ROOT/TajweedFormerCore.xcframework ($(du -sh "$ROOT/TajweedFormerCore.xcframework" | cut -f1)); zip checksum $(swift package compute-checksum "$ROOT/TajweedFormerCore.xcframework.zip")"

@@ -1,6 +1,6 @@
 work/
 build/
-ZipformerCore.xcframework.zip
+TajweedFormerCore.xcframework.zip
 .build/
 TestAudio/
 *.zfw

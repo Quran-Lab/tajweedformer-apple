@@ -1,4 +1,0 @@
-module ZipformerCore {
-  header "../ZipformerCore.h"
-  export *
-}

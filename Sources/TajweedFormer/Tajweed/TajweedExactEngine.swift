@@ -1,5 +1,5 @@
 import Foundation
-import ZipformerCore
+import TajweedFormerCore
 
 /// The V4 exact engine (zf_tajweed.h streams over zf_stream, tajweedformer-sdk at the pinned commit): bit for bit
 /// what ONNX Runtime's ARM int8 reference gives on the same graph, every head of every chunk (the engine's V4

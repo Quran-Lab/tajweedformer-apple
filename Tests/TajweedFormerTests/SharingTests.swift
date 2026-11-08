@@ -374,8 +374,8 @@ final class SharingTests: XCTestCase {
                                                                  "input_sample_rate": 48_000, "input_route": AnyHashable(AudioRoute.current())])
         let decode = try XCTUnwrap(meta["decode"] as? [String: Any])
         XCTAssertEqual(Set(decode.keys), ["model_revision", "backend", "weights_sha256", "sdk_version"])
-        XCTAssertEqual(decode["backend"] as? String, "mock")
-        XCTAssertTrue(decode["model_revision"] is NSNull)
+        XCTAssertEqual(decode["backend"] as? String, "exact")
+        XCTAssertEqual(decode["model_revision"] as? String, "test-rev")
 
         let puts = Self.puts
         XCTAssertEqual(puts.map(\.path), ["/qlab-contributions/v1/\(item.id)/seg-00001.opus", "/qlab-contributions/v1/\(item.id)/seg-00002.opus"])

@@ -5,10 +5,10 @@
 #   scripts/opus/build_opus_xcframework.sh      writes build/opus/Opus.xcframework and its zip (OUT=dir elsewhere)
 #   OPUS_QEXT=1 ./build_opus_xcframework.sh     also compiles the Opus HD quality extension (default 0; not shipped)
 #
-# The SDK's `COpus` binary target is this zip, attached to the GitHub release libopus-1.6.1-1; its
+# The SDK's `COpus` binary target is this zip, attached to the GitHub release opus-1.6.1-2; its
 # SHA-256 is the SwiftPM checksum in Package.swift. The build is reproducible (no timestamps or
 # build paths in the archives, sorted plist and zip): any checkout, any directory, the same zip,
-# 7729c0e3e06d86956c2d3dc066a0e3863a84e86ea0fee618cbaf42f6b9cfd48d with Xcode 26.
+# d091db4aa9b73e02b68f1ac19f1b13c44f2d70d477d5cafd6e4217cdfecd3857 with Xcode 27.2.
 # shim/ holds copus_shim.c: Swift cannot call the variadic opus_encoder_ctl, so one-argument
 # wrappers are compiled into the same archives.
 #
@@ -79,9 +79,11 @@ lipo_to "$OUT/sim/libopus.a" "$SIM_A" "$SIM_X"
 lipo_to "$OUT/mac/libopus.a" "$MAC_A" "$MAC_X"
 
 H=$OUT/Headers
-rm -rf "$H" && mkdir -p "$H"
-cp "$SRC"/include/opus.h "$SRC"/include/opus_defines.h "$SRC"/include/opus_types.h "$HERE/shim/copus_shim.h" "$H/"
-printf 'module COpus {\n  header "opus.h"\n  header "copus_shim.h"\n  export *\n}\n' > "$H/module.modulemap"
+# The headers and the module map in their own folder, nothing loose in Headers/: Xcode copies every static
+# xcframework's headers into one include/ directory, where a second top-level module.modulemap collides.
+rm -rf "$H" && mkdir -p "$H/COpus"
+cp "$SRC"/include/opus.h "$SRC"/include/opus_defines.h "$SRC"/include/opus_types.h "$HERE/shim/copus_shim.h" "$H/COpus/"
+printf 'module COpus {\n  header "opus.h"\n  header "copus_shim.h"\n  export *\n}\n' > "$H/COpus/module.modulemap"
 XCF=$OUT/Opus.xcframework
 rm -rf "$XCF"
 xcodebuild -create-xcframework \
@@ -89,6 +91,8 @@ xcodebuild -create-xcframework \
   -library "$OUT/sim/libopus.a" -headers "$H" \
   -library "$OUT/mac/libopus.a" -headers "$H" \
   -output "$XCF" >/dev/null
+loose=$(find "$XCF"/*/Headers -mindepth 1 -maxdepth 1 ! -name COpus)
+[ -z "$loose" ] || { echo "loose in Headers/: $loose" >&2; exit 1; }
 # xcodebuild lists the libraries in a random order: sort them so the plist (and the zip) are stable
 python3 - "$XCF/Info.plist" <<'PY'
 import plistlib, sys

@@ -1,5 +1,5 @@
 import Foundation
-import ZipformerCore
+import TajweedFormerCore
 
 // SDK 2.0.0's three layers, one shape across Android, Apple, Web and Native: the raw heads, the
 // decoded layer (no known text needed), and the tajweed layer (`TajweedResult`, a known surah:ayah).

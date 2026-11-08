@@ -85,8 +85,11 @@ typedef struct {
   size_t struct_size;
   ZfChunkCallback on_chunk; /* optional */
   void *user;               /* passed to on_chunk */
-  int threads;       /* engine threads; 0 means the fast cores. A live stream on an iPhone does best
-                        with every core (6): cold cores make the efficiency cores worth having. */
+  int threads;       /* engine threads; 0 means the fast cores: on Android the phone's fast cores from
+                        its topology (sysfs, at most 4), whatever cpuset the app is in when the stream
+                        is made (the team then follows the cpuset); elsewhere the fast cores the
+                        process may use. A live stream on an iPhone does best with every core (6):
+                        cold cores make the efficiency cores worth having. */
   int prefetch_lead; /* frames before the window completes at which the front end prefetches;
                         1 (10 ms) measured best; 0 disables the prefetch */
   int complete_runs; /* 1: hold each phoneme until its run ends, so its peak confidence is final
@@ -107,14 +110,41 @@ typedef struct {
                         `model_path` (MODEL.c160.onnx for MODEL.onnx; tools/zfchunk.py); 0 is the
                         model's own. Anything else fails zf_stream_create. A new length is a new
                         stream. */
+  /* appended after chunk_ms */
+  int no_pin;        /* 0: the stream's thread and its pool's workers are pinned one to a core, best
+                        for one stream on a phone. 1: no pinning, for desktops and servers (pinned,
+                        every stream's calling thread shared the same fastest core). The default
+                        (zf_stream_default_options, and a caller whose header predates the field)
+                        depends on the platform: 0 on Android and iOS, 1 on Windows, Linux, macOS
+                        and WebAssembly (ZF_NO_PIN_DEFAULT). Setting it overrides either way.
+                        Changes timing only, never a bit. */
 } ZfStreamOptions;
 /* The header declares `batch` and zf_stream_flush */
 #define ZF_STREAM_HAS_BATCH 1
 /* The header declares ZfEvidence, `on_evidence`, `chunk_ms` and zf_stream_model_info_sized */
 #define ZF_STREAM_HAS_EVIDENCE 1
+/* The header declares `no_pin` */
+#define ZF_STREAM_HAS_NO_PIN 1
+/* The pinning default by platform: phones pin (the pool was tuned for big.LITTLE cores, one stream per
+ * app), every other build does not (desktop, server, WebAssembly: a pinned caller thread shares one core
+ * with everything else the machine runs; on a busy Windows host a pinned stream ran 18 ms a chunk
+ * unpinned and 102 to 631 ms pinned, and the server tier's 8 streams 20.4x against 3.1x real time).
+ * Pinning never changes a bit, only timing. */
+#if defined(__ANDROID__)
+#define ZF_NO_PIN_DEFAULT 0
+#elif defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#define ZF_NO_PIN_DEFAULT 0 /* iOS, iPadOS (and the other Apple device OSes) */
+#else
+#define ZF_NO_PIN_DEFAULT 1 /* macOS */
+#endif
+#else
+#define ZF_NO_PIN_DEFAULT 1 /* Windows, Linux, WebAssembly */
+#endif
 
 /* The defaults above: no callbacks, threads 0, prefetch_lead 1, complete_runs 0, sample_rate 0,
- * batch 1, chunk_ms 0. */
+ * batch 1, chunk_ms 0, no_pin ZF_NO_PIN_DEFAULT (0 on Android and iOS, 1 elsewhere). */
 ZfStreamOptions zf_stream_default_options(void);
 
 /* `model_path` is the engine graph (model_engine2.onnx); its .zfg, .zfg.bin and the .zfw weight
@@ -230,15 +260,31 @@ const float *zf_stream_last_log_probs(const ZfStream *s, int *frames, int *vocab
 
 /* The graph's other outputs, beyond log_probs and the carried states: V4's tajweed heads
  * (inter1_log_probs, attr_tafkheem, attr_ghunna, attr_qalqalah, attr_face, gem, timing_log_probs,
- * id_log_probs, boundary, conf, inter4_log_probs; README_heads.txt), none for v3.x. Every Run asks
- * for all of them. zf_stream_last_output gives the last chunk's values of one by name, `rows`
- * frames of `cols` values row major ([1, T, C] is T rows of C, [1, T] is T rows of 1), valid until
+ * id_log_probs, boundary, conf, inter4_log_probs; README_heads.txt), none for v3.x. By default
+ * every Run asks for all of them (zf_stream_select_outputs below narrows that).
+ * zf_stream_last_output gives the last chunk's values of one by name, `rows` frames of `cols` values row major ([1, T, C] is T rows of C, [1, T] is T rows of 1), valid until
  * the next push and already filled when on_chunk is called; NULL for an unknown name or before the
  * first chunk. */
 #define ZF_STREAM_HAS_OUTPUTS 1
+/* The engine threads taking part in the stream's regions now (the calling thread and the active
+ * workers; the team follows the process's cpuset, at most the threads asked for). Diagnostics. */
+int zf_stream_threads_active(const ZfStream *s);
+
 int zf_stream_output_count(const ZfStream *s);
 const char *zf_stream_output_name(const ZfStream *s, int index);
 const float *zf_stream_last_output(const ZfStream *s, const char *name, int *rows, int *cols);
+
+/* Which of those outputs the next chunks compute. By default every one (the 1.x behaviour, and what
+ * the conformance sets check). `names`, `n`: compute exactly these (n = 0: none of them, only
+ * log_probs and the states); n < 0: every one again. The graph runner then skips each node that
+ * feeds none of the asked-for outputs, so an output nobody asked for costs nothing and asking for
+ * one costs exactly its own nodes; the outputs that are computed are the same bits either way.
+ * zf_stream_last_output returns NULL for an output the last chunk did not compute. Returns 0, or -1
+ * for an unknown name or while a batch has chunks queued (zf_stream_flush first). */
+#define ZF_STREAM_HAS_SELECT_OUTPUTS 1
+int zf_stream_select_outputs(ZfStream *s, const char *const *names, int n);
+/* 1 when `name` is computed under the current selection. */
+int zf_stream_output_selected(const ZfStream *s, const char *name);
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,7 @@
 name: CI
 
 # swift test on macOS, and package builds for iOS, the iOS Simulator and macOS.
-# ZipformerCore.xcframework is rebuilt from the engine submodule (Quran-Lab/tajweedformer-engine) and must be
+# TajweedFormerCore.xcframework is rebuilt from the engine submodule (Quran-Lab/tajweedformer-engine) and must be
 # what the package links. The model-dependent tests (V4 through the exact engine, every output of every
 # chunk; CoreML parity) need the model, which is gated on Hugging Face: they run when the release
 # `test-fixtures-v4` of this repository or an HF_TOKEN secret provides it, and skip otherwise.
@@ -23,7 +23,7 @@ env:
 
 jobs:
   xcframework:
-    name: ZipformerCore.xcframework from the engine submodule
+    name: TajweedFormerCore.xcframework from the engine submodule
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -38,18 +38,18 @@ jobs:
         run: |
           for s in ios-arm64 ios-arm64-simulator macos-arm64; do
             for h in zf_tajweed.h zf/stream.h zf/decode.h zf/fbank.h zf/resample.h; do
-              git show "HEAD:ZipformerCore.xcframework/$s/Headers/$h" > "$RUNNER_TEMP/committed.h"
-              if ! cmp "$RUNNER_TEMP/committed.h" "ZipformerCore.xcframework/$s/Headers/$h"; then
-                ls -la "ZipformerCore.xcframework/$s/Headers" || true
-                diff "$RUNNER_TEMP/committed.h" "ZipformerCore.xcframework/$s/Headers/$h" | head -20 || true
+              git show "HEAD:TajweedFormerCore.xcframework/$s/Headers/$h" > "$RUNNER_TEMP/committed.h"
+              if ! cmp "$RUNNER_TEMP/committed.h" "TajweedFormerCore.xcframework/$s/Headers/$h"; then
+                ls -la "TajweedFormerCore.xcframework/$s/Headers" || true
+                diff "$RUNNER_TEMP/committed.h" "TajweedFormerCore.xcframework/$s/Headers/$h" | head -20 || true
                 echo "::error::committed $s/$h differs from the engine's"; exit 1
               fi
             done
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: ZipformerCore-xcframework
-          path: ZipformerCore.xcframework
+          name: TajweedFormerCore-xcframework
+          path: TajweedFormerCore.xcframework
       - uses: actions/upload-artifact@v4
         with:
           name: engine-conformance
@@ -66,10 +66,10 @@ jobs:
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && swift --version
       - uses: actions/download-artifact@v4
         with:
-          name: ZipformerCore-xcframework
+          name: TajweedFormerCore-xcframework
           path: ${{ runner.temp }}/xcf
       - name: Use it
-        run: rm -rf ZipformerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" ZipformerCore.xcframework
+        run: rm -rf TajweedFormerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" TajweedFormerCore.xcframework
       - uses: actions/download-artifact@v4
         with:
           name: engine-conformance
@@ -107,10 +107,10 @@ jobs:
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/download-artifact@v4
         with:
-          name: ZipformerCore-xcframework
+          name: TajweedFormerCore-xcframework
           path: ${{ runner.temp }}/xcf
       - name: Use it
-        run: rm -rf ZipformerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" ZipformerCore.xcframework
+        run: rm -rf TajweedFormerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" TajweedFormerCore.xcframework
       - name: GitHub token for the COpus release asset
         run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
       - name: Package, iOS device

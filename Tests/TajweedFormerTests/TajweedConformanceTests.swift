@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-import ZipformerCore
+import TajweedFormerCore
 @testable import TajweedFormer
 
 /// The V4 exact engine through the SDK's own stream API (TajweedRecognizer, backend .exact), bit for bit against the
