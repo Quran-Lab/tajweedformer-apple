@@ -1,0 +1,745 @@
+{
+  "about": "One shared session as every SDK must mux it (PLATFORM_CLIENT.md section 10, the Swift reference OggOpus.swift). Packets are not real Opus: packet i (0-based) has length 3 + (i*37 % 290) and byte j = (i*31 + j*7 + 1) & 255. 20 ms each, 3750 packets (75 s), pre-skip 312, input rate 44100, serial 0x51a9c0de, vendor \"QuranLab SDK 2.0.0 vector\", final granule pre-skip + 3750*960 - 500. Feed the packets to the SDK muxer (a test seam in place of the encoder) and compare every segment file byte for byte.",
+  "input": {
+    "packets": 3750,
+    "frame_ms": 20,
+    "pre_skip": 312,
+    "input_rate": 44100,
+    "serial": 1370079454,
+    "vendor": "QuranLab SDK 2.0.0 vector",
+    "final_granule": 3599812,
+    "plan_seconds": [
+      10,
+      20,
+      40,
+      60
+    ]
+  },
+  "segments": [
+    {
+      "n": 1,
+      "file": "seg-00001.opus",
+      "bytes": 74481,
+      "sha256": "9bc9f892bf3651f5b33bd2d8f234da499b6b4ce8d5396ebb34883014f44c5713",
+      "pages": [
+        {
+          "seq": 0,
+          "granule": 0,
+          "flags": 2,
+          "packets": 1,
+          "crc": 825612918,
+          "offset": 0,
+          "length": 47
+        },
+        {
+          "seq": 1,
+          "granule": 0,
+          "flags": 0,
+          "packets": 1,
+          "crc": 2191100498,
+          "offset": 47,
+          "length": 69
+        },
+        {
+          "seq": 2,
+          "granule": 48000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3811857606,
+          "offset": 116,
+          "length": 7279
+        },
+        {
+          "seq": 3,
+          "granule": 96000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2570559491,
+          "offset": 7395,
+          "length": 7558
+        },
+        {
+          "seq": 4,
+          "granule": 144000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1594383474,
+          "offset": 14953,
+          "length": 7549
+        },
+        {
+          "seq": 5,
+          "granule": 192000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 4198690249,
+          "offset": 22502,
+          "length": 7248
+        },
+        {
+          "seq": 6,
+          "granule": 240000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3385325126,
+          "offset": 29750,
+          "length": 7528
+        },
+        {
+          "seq": 7,
+          "granule": 288000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1697379001,
+          "offset": 37278,
+          "length": 7229
+        },
+        {
+          "seq": 8,
+          "granule": 336000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1392153299,
+          "offset": 44507,
+          "length": 7509
+        },
+        {
+          "seq": 9,
+          "granule": 384000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3948861483,
+          "offset": 52016,
+          "length": 7789
+        },
+        {
+          "seq": 10,
+          "granule": 432000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1593899918,
+          "offset": 59805,
+          "length": 7198
+        },
+        {
+          "seq": 11,
+          "granule": 480000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1289027026,
+          "offset": 67003,
+          "length": 7478
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "file": "seg-00002.opus",
+      "bytes": 149212,
+      "sha256": "f8214e4e671c74b607ad0c5e0666b31add6dce112dad718facf5db07fe35f64d",
+      "pages": [
+        {
+          "seq": 12,
+          "granule": 528000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 491839676,
+          "offset": 0,
+          "length": 7469
+        },
+        {
+          "seq": 13,
+          "granule": 576000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 179669213,
+          "offset": 7469,
+          "length": 7168
+        },
+        {
+          "seq": 14,
+          "granule": 624000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1479315651,
+          "offset": 14637,
+          "length": 7739
+        },
+        {
+          "seq": 15,
+          "granule": 672000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 801396913,
+          "offset": 22376,
+          "length": 7439
+        },
+        {
+          "seq": 16,
+          "granule": 720000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3810133507,
+          "offset": 29815,
+          "length": 7428
+        },
+        {
+          "seq": 17,
+          "granule": 768000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3401428298,
+          "offset": 37243,
+          "length": 7709
+        },
+        {
+          "seq": 18,
+          "granule": 816000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3184834249,
+          "offset": 44952,
+          "length": 7118
+        },
+        {
+          "seq": 19,
+          "granule": 864000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1983763391,
+          "offset": 52070,
+          "length": 7398
+        },
+        {
+          "seq": 20,
+          "granule": 912000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 275450211,
+          "offset": 59468,
+          "length": 7680
+        },
+        {
+          "seq": 21,
+          "granule": 960000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3081736402,
+          "offset": 67148,
+          "length": 7378
+        },
+        {
+          "seq": 22,
+          "granule": 1008000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 663126514,
+          "offset": 74526,
+          "length": 7658
+        },
+        {
+          "seq": 23,
+          "granule": 1056000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1479331201,
+          "offset": 82184,
+          "length": 7359
+        },
+        {
+          "seq": 24,
+          "granule": 1104000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2195180755,
+          "offset": 89543,
+          "length": 7348
+        },
+        {
+          "seq": 25,
+          "granule": 1152000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2789943977,
+          "offset": 96891,
+          "length": 7629
+        },
+        {
+          "seq": 26,
+          "granule": 1200000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1517065506,
+          "offset": 104520,
+          "length": 7329
+        },
+        {
+          "seq": 27,
+          "granule": 1248000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2095913199,
+          "offset": 111849,
+          "length": 7608
+        },
+        {
+          "seq": 28,
+          "granule": 1296000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3457944055,
+          "offset": 119457,
+          "length": 7599
+        },
+        {
+          "seq": 29,
+          "granule": 1344000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 440804012,
+          "offset": 127056,
+          "length": 7298
+        },
+        {
+          "seq": 30,
+          "granule": 1392000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1226525897,
+          "offset": 134354,
+          "length": 7579
+        },
+        {
+          "seq": 31,
+          "granule": 1440000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 4271884018,
+          "offset": 141933,
+          "length": 7279
+        }
+      ]
+    },
+    {
+      "n": 3,
+      "file": "seg-00003.opus",
+      "bytes": 298021,
+      "sha256": "fd2b130fa43e8a28f5c5c86c509d06dd8e05d8f48a2b4900dc06d6b89015dbc1",
+      "pages": [
+        {
+          "seq": 32,
+          "granule": 1488000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1334471198,
+          "offset": 0,
+          "length": 7558
+        },
+        {
+          "seq": 33,
+          "granule": 1536000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 4199768114,
+          "offset": 7558,
+          "length": 7549
+        },
+        {
+          "seq": 34,
+          "granule": 1584000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2033328495,
+          "offset": 15107,
+          "length": 7248
+        },
+        {
+          "seq": 35,
+          "granule": 1632000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3219241723,
+          "offset": 22355,
+          "length": 7528
+        },
+        {
+          "seq": 36,
+          "granule": 1680000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3514711792,
+          "offset": 29883,
+          "length": 7229
+        },
+        {
+          "seq": 37,
+          "granule": 1728000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3412259304,
+          "offset": 37112,
+          "length": 7509
+        },
+        {
+          "seq": 38,
+          "granule": 1776000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 416741603,
+          "offset": 44621,
+          "length": 7789
+        },
+        {
+          "seq": 39,
+          "granule": 1824000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1393370853,
+          "offset": 52410,
+          "length": 7198
+        },
+        {
+          "seq": 40,
+          "granule": 1872000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3424733414,
+          "offset": 59608,
+          "length": 7478
+        },
+        {
+          "seq": 41,
+          "granule": 1920000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3016464701,
+          "offset": 67086,
+          "length": 7469
+        },
+        {
+          "seq": 42,
+          "granule": 1968000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2617885396,
+          "offset": 74555,
+          "length": 7168
+        },
+        {
+          "seq": 43,
+          "granule": 2016000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 4212053433,
+          "offset": 81723,
+          "length": 7739
+        },
+        {
+          "seq": 44,
+          "granule": 2064000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2912430368,
+          "offset": 89462,
+          "length": 7439
+        },
+        {
+          "seq": 45,
+          "granule": 2112000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 974247016,
+          "offset": 96901,
+          "length": 7428
+        },
+        {
+          "seq": 46,
+          "granule": 2160000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3894842022,
+          "offset": 104329,
+          "length": 7709
+        },
+        {
+          "seq": 47,
+          "granule": 2208000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3122467872,
+          "offset": 112038,
+          "length": 7118
+        },
+        {
+          "seq": 48,
+          "granule": 2256000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2148873930,
+          "offset": 119156,
+          "length": 7398
+        },
+        {
+          "seq": 49,
+          "granule": 2304000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2704821784,
+          "offset": 126554,
+          "length": 7680
+        },
+        {
+          "seq": 50,
+          "granule": 2352000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1509732266,
+          "offset": 134234,
+          "length": 7378
+        },
+        {
+          "seq": 51,
+          "granule": 2400000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2007787216,
+          "offset": 141612,
+          "length": 7658
+        },
+        {
+          "seq": 52,
+          "granule": 2448000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1531290055,
+          "offset": 149270,
+          "length": 7359
+        },
+        {
+          "seq": 53,
+          "granule": 2496000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3135332861,
+          "offset": 156629,
+          "length": 7348
+        },
+        {
+          "seq": 54,
+          "granule": 2544000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2811641424,
+          "offset": 163977,
+          "length": 7629
+        },
+        {
+          "seq": 55,
+          "granule": 2592000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 516866216,
+          "offset": 171606,
+          "length": 7329
+        },
+        {
+          "seq": 56,
+          "granule": 2640000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2583626599,
+          "offset": 178935,
+          "length": 7608
+        },
+        {
+          "seq": 57,
+          "granule": 2688000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1041948767,
+          "offset": 186543,
+          "length": 7599
+        },
+        {
+          "seq": 58,
+          "granule": 2736000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 196090971,
+          "offset": 194142,
+          "length": 7298
+        },
+        {
+          "seq": 59,
+          "granule": 2784000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1614892364,
+          "offset": 201440,
+          "length": 7579
+        },
+        {
+          "seq": 60,
+          "granule": 2832000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2163350235,
+          "offset": 209019,
+          "length": 7279
+        },
+        {
+          "seq": 61,
+          "granule": 2880000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 237844360,
+          "offset": 216298,
+          "length": 7558
+        },
+        {
+          "seq": 62,
+          "granule": 2928000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1250635796,
+          "offset": 223856,
+          "length": 7549
+        },
+        {
+          "seq": 63,
+          "granule": 2976000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2393147211,
+          "offset": 231405,
+          "length": 7248
+        },
+        {
+          "seq": 64,
+          "granule": 3024000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3194363744,
+          "offset": 238653,
+          "length": 7528
+        },
+        {
+          "seq": 65,
+          "granule": 3072000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3376278646,
+          "offset": 246181,
+          "length": 7229
+        },
+        {
+          "seq": 66,
+          "granule": 3120000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1337118921,
+          "offset": 253410,
+          "length": 7509
+        },
+        {
+          "seq": 67,
+          "granule": 3168000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 622249236,
+          "offset": 260919,
+          "length": 7789
+        },
+        {
+          "seq": 68,
+          "granule": 3216000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 3953498540,
+          "offset": 268708,
+          "length": 7198
+        },
+        {
+          "seq": 69,
+          "granule": 3264000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1765141744,
+          "offset": 275906,
+          "length": 7478
+        },
+        {
+          "seq": 70,
+          "granule": 3312000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1489044722,
+          "offset": 283384,
+          "length": 7469
+        },
+        {
+          "seq": 71,
+          "granule": 3360000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2222373487,
+          "offset": 290853,
+          "length": 7168
+        }
+      ]
+    },
+    {
+      "n": 4,
+      "file": "seg-00004.opus",
+      "bytes": 37433,
+      "sha256": "edce7dd62fa9cacb3379e32ee536903899a7b444dd61675d1befba9056ea69b2",
+      "pages": [
+        {
+          "seq": 72,
+          "granule": 3408000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2137068861,
+          "offset": 0,
+          "length": 7739
+        },
+        {
+          "seq": 73,
+          "granule": 3456000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1921336599,
+          "offset": 7739,
+          "length": 7439
+        },
+        {
+          "seq": 74,
+          "granule": 3504000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 2882524661,
+          "offset": 15178,
+          "length": 7428
+        },
+        {
+          "seq": 75,
+          "granule": 3552000,
+          "flags": 0,
+          "packets": 50,
+          "crc": 1595244672,
+          "offset": 22606,
+          "length": 7709
+        },
+        {
+          "seq": 76,
+          "granule": 3599812,
+          "flags": 4,
+          "packets": 50,
+          "crc": 1085134946,
+          "offset": 30315,
+          "length": 7118
+        }
+      ]
+    }
+  ]
+}

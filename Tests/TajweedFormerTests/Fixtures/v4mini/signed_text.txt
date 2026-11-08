@@ -1,0 +1,41 @@
+quranlab-model-manifest 3
+model_id v4.0
+family tajweedformer
+revision v4.0-test.1
+min_sdk_version 2.0.0
+engine_format 3
+coreml_format 9
+tokens tokens.txt
+tokens_sha256 3592528071e35233d6378f5129b691b591b49ca27cfb41e94381ef260c875336
+default_context c16_l64
+contexts c16_l64,c24_l72
+file 9b22d53dd094b0699df2f76a283653f0643a70314ba3bd034f1d6eddabd1bcb2 39 c16_l64/frames.zfw.gz * * c16_l64 frames required gzip 7331b4fa52944f350ee0d4b865f1ac3a927508a8650bef137d80048408d07a90 1400 c16_l64/frames.zfw
+file bc2875ad96999d49a718bf283953a1fad1e5cbd7f1548f335ae7acda0a9bc1a5 35 c16_l64/model_engine2.onnx.gz native * c16_l64 ort-graph optional gzip 375b88e07e721ac6c91933f041344b2f3394b5b8c135562665bf60ed3a23ae82 300 c16_l64/model_engine2.onnx
+file 6680d69e8496ed32489c0a657c77a687a3386aebe1c3b4eb39f43a4e7b97a53c 44 c16_l64/model_engine2.onnx.zfg.bin.gz * * c16_l64 graph-data required gzip e5bc6764b748d39a83556244fd377b155edfee8a753534d008de3dcb18bdb836 2100 c16_l64/model_engine2.onnx.zfg.bin
+file 07f3658acfce47879fe33e1cfb9564b91ed92f8c594890decc7c347c54a21130 78 c16_l64/model_engine2.onnx.zfg.gz * * c16_l64 graph required gzip a7dd05c9dd25dd4e5ab45c0111609cd3553d8200a529d664679b9329701c56e2 1100 c16_l64/model_engine2.onnx.zfg
+file 641f89b4f2d04c0775d0ac6e93df50c3e410e25c9d2e8f04a1c21f8e3a845269 39 c24_l72/frames.zfw.gz * * c24_l72 frames required gzip b29ed4ae3bf01bf25a656f748d38c4693f09488f2732e1fb721116521b91042c 1400 c24_l72/frames.zfw
+file bc2875ad96999d49a718bf283953a1fad1e5cbd7f1548f335ae7acda0a9bc1a5 35 c24_l72/model_engine2.onnx.gz native * c24_l72 ort-graph optional gzip 375b88e07e721ac6c91933f041344b2f3394b5b8c135562665bf60ed3a23ae82 300 c24_l72/model_engine2.onnx
+file 00e8cf9aa4b557e64e6e84ebe252c110bc14f135d5d2eca3e58ec88bba8c982a 44 c24_l72/model_engine2.onnx.zfg.bin.gz * * c24_l72 graph-data required gzip 007c28a030096d3e721d3539fabe6b3c2b2c3a76d7e874b64b65945d3315dc83 2100 c24_l72/model_engine2.onnx.zfg.bin
+file 3f9085066066d5a0bf46753f45a7a208e7be487420693a8686c98c31d13482da 78 c24_l72/model_engine2.onnx.zfg.gz * * c24_l72 graph required gzip a96c55a97fac64014001981138c1c11701d15695b2a1920f54376ab63a871093 1100 c24_l72/model_engine2.onnx.zfg
+file 47cd4e73175cdb357bfc6945e55866202615e0211a0c010542b0f24d14d05a60 1001 calibration.json.gz * * * calibration required gzip a379b9e1a082d1862c6a5d1f54761d7e3160bba4b977c165920b6a35ffbe1388 6869 calibration.json
+file 23054b459413514bc2fd0077cc1423335f458dd0e56d6f19223858f9c5bdd23f 45 coreml-compact/engine.zfs.gz apple * * correction-compact optional gzip 92c227639cd49631f81e9fe172a3cd6763f6300f5180e3f772bfd1a1dbf544ad 25 coreml-compact/engine.zfs
+file 902026d0648b0c2105c08941f9e025c5060cf53806eb9dd91438f0186b484a4d 9 coreml-compact/tajweedformer_v4.mlmodelc/coremldata.bin apple * * coreml-compact optional identity - - -
+file 8dbe7ed02909b3a9ea92f2b63bfc010b00b83ea829df7f585ecfff132eeffa5b 220 coreml-compact/tajweedformer_v4.mlmodelc/model.mil apple * * coreml-compact optional identity - - -
+file 8f6a24b907f3c41dfcbf3a22e6cb7eedce18df4cc0bed78f228a059711aff1bc 194 coreml-compact/tajweedformer_v4.mlmodelc/weights/weight.bin.gz apple * * coreml-compact optional gzip bba69f0fa41cd4a10b49a73238ad5b34ea8911a54731a11847777167aae1b51a 5120 coreml-compact/tajweedformer_v4.mlmodelc/weights/weight.bin
+file 776cdc6041789097cc11c9efe4a9fb3145533d6e7a8e0362ee9827c759d6860c 112 coreml/c16_l64/keeps.bin apple * c16_l64 coreml-keeps optional identity - - -
+file 9091ae4dbf2c31190139093428e00045181430fd70eda1a382b22025cf33086d 112 coreml/c24_l72/keeps.bin apple * c24_l72 coreml-keeps optional identity - - -
+file ea6646096b71e3f1476ba339779268498be28d8430350b8079753d790409b32a 38 coreml/engine.zfs.gz apple * * correction optional gzip d3522fe37b2430e06d3199236ae93c32fcd2aa761a50b2a20790447d54d476ce 18 coreml/engine.zfs
+file df02b858f5b195c015934b95506e40bde657f8f18a68234b85548f4b9e19b7c9 11 coreml/tajweedformer_v4.mlmodelc/coremldata.bin apple * * coreml optional identity - - -
+file 89bc619717ab42cc4913faad4625bcd1fb89e136f4afcfd9cc749f021612416b 140 coreml/tajweedformer_v4.mlmodelc/model.mil apple * * coreml optional identity - - -
+file 29e94705dc216e56b3c583f7cc53692bbb233b676ce53b933dbc388a4bf0cc21 384 coreml/tajweedformer_v4.mlmodelc/weights/weight.bin.gz apple * * coreml optional gzip 346a578a87cffc251ae7b0fe9ed08607c3537b691cfe7f521f6ad7d5af015d90 10240 coreml/tajweedformer_v4.mlmodelc/weights/weight.bin
+file 5dedadde23b36e5f67298828ceec16b097ec503b711c7c0cc9c4af97ccd2c649 54 expected_tj3.zfx.gz * * * expected required gzip 5ed70003e8886e6d7c1ad222f27e14131762bce24e9e78f2bc4e5747eca24c1f 1000 expected_tj3.zfx
+file 27a097abf84f3897bb1f58286b77b188963d067cae2800a0ab397681b8284cfa 48 frontend.zfw.gz * * * frontend required gzip 683ad0cb577200705d824c5688277fdef4bf4e487c0bcdb490f4849ba9d7849f 950 frontend.zfw
+file 6d9545edabb3847bc3c82249902877ed5e98ba10b0e79efeb26f1ec5a30c3dd5 420 layers.zfw.gz * * * weights required gzip a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654 16384 layers.zfw
+file 5733899bae21d3bb1af02f338e261068aeff89e6118c4e0f6a321ed638a3427a 27 npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.tflite.gz android tensor_g4 c16_l64 npu-model optional gzip 663a8aa50c77ac4bb7c0a7abd69547ce22291ad310c58597cf4b9351e0d2ba73 300 npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.tflite
+file 0859eb5814c4bdfd648dc24af8563de467242d585442bc9f3310911ac8098a82 3200 selftest/Husary_001001.s16 * * * selftest optional identity - - -
+file 2825a61655de9ec5f1da6c7e72445478681ea0ddfaee11f6c5fa61b57d53d053 3200 selftest/Husary_112001.s16 * * * selftest optional identity - - -
+file 922feb0cb16ce4e9f428d3fcc23cbfe95822a571e293ff258129deb2a5aa62ee 3200 selftest/Husary_112001_planted.s16 * * * selftest optional identity - - -
+file b45253927a1d7fcd9e3b01547ff4deec7139e506898727ff49c77573eb217f74 318 selftest/expected_c16_l64.json.gz * * c16_l64 selftest optional gzip 648e4391bfce8dc6bcf4f02fd31a0e26010703541304900eb35eded514f4baa4 781 selftest/expected_c16_l64.json
+file b66d8ff4cd268e91a396e3e35b3c30f36d255e0e7546bcb6904c16d4e9abdb92 318 selftest/expected_c24_l72.json.gz * * c24_l72 selftest optional gzip a647d43bf53bea1fe5cd26ec4053cd16b590760af3f54675695ce305cdf291e0 781 selftest/expected_c24_l72.json
+file 212cea57cf36b185976e1dee310de491e016076d672600c4cf2b4d3f18b92c04 811 selftest/selftest.json * * * selftest optional identity - - -
+file 3592528071e35233d6378f5129b691b591b49ca27cfb41e94381ef260c875336 248 tokens.txt * * * tokens required identity - - -

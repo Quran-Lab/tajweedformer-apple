@@ -1,0 +1,355 @@
+{
+ "checkpoint_sha256": "fixture",
+ "classes": [
+  "vowel_sub",
+  "vowel_del",
+  "vowel_ins",
+  "short_to_long",
+  "long_to_short",
+  "cons_sub",
+  "cons_del",
+  "insertion"
+ ],
+ "contexts": {
+  "c16_l64": {
+   "backend_overrides": {
+    "fp32": {
+     "sites": {
+      "cons_sub": {
+       "thresholds": {
+        "balanced": 2.5,
+        "sensitive": 2.0,
+        "strict": 3.0,
+        "very_sensitive": 1.0
+       }
+      }
+     }
+    }
+   },
+   "fusion": {
+    "a": {
+     "cons_del": 0.5,
+     "cons_sub": 0.5,
+     "default": 0.8
+    },
+    "heads": [
+     "log_probs",
+     "inter1_log_probs"
+    ]
+   },
+   "gemination": {
+    "status": "validated"
+   },
+   "ghunna": {
+    "status": "off"
+   },
+   "madd": {
+    "cuts": {
+     "fixed2": {
+      "2|4": 8.25,
+      "4|6": 19.2
+     },
+     "lazim": {
+      "status": "off"
+     }
+    },
+    "min_short_vowels": 3,
+    "preset_cuts": {
+     "balanced": {},
+     "sensitive": {},
+     "strict": {},
+     "very_sensitive": {}
+    },
+    "source": "fixture",
+    "status": "validated",
+    "unit": "median_short_vowel_segment"
+   },
+   "qalqalah": {
+    "preset_tau": {
+     "balanced": 0.2556,
+     "sensitive": 0.3,
+     "strict": 0.15,
+     "very_sensitive": 0.4
+    },
+    "source": "fixture",
+    "status": "experimental",
+    "tau": 0.2556
+   },
+   "sites": {
+    "cons_del": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "experimental",
+     "thresholds": {
+      "balanced": 2.5,
+      "sensitive": 2.0,
+      "strict": 3.0,
+      "very_sensitive": 1.5
+     }
+    },
+    "cons_sub": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 2.25,
+      "sensitive": 1.75,
+      "strict": 2.75,
+      "very_sensitive": 1.25
+     }
+    },
+    "insertion": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "off",
+     "thresholds": {
+      "balanced": 2.75,
+      "sensitive": 2.25,
+      "strict": 3.25,
+      "very_sensitive": 1.75
+     }
+    },
+    "long_to_short": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 2.0,
+      "sensitive": 1.5,
+      "strict": 2.5,
+      "very_sensitive": 1.0
+     }
+    },
+    "short_to_long": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 1.75,
+      "sensitive": 1.25,
+      "strict": 2.25,
+      "very_sensitive": 0.75
+     }
+    },
+    "vowel_del": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 1.25,
+      "sensitive": 0.75,
+      "strict": 1.75,
+      "very_sensitive": 0.25
+     }
+    },
+    "vowel_ins": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "experimental",
+     "thresholds": {
+      "balanced": 1.5,
+      "sensitive": 1.0,
+      "strict": 2.0,
+      "very_sensitive": 0.5
+     }
+    },
+    "vowel_sub": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 1.0,
+      "sensitive": 0.5,
+      "strict": 1.5,
+      "very_sensitive": 0.0
+     }
+    }
+   },
+   "tafkheem": {
+    "status": "off"
+   }
+  },
+  "c24_l72": {
+   "fusion": {
+    "a": {
+     "cons_del": 0.5,
+     "cons_sub": 0.5,
+     "default": 0.8
+    },
+    "heads": [
+     "log_probs",
+     "inter1_log_probs"
+    ]
+   },
+   "gemination": {
+    "status": "validated"
+   },
+   "ghunna": {
+    "status": "off"
+   },
+   "madd": {
+    "cuts": {
+     "fixed2": {
+      "2|4": 8.25,
+      "4|6": 19.2
+     },
+     "lazim": {
+      "status": "off"
+     }
+    },
+    "min_short_vowels": 3,
+    "preset_cuts": {
+     "balanced": {},
+     "sensitive": {},
+     "strict": {},
+     "very_sensitive": {}
+    },
+    "source": "fixture",
+    "status": "validated",
+    "unit": "median_short_vowel_segment"
+   },
+   "qalqalah": {
+    "preset_tau": {
+     "balanced": 0.2556,
+     "sensitive": 0.3,
+     "strict": 0.15,
+     "very_sensitive": 0.4
+    },
+    "source": "fixture",
+    "status": "experimental",
+    "tau": 0.2556
+   },
+   "sites": {
+    "cons_del": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "experimental",
+     "thresholds": {
+      "balanced": 2.6,
+      "sensitive": 2.1,
+      "strict": 3.1,
+      "very_sensitive": 1.6
+     }
+    },
+    "cons_sub": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 2.35,
+      "sensitive": 1.85,
+      "strict": 2.85,
+      "very_sensitive": 1.35
+     }
+    },
+    "insertion": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "off",
+     "thresholds": {
+      "balanced": 2.85,
+      "sensitive": 2.35,
+      "strict": 3.35,
+      "very_sensitive": 1.85
+     }
+    },
+    "long_to_short": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 2.1,
+      "sensitive": 1.6,
+      "strict": 2.6
+     }
+    },
+    "short_to_long": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 1.85,
+      "sensitive": 1.35,
+      "strict": 2.35,
+      "very_sensitive": 0.85
+     }
+    },
+    "vowel_del": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 1.35,
+      "sensitive": 0.85,
+      "strict": 1.85,
+      "very_sensitive": 0.35
+     }
+    },
+    "vowel_ins": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "experimental",
+     "thresholds": {
+      "balanced": 1.6,
+      "sensitive": 1.1,
+      "strict": 2.1,
+      "very_sensitive": 0.6
+     }
+    },
+    "vowel_sub": {
+     "evidence": {
+      "fit_set": "fixture"
+     },
+     "status": "validated",
+     "thresholds": {
+      "balanced": 1.1,
+      "sensitive": 0.6,
+      "strict": 1.6,
+      "very_sensitive": 0.1
+     }
+    }
+   },
+   "tafkheem": {
+    "status": "off"
+   }
+  }
+ },
+ "default_context": "c16_l64",
+ "default_preset": "balanced",
+ "format": "quranlab.tajweed-calibration/1",
+ "model_id": "v4.0",
+ "presets": {
+  "balanced": {
+   "label": "Balanced",
+   "site_fa": 0.01
+  },
+  "sensitive": {
+   "label": "Catch more",
+   "site_fa": 0.02
+  },
+  "strict": {
+   "label": "Fewest false flags",
+   "site_fa": 0.005
+  },
+  "very_sensitive": {
+   "label": "Catch the most (teacher review)",
+   "site_fa": 0.05
+  }
+ },
+ "tokens_sha256": "fixture"
+}

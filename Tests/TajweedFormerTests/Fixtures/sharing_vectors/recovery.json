@@ -1,0 +1,57 @@
+{
+  "about": "Recovery codes (PLATFORM_CLIENT.md 9.1): 16 random bytes as 26 Crockford base32 characters, most significant bit first, the last character with two zero bits, groups of 4 joined by \"-\". recovery_hash = lower-case hex SHA-256 of the normalised code (ASCII).",
+  "cases": [
+    {
+      "bytes_hex": "00000000000000000000000000000000",
+      "code": "0000-0000-0000-0000-0000-0000-00",
+      "normalised": "00000000000000000000000000",
+      "recovery_hash": "575b83480d348cd3168ffbb874e26156b7d94842cd6c667dba6867976e62d38d"
+    },
+    {
+      "bytes_hex": "07070707070707070707070707070707",
+      "code": "0W3G-E1R7-0W3G-E1R7-0W3G-E1R7-0W",
+      "normalised": "0W3GE1R70W3GE1R70W3GE1R70W",
+      "recovery_hash": "b5a6d955c4ee9b3c3d53b62ea3ee7280031a1bd2a7035d35dd66a8d8e397c8d5"
+    },
+    {
+      "bytes_hex": "000102030405060708090a0b0c0d0e0f",
+      "code": "000G-40R4-0M30-E209-185G-R38E-1W",
+      "normalised": "000G40R40M30E209185GR38E1W",
+      "recovery_hash": "d8c08ea28d68d57e2ec74c6df55bf6d638881fec30f9ccf0154f8d81aee36549"
+    },
+    {
+      "bytes_hex": "ffffffffffffffffffffffffffffffff",
+      "code": "ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZW",
+      "normalised": "ZZZZZZZZZZZZZZZZZZZZZZZZZW",
+      "recovery_hash": "8c908fc77b4775bd79be242944f8e79f539bec3a3421fc40b3e1802199289c2f"
+    },
+    {
+      "bytes_hex": "0b549de62f78c10a539ce52e77c00952",
+      "code": "1DA9-VSHF-F30G-MMWW-WMQ7-FG09-A8",
+      "normalised": "1DA9VSHFF30GMMWWWMQ7FG09A8",
+      "recovery_hash": "2b9e8776a9d4c56f245aad362356901e4daa295c3861db6c888eb1cf08d891e0"
+    }
+  ],
+  "typed": [
+    {
+      "typed": "o000-0000-0000-0000-0000-0000-00",
+      "normalised": "00000000000000000000000000"
+    },
+    {
+      "typed": " 0w3g e1r7 0w3g e1r7 0w3g e1r7 0w ",
+      "normalised": "0W3GE1R70W3GE1R70W3GE1R70W"
+    },
+    {
+      "typed": "lda9 vshf f3og mmww wmq7 fgo9 a8",
+      "normalised": "1DA9VSHFF30GMMWWWMQ7FG09A8"
+    },
+    {
+      "typed": "not a code",
+      "normalised": null
+    },
+    {
+      "typed": "UUUU-UUUU-UUUU-UUUU-UUUU-UUUU-UU",
+      "normalised": null
+    }
+  ]
+}

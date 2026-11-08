@@ -1,0 +1,4137 @@
+{
+ "app_invalid": [
+  {
+   "app": {
+    "preset": "loud"
+   },
+   "expect_error": "invalid_app_option",
+   "name": "app preset unknown"
+  },
+  {
+   "app": {
+    "context": "c16_l256"
+   },
+   "expect_error": "invalid_app_option",
+   "name": "app context not shipped"
+  },
+  {
+   "app": {
+    "overrides": {
+     "cons_sub": {
+      "preset": "strict",
+      "threshold": 1.0
+     }
+    }
+   },
+   "expect_error": "invalid_app_option",
+   "name": "app override both"
+  },
+  {
+   "app": {
+    "overrides": {
+     "cons_sub": {
+      "threshold": 25.0
+     }
+    }
+   },
+   "expect_error": "invalid_app_option",
+   "name": "app override out of range"
+  },
+  {
+   "app": {
+    "overrides": {
+     "ghunna": {
+      "preset": "strict"
+     }
+    }
+   },
+   "expect_error": "invalid_app_option",
+   "name": "app override unknown class"
+  },
+  {
+   "app": {
+    "overrides": {
+     "madd": {
+      "threshold": 1.0
+     }
+    }
+   },
+   "expect_error": "invalid_app_option",
+   "name": "app madd override with a threshold"
+  },
+  {
+   "app": {
+    "checks": {
+     "ghunna": true
+    }
+   },
+   "expect_error": "invalid_app_option",
+   "name": "app check unknown"
+  },
+  {
+   "app": {
+    "loudness": 3
+   },
+   "expect_error": "invalid_app_option",
+   "name": "app unknown option"
+  }
+ ],
+ "calibration": "calibration_fixture.json",
+ "cases": [
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "absent block: calibration defaults",
+   "remote": null
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "remote",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "remote",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "remote",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [
+     "remote:insertion"
+    ],
+    "sites": {
+     "cons_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "remote",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": null,
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.25
+     }
+    }
+   },
+   "name": "contract example block",
+   "remote": {
+    "checks": {
+     "gemination": true,
+     "lazim": false,
+     "length": true,
+     "letters": true,
+     "madd": true,
+     "qalqalah": false,
+     "vowels": true
+    },
+    "context": "c16_l64",
+    "overrides": {
+     "cons_sub": {
+      "preset": "sensitive"
+     },
+     "vowel_sub": {
+      "threshold": 1.25
+     }
+    },
+    "preset": "balanced",
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "strict",
+     "source": "remote",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "strict",
+     "source": "remote",
+     "status": "validated"
+    },
+    "preset": "strict",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "strict",
+     "source": "remote",
+     "status": "experimental",
+     "tau": 0.15
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "strict",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 3.0
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "strict",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 2.75
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "strict",
+      "source": "remote",
+      "status": "off",
+      "threshold": 3.25
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "strict",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 2.5
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "strict",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "strict",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "strict",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 2.0
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "strict",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.5
+     }
+    }
+   },
+   "name": "remote preset only",
+   "remote": {
+    "preset": "strict",
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c24_l72",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.6
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.35
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.85
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.1
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.85
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.35
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.6
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.1
+     }
+    }
+   },
+   "name": "remote context c24_l72",
+   "remote": {
+    "context": "c24_l72",
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.context"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "validated"
+    },
+    "preset": "sensitive",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "experimental",
+     "tau": 0.3
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 2.0
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "off",
+      "threshold": 2.25
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.5
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 0.75
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 1.0
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 0.5
+     }
+    }
+   },
+   "name": "remote context not shipped is dropped",
+   "remote": {
+    "context": "c16_l256",
+    "preset": "sensitive",
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.v"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "unknown version: whole block ignored",
+   "remote": {
+    "preset": "strict",
+    "v": 2
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.v"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "missing version: whole block ignored",
+   "remote": {
+    "preset": "strict"
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.v"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "version as string: whole block ignored",
+   "remote": {
+    "preset": "strict",
+    "v": "1"
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "block not an object",
+   "remote": [
+    "v",
+    1
+   ]
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.preset"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "bad preset dropped, rest kept",
+   "remote": {
+    "checks": {
+     "qalqalah": true
+    },
+    "preset": "loud",
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.preset"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "preset wrong type",
+   "remote": {
+    "preset": 3,
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides.cons_sub"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "override with both preset and threshold dropped",
+   "remote": {
+    "overrides": {
+     "cons_sub": {
+      "preset": "strict",
+      "threshold": 1
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides.cons_sub"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "override with neither dropped",
+   "remote": {
+    "overrides": {
+     "cons_sub": {}
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides.cons_sub"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": null,
+      "source": "remote",
+      "status": "experimental",
+      "threshold": -20.0
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "override threshold out of range dropped",
+   "remote": {
+    "overrides": {
+     "cons_del": {
+      "threshold": -20
+     },
+     "cons_sub": {
+      "threshold": 20.5
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides.vowel_sub"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "override threshold boolean dropped",
+   "remote": {
+    "overrides": {
+     "vowel_sub": {
+      "threshold": true
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides.vowel_sub"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "override threshold string dropped",
+   "remote": {
+    "overrides": {
+     "vowel_sub": {
+      "threshold": "1.0"
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides.ghunna"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "strict",
+     "source": "remote",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "override unknown class dropped, madd preset kept",
+   "remote": {
+    "overrides": {
+     "ghunna": {
+      "preset": "strict"
+     },
+     "madd": {
+      "preset": "strict"
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides.qalqalah"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "very_sensitive",
+     "source": "remote",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "feature override with a threshold dropped",
+   "remote": {
+    "overrides": {
+     "gemination": {
+      "preset": "very_sensitive"
+     },
+     "qalqalah": {
+      "threshold": 0.3
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides.cons_sub"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "override bad preset name dropped",
+   "remote": {
+    "overrides": {
+     "cons_sub": {
+      "preset": "Strict"
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.overrides"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "overrides not an object",
+   "remote": {
+    "overrides": [
+     1,
+     2
+    ],
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "strict",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 2.75
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "override unknown inner key ignored",
+   "remote": {
+    "overrides": {
+     "cons_sub": {
+      "note": "x",
+      "preset": "strict"
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.checks.ghunna",
+     "remote.checks.madd"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "checks unknown key and non-boolean dropped",
+   "remote": {
+    "checks": {
+     "ghunna": true,
+     "madd": "yes",
+     "vowels": false
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.checks"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "checks not an object",
+   "remote": {
+    "checks": true,
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [
+     "remote.future"
+    ],
+    "gemination": {
+     "enabled": true,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "validated"
+    },
+    "preset": "sensitive",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "experimental",
+     "tau": 0.3
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 2.0
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "off",
+      "threshold": 2.25
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.5
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 0.75
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 1.0
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 0.5
+     }
+    }
+   },
+   "name": "unknown top-level keys dropped",
+   "remote": {
+    "future": {
+     "x": 1
+    },
+    "preset": "sensitive",
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [
+     "remote:insertion"
+    ],
+    "sites": {
+     "cons_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "remote turns on experimental checks",
+   "remote": {
+    "checks": {
+     "letters": true,
+     "qalqalah": true,
+     "vowels": true
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [
+     "remote:insertion",
+     "remote:lazim"
+    ],
+    "sites": {
+     "cons_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "remote turns on an off item: refused (release)",
+   "remote": {
+    "checks": {
+     "lazim": true,
+     "letters": true
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": true,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [
+     "remote:lazim"
+    ],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "remote turns on an off item: refused (debug too)",
+   "remote": {
+    "checks": {
+     "lazim": true
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {
+    "checks": {
+     "lazim": true,
+     "letters": true
+    }
+   },
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [
+     "app:insertion",
+     "app:lazim"
+    ],
+    "sites": {
+     "cons_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "app turns on an off item in release: refused",
+   "remote": null
+  },
+  {
+   "app": {
+    "checks": {
+     "lazim": true,
+     "letters": true
+    }
+   },
+   "backend": "int8",
+   "debug": true,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": true,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "app turns on an off item in debug: allowed",
+   "remote": null
+  },
+  {
+   "app": {
+    "preset": "very_sensitive"
+   },
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "very_sensitive",
+     "source": "app",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "very_sensitive",
+     "source": "app",
+     "status": "validated"
+    },
+    "preset": "very_sensitive",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "very_sensitive",
+     "source": "app",
+     "status": "experimental",
+     "tau": 0.4
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "very_sensitive",
+      "source": "app",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": null,
+      "source": "remote",
+      "status": "validated",
+      "threshold": 3.0
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "very_sensitive",
+      "source": "app",
+      "status": "off",
+      "threshold": 1.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "very_sensitive",
+      "source": "app",
+      "status": "validated",
+      "threshold": 1.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "very_sensitive",
+      "source": "app",
+      "status": "validated",
+      "threshold": 0.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "very_sensitive",
+      "source": "app",
+      "status": "validated",
+      "threshold": 0.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "very_sensitive",
+      "source": "app",
+      "status": "experimental",
+      "threshold": 0.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "very_sensitive",
+      "source": "app",
+      "status": "validated",
+      "threshold": 0.0
+     }
+    }
+   },
+   "name": "app preset beats remote preset, remote per-class override stays",
+   "remote": {
+    "overrides": {
+     "cons_sub": {
+      "threshold": 3.0
+     }
+    },
+    "preset": "strict",
+    "v": 1
+   }
+  },
+  {
+   "app": {
+    "overrides": {
+     "cons_sub": {
+      "threshold": -1.5
+     }
+    }
+   },
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": null,
+      "source": "app",
+      "status": "validated",
+      "threshold": -1.5
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "strict",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.5
+     }
+    }
+   },
+   "name": "app override beats remote override per class",
+   "remote": {
+    "overrides": {
+     "cons_sub": {
+      "threshold": 3.0
+     },
+     "vowel_sub": {
+      "preset": "strict"
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {
+    "checks": {
+     "qalqalah": false
+    }
+   },
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "app check false beats remote true",
+   "remote": {
+    "checks": {
+     "madd": true,
+     "qalqalah": true
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {
+    "context": "c24_l72"
+   },
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c24_l72",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.6
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.35
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.85
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.1
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.85
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.35
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.6
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.1
+     }
+    }
+   },
+   "name": "app context beats remote context",
+   "remote": {
+    "context": "c16_l64",
+    "v": 1
+   }
+  },
+  {
+   "app": {
+    "checks": {
+     "lazim": true,
+     "madd": false
+    }
+   },
+   "backend": "int8",
+   "debug": true,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "app turns madd off: lazim off too",
+   "remote": null
+  },
+  {
+   "app": {
+    "checks": {
+     "vowels": true
+    },
+    "overrides": {
+     "vowel_ins": {
+      "preset": "very_sensitive"
+     }
+    }
+   },
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": true,
+      "preset": "very_sensitive",
+      "source": "app",
+      "status": "experimental",
+      "threshold": 0.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "app override by preset",
+   "remote": null
+  },
+  {
+   "app": {},
+   "backend": "fp32",
+   "debug": false,
+   "expect": {
+    "backend": "fp32",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "validated"
+    },
+    "preset": "sensitive",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "sensitive",
+     "source": "remote",
+     "status": "experimental",
+     "tau": 0.3
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 2.0
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "off",
+      "threshold": 2.25
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.5
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 0.75
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "experimental",
+      "threshold": 1.0
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": 0.5
+     }
+    }
+   },
+   "name": "fp32 backend picks backend_overrides",
+   "remote": {
+    "preset": "sensitive",
+    "v": 1
+   }
+  },
+  {
+   "app": {
+    "context": "c24_l72"
+   },
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c24_l72",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.6
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.35
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.85
+     },
+     "long_to_short": {
+      "enabled": false,
+      "preset": "very_sensitive",
+      "source": "remote",
+      "status": "validated",
+      "threshold": null
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.85
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.35
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.6
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.1
+     }
+    }
+   },
+   "name": "missing preset threshold disables the class",
+   "remote": {
+    "overrides": {
+     "long_to_short": {
+      "preset": "very_sensitive"
+     }
+    },
+    "v": 1
+   }
+  },
+  {
+   "app": {
+    "checks": {
+     "qalqalah": true
+    },
+    "overrides": {
+     "qalqalah": {
+      "preset": "strict"
+     }
+    }
+   },
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": true,
+     "preset": "strict",
+     "source": "app",
+     "status": "experimental",
+     "tau": 0.15
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "off",
+      "threshold": 2.75
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.25
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "app qalqalah preset picks preset_tau",
+   "remote": null
+  },
+  {
+   "app": {},
+   "backend": "int8",
+   "debug": false,
+   "expect": {
+    "backend": "int8",
+    "context": "c16_l64",
+    "dropped": [],
+    "gemination": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated",
+     "tau": null
+    },
+    "lazim": {
+     "enabled": false,
+     "status": "off"
+    },
+    "madd": {
+     "enabled": true,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "validated"
+    },
+    "preset": "balanced",
+    "qalqalah": {
+     "enabled": false,
+     "preset": "balanced",
+     "source": "calibration",
+     "status": "experimental",
+     "tau": 0.2556
+    },
+    "refused": [],
+    "sites": {
+     "cons_del": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 2.5
+     },
+     "cons_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.25
+     },
+     "insertion": {
+      "enabled": false,
+      "preset": null,
+      "source": "remote",
+      "status": "off",
+      "threshold": 20.0
+     },
+     "long_to_short": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 2.0
+     },
+     "short_to_long": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.75
+     },
+     "vowel_del": {
+      "enabled": true,
+      "preset": null,
+      "source": "remote",
+      "status": "validated",
+      "threshold": -20.0
+     },
+     "vowel_ins": {
+      "enabled": false,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "experimental",
+      "threshold": 1.5
+     },
+     "vowel_sub": {
+      "enabled": true,
+      "preset": "balanced",
+      "source": "calibration",
+      "status": "validated",
+      "threshold": 1.0
+     }
+    }
+   },
+   "name": "remote threshold at the range edges kept",
+   "remote": {
+    "overrides": {
+     "insertion": {
+      "threshold": 20
+     },
+     "vowel_del": {
+      "threshold": -20.0
+     }
+    },
+    "v": 1
+   }
+  }
+ ],
+ "format": "quranlab.tajweed-settings-vectors/1"
+}

@@ -1,0 +1,68 @@
+{
+  "about": "Deletion signing (PLATFORM_CLIENT.md 9.1). ECDSA P-256 with SHA-256 over the UTF-8 message bytes. The signatures are randomised (ECDSA), so an SDK checks: (1) its message bytes equal `message` exactly, (2) the vector signatures verify with public_key, (3) its own signature over the message verifies with public_key. contributor_key is what POST /v1/uploads sends.",
+  "curve": "P-256",
+  "hash": "SHA-256",
+  "private_key_jwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "d": "_DVCR6oU0E5x4odQE7mtYho8-T-yIgZHHFrJc8pyHH4",
+    "x": "UVXpiUwn6nn9ZdHI4NKxmTWBTLO9sqY4YeNPXS1M9mA",
+    "y": "tmwGjrwQ34TtlXsOg01-Pd0WlQ6oXDpzbA_YfX0xGPM"
+  },
+  "public_key_uncompressed_b64url": "BFFV6YlMJ-p5_WXRyODSsZk1gUyzvbKmOGHjT10tTPZgtmwGjrwQ34TtlXsOg01-Pd0WlQ6oXDpzbA_YfX0xGPM",
+  "contributor_key": "BFFV6YlMJ-p5_WXRyODSsZk1gUyzvbKmOGHjT10tTPZgtmwGjrwQ34TtlXsOg01-Pd0WlQ6oXDpzbA_YfX0xGPM",
+  "cases": [
+    {
+      "fields": {
+        "app": "android:org.example.recite",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "nonce": "d1.1794000000.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB",
+        "timestamp": 1793999900,
+        "action": "delete-all"
+      },
+      "message": "quranlab-contribution-delete 1\napp android:org.example.recite\ncontributor 0123456789abcdef0123456789abcdef\nnonce d1.1794000000.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB\ntimestamp 1793999900\naction delete-all\n",
+      "message_sha256": "77984103e7a52d86bd93920f75f0e618a3a1ad7d377d1ea15a183705a6f8bffc",
+      "signature_p1363_b64url": "gzSOVg9W2o32Gh7K3C-mM8ymQ_RylhbksP1_KLX89n3m7HPtuWTsd6EzmPNoS6acY88a1Z-mpukfiEOGhYIEHw",
+      "signature_der_b64url": "MEYCIQCPyy0DONhb9WvvfGssXDcVyVcFbPFpPeNmkaTYtL5dqgIhAJwFLa5uo27fPDSYk46AY5PfSqlV8o0lHLwQ-Mq_84cm"
+    },
+    {
+      "fields": {
+        "app": "ios:org.example.Recite",
+        "contributor": "ffffffffffffffffffffffffffffffff",
+        "nonce": "d1.1794000300.c2hhcmluZy12ZWN0b3ItMg.ZGVsZXRlLW5vbmNlLTAy",
+        "timestamp": 1794000000,
+        "action": "delete-all"
+      },
+      "message": "quranlab-contribution-delete 1\napp ios:org.example.Recite\ncontributor ffffffffffffffffffffffffffffffff\nnonce d1.1794000300.c2hhcmluZy12ZWN0b3ItMg.ZGVsZXRlLW5vbmNlLTAy\ntimestamp 1794000000\naction delete-all\n",
+      "message_sha256": "cb9b3d1fc7496fb8c1e79a70ad195be6ca57d7a2c36437513ec99937b0c935ac",
+      "signature_p1363_b64url": "cWXV-XCz71Vu5qKn_kdScVXZrbkUMVuGX80Vob5iv9sFT7aHwrZtgHp1H0PHpWwVbKIu5ZpQbK29B4FA07k35g",
+      "signature_der_b64url": "MEYCIQCFMrOZZRi2sS06fKdWQQjEbh3OPHGH5-phrO3szy_JMQIhAI9k7w7mxuyLpN5bzTYwIrqCg4gTKs-WmhKaNB6oGSoY"
+    },
+    {
+      "fields": {
+        "app": "web:https://recite.example.org",
+        "contributor": "00000000000000000000000000000001",
+        "nonce": "d1.1794000600.MDEyMzQ1Njc4OWFiY2RlZg.ZmVkY2JhOTg3NjU0MzIxMA",
+        "timestamp": 1794000100,
+        "action": "delete-all"
+      },
+      "message": "quranlab-contribution-delete 1\napp web:https://recite.example.org\ncontributor 00000000000000000000000000000001\nnonce d1.1794000600.MDEyMzQ1Njc4OWFiY2RlZg.ZmVkY2JhOTg3NjU0MzIxMA\ntimestamp 1794000100\naction delete-all\n",
+      "message_sha256": "bd1f39ab533751a6ef0ea6128e5d3d8e355fd434c93262b123a73f63103f40f8",
+      "signature_p1363_b64url": "kttGBrLeCtiLmTY-v_GMXK9KoLqU41VMjtC1-StFLLPykpiqLVCe_sAsxR7ErZf-dqRumh9kRjuWc1TNMdaceQ",
+      "signature_der_b64url": "MEUCIBriumxuJFIX8U9Tbj381bplL_yQtjNP7NL3naxjnIprAiEA5g7VbTncD4hLRIVNkikO-5gRscuGci3mKnETEAsmWoQ"
+    },
+    {
+      "fields": {
+        "app": "windows:Example.Recite_1a2b3c4d5e6f7",
+        "contributor": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+        "nonce": "d1.1794000900.cmVjaXRlLXdpbmRvd3MtMDQ.d2luZG93cy1ub25jZS0wNA",
+        "timestamp": 1794000200,
+        "action": "delete-all"
+      },
+      "message": "quranlab-contribution-delete 1\napp windows:Example.Recite_1a2b3c4d5e6f7\ncontributor a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0\nnonce d1.1794000900.cmVjaXRlLXdpbmRvd3MtMDQ.d2luZG93cy1ub25jZS0wNA\ntimestamp 1794000200\naction delete-all\n",
+      "message_sha256": "e71af2b43ccf49f3f5e817b76ea9e54c7a9c7ac258e99971ae6e582f0798fa7f",
+      "signature_p1363_b64url": "xvdnal5C7zioqcNcpH_WFlq8tkwUwg5gozGs2WFVLgkF-EXlAcSz4kFhvU-9ZjG3D0kcz0NgQJHYvLuDOAcjRg",
+      "signature_der_b64url": "MEUCIAnqwmweNKFoRK2Sg-4e3nEFKxPG6ZFr2nvfJmUeSLa0AiEAx1OK1LXcQfmkgVq-aYQBnui9iuRGcl8b67EIUiqKDpY"
+    }
+  ]
+}

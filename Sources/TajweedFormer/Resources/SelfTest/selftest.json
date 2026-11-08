@@ -1,0 +1,19 @@
+{
+ "sampleRate": 16000,
+ "format": "s16le, divide by 32768",
+ "reference": "the exact CPU engine's greedy tokens on the device",
+ "clips": [
+  {
+   "clip": "Abdul_112002",
+   "samples": 45140
+  },
+  {
+   "clip": "Husary_001003",
+   "samples": 71889
+  },
+  {
+   "clip": "Saood_112002",
+   "samples": 27585
+  }
+ ]
+}

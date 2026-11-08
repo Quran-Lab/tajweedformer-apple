@@ -1,0 +1,186 @@
+{
+ "format": "quranlab.selftest/1",
+ "clips": [
+  {
+   "id": "Husary_001001",
+   "kind": "clean",
+   "surah": 1,
+   "ayah": 1,
+   "file": "Husary_001001.s16",
+   "samples": 81920,
+   "sample_rate": 16000,
+   "must_decode": true
+  },
+  {
+   "id": "Abdul_001001",
+   "kind": "clean",
+   "surah": 1,
+   "ayah": 1,
+   "file": "Abdul_001001.s16",
+   "samples": 69381,
+   "sample_rate": 16000,
+   "must_decode": true
+  },
+  {
+   "id": "Saood_001001",
+   "kind": "clean",
+   "surah": 1,
+   "ayah": 1,
+   "file": "Saood_001001.s16",
+   "samples": 43546,
+   "sample_rate": 16000,
+   "must_decode": true
+  },
+  {
+   "id": "Husary_112001",
+   "kind": "clean",
+   "surah": 112,
+   "ayah": 1,
+   "file": "Husary_112001.s16",
+   "samples": 93205,
+   "sample_rate": 16000,
+   "must_decode": false
+  },
+  {
+   "id": "Husary_112001_vsub2",
+   "kind": "planted",
+   "surah": 112,
+   "ayah": 1,
+   "file": "Husary_112001_vsub2.s16",
+   "samples": 94229,
+   "sample_rate": 16000,
+   "must_decode": false,
+   "planted": {
+    "site_i": 3,
+    "tj3_pos": 5,
+    "pos": 5,
+    "class": "vowel_sub",
+    "word": 1,
+    "from": "u",
+    "to": "i",
+    "donor": "Husary_001002",
+    "word_flag_from": "cons_sub at 6",
+    "extra_flags": [
+     {
+      "site_i": 5,
+      "tj3_pos": 6,
+      "pos": 6,
+      "class": "cons_sub"
+     }
+    ],
+    "provenance": {
+     "file_sha256": "effba1c02961278a2f3bc8a149cd627eb26c4fef788584c9ddfee9bb7bd147d7",
+     "source": {
+      "clip": "Husary_112001",
+      "sha256": "07dd8e55b0a26966a88ebc8783c923a5594caaa26591df1e9e1692d43431c9a7"
+     },
+     "donor": {
+      "clip": "Husary_001002",
+      "sha256": "f62318b45f388c217c8dbac3d70f613b0206c6ddf2cef64b471aa61a60ad931f"
+     },
+     "splice": {
+      "source_samples": [
+       27520.0,
+       34240.0
+      ],
+      "donor_samples": [
+       35840.0,
+       43904.0
+      ],
+      "crossfade_ms": 10.0,
+      "gain_ramp": {
+       "left": 0.4168,
+       "right": 2.4438,
+       "left_db": -7.6,
+       "right_db": 7.76,
+       "rule": "linear ramp; each end matches 20 ms RMS outside the cut"
+      }
+     },
+     "seam_qc": {
+      "seams": [
+       {
+        "click": 0.21,
+        "energy_step_db": 0.9,
+        "f0_ratio": 1.0
+       },
+       {
+        "click": 0.41,
+        "energy_step_db": 0.4,
+        "f0_ratio": 1.015
+       }
+      ],
+      "seams_ok": true,
+      "seam_rule": "click <= 3x clip p99.9, energy step <= 8 dB, F0 ratio <= 1.12",
+      "seam_score": 0.225,
+      "spectral_cos": 0.8938,
+      "judge_ok": true
+     },
+     "method": "splice of the donor's vowel with a 10 ms crossfade and gain ramps; Praat TD-PSOLA overlap-add, donor re-synthesised on the source F0 contour (source pitch 150-500 Hz, donor analysis 70-300 Hz, 150 ms margins)",
+     "cross_backend": {
+      "agree_per_context": {
+       "c16_l64": {
+        "tokens_int8_eq_fp32": true,
+        "tokens_fp16_eq_fp32": true,
+        "flags_int8_eq_fp32": true,
+        "flags_fp16_eq_fp32": true
+       },
+       "c24_l72": {
+        "tokens_int8_eq_fp32": true,
+        "tokens_fp16_eq_fp32": true,
+        "flags_int8_eq_fp32": true,
+        "flags_fp16_eq_fp32": true
+       },
+       "c24_l256": {
+        "tokens_int8_eq_fp32": true,
+        "tokens_fp16_eq_fp32": true,
+        "flags_int8_eq_fp32": true,
+        "flags_fp16_eq_fp32": true
+       }
+      },
+      "npu_c16_l64_flags": {
+       "tensor": {
+        "sites": [
+         [
+          3.0,
+          "vowel_sub"
+         ],
+         [
+          5.0,
+          "cons_sub"
+         ]
+        ],
+        "words": [
+         1.0
+        ]
+       },
+       "e2600": {
+        "sites": [
+         [
+          3.0,
+          "vowel_sub"
+         ],
+         [
+          5.0,
+          "cons_sub"
+         ]
+        ],
+        "words": [
+         1.0
+        ]
+       }
+      }
+     }
+    }
+   }
+  }
+ ],
+ "rules": {
+  "tokens": "identical greedy tj3 tokens on the clean clips (planted clips: flags only)",
+  "flagged_sites": "identical set at the default site preset, every clip",
+  "flagged_words": "identical set at the word block's default preset, every clip",
+  "finite": "no NaN or inf in any head",
+  "latency_p90_max_fraction_of_chunk_ms": 0.5,
+  "latency_median_below_cpu": true,
+  "on_failure": "not promoted; retried only for a new model revision or OS build"
+ }
+}

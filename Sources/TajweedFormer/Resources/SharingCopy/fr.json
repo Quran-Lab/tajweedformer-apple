@@ -1,0 +1,95 @@
+{
+ "format": "quranlab.sharing-copy/1",
+ "version": "2026-11-07.2",
+ "lang": "fr",
+ "dir": "ltr",
+ "source_lang": "en",
+ "consent_version": "share-2026-11-07b",
+ "delete_days": 0,
+ "delete_timing": "immediate",
+ "strings": {
+  "sheet.title": "Que votre récitation continue de faire le bien",
+  "sheet.body": "Lorsque vous partagez vos récitations, elles permettent d'entraîner le modèle de tajwid gratuit de l'application à mieux écouter. Chaque apprenant qu'il aide après vous est une bonne action qui peut perdurer bien après votre récitation, inchâAllah : une sadaqa jâriya (aumône continue).",
+  "sheet.hadith": "Le Prophète, que la paix soit sur lui, a dit : « Quand une personne meurt, ses actions prennent fin sauf trois choses : une aumône continue (sadaqa jâriya), une science utile, ou un enfant pieux qui fait des invocations (du'â) pour elle. »",
+  "sheet.hadith_ref": "Sahih Muslim 1631",
+  "sheet.mistakes": "Vos erreurs sont ce qu'il y a de plus précieux. Elles apprennent au modèle à corriger le prochain apprenant avec douceur.",
+  "sheet.what": "L'enregistrement audio de vos séances de récitation dans cette application lorsqu'elle est à l'écoute, les versets que vous avez récités, et des détails techniques simples comme la version du modèle et le type d'appareil. Aucun nom, aucun contact, aucune localisation.",
+  "sheet.who": "Quran Lab, un waqf. Les modèles entraînés sont gratuits pour tous, pour toujours, et ne sont jamais vendus.",
+  "sheet.control": "Vous pouvez arrêter à tout moment et supprimer ce que vous avez partagé depuis les paramètres.",
+  "sheet.share": "Partager mes récitations",
+  "sheet.not_now": "Pas maintenant",
+  "sheet.guardian.title": "Une question pour un parent ou tuteur",
+  "sheet.guardian.body": "Cette application est conçue pour les enfants. Merci de lire ceci avec votre enfant : le partage transmet l'audio de ses récitations à Quran Lab afin d'aider d'autres apprenants. Seul un parent ou un tuteur peut l'activer.",
+  "sheet.guardian.confirm": "Je suis le parent ou le tuteur de cet enfant, et j'accepte de partager ses récitations.",
+  "sheet.guardian.share": "Partager (parent ou tuteur)",
+  "thanks": "Jazâk Allâhu khayran. Votre récitation aide désormais d'autres apprenants. Qu'Allah l'accepte de votre part.",
+  "settings.toggle": "Partager mes récitations",
+  "settings.what": "Ce qui est partagé",
+  "settings.delete": "Supprimer mes partages",
+  "what.detail": "Lorsque le partage est activé, l'audio de vos séances de récitation dans cette application est envoyé à Quran Lab, avec l'ayah récitée, quelques informations techniques générales (version du modèle, type d'appareil, version du système, date) et un code aléatoire propre à cette installation. Jamais votre nom, votre compte, vos contacts, votre localisation ou les identifiants de votre appareil. Ces données sont stockées dans l'Union européenne et servent uniquement à améliorer des modèles gratuits de récitation du Coran. Désactiver le partage interrompt immédiatement les envois, et vous pouvez supprimer tout ce que vous avez partagé à tout moment depuis les paramètres : vos données sont immédiatement effacées des serveurs de Quran Lab.",
+  "delete.confirm": "Vos récitations partagées seront immédiatement supprimées des serveurs de Quran Lab. Cette action est irréversible.",
+  "delete.action": "Supprimer",
+  "delete.cancel": "Annuler",
+  "delete.done": "C'est fait. Ce que vous avez partagé a été supprimé des serveurs de Quran Lab et sera exclu des futurs entraînements.",
+  "recovery.hint": "Conservez ce code à usage unique pour supprimer vos partages si vous perdez cet appareil : portal.quranlab.ai/delete",
+  "reask": "Votre récitation d'aujourd'hui pourrait aider un autre apprenant demain. Souhaitez-vous la partager ?",
+  "impact.minutes": {
+   "one": "Vous avez partagé {minutes} minute de récitation. Qu'Allah vous récompense.",
+   "many": "Vous avez partagé {minutes} de minutes de récitation. Qu'Allah vous récompense.",
+   "other": "Vous avez partagé {minutes} minutes de récitation. Qu'Allah vous récompense."
+  }
+ },
+ "hadith_source": {
+  "collection": "Sahih Muslim",
+  "number": 1631,
+  "url": "https://sunnah.com/muslim:1631",
+  "translation_source": null,
+  "translated": true,
+  "verified_at": "2026-11-07",
+  "note": "no established translation of this hadith found online in this language (HadeethEnc has none for 65566); translated by the router from the verified English and back-translated: When a person dies, their actions come to an end except three things: a continuous charity (sadaqa jâriya), useful knowledge, or a pious child who makes invocations (du'â) for them."
+ },
+ "review": {
+  "back_translation": {
+   "sheet.title": "May your recitation continue to do good",
+   "sheet.body": "When you share your recitations, they allow the app's free tajwid model to be trained to listen better. Every learner it helps after you is a good deed that can endure well after your recitation, in sha Allah: a sadaqa jariya (continuous charity).",
+   "sheet.hadith_ref": "Sahih Muslim 1631",
+   "sheet.mistakes": "Your mistakes are what is most precious. They teach the model to correct the next learner with gentleness.",
+   "sheet.what": "The audio recording of your recitation sessions in this app when it is listening, the verses you recited, and simple technical details like the model version and device type. No name, no contact, no location.",
+   "sheet.who": "Quran Lab, a waqf. The trained models are free for everyone, forever, and are never sold.",
+   "sheet.control": "You can stop at any time and delete what you have shared from the settings.",
+   "sheet.share": "Share my recitations",
+   "sheet.not_now": "Not now",
+   "sheet.guardian.title": "A question for a parent or guardian",
+   "sheet.guardian.body": "This app is designed for children. Please read this with your child: sharing transmits the audio of their recitations to Quran Lab in order to help other learners. Only a parent or guardian can activate it.",
+   "sheet.guardian.confirm": "I am the parent or guardian of this child, and I agree to share their recitations.",
+   "sheet.guardian.share": "Share (parent or guardian)",
+   "thanks": "Jazâk Allâhu khayran. Your recitation now helps other learners. May Allah accept it from you.",
+   "settings.toggle": "Share my recitations",
+   "settings.what": "What is shared",
+   "settings.delete": "Delete my shares",
+   "what.detail": "When sharing is enabled, the audio of your recitation sessions in this application is sent to Quran Lab, along with the recited ayah, some general technical information (model version, device type, system version, date) and a random code unique to this installation. Never your name, your account, your contacts, your location or your device identifiers. This data is stored in the European Union and is used solely to improve free Quran recitation models. Disabling sharing immediately stops uploads, and you can delete everything you have shared at any time from the settings: your data is immediately erased from Quran Lab's servers.",
+   "delete.confirm": "Your shared recitations will be immediately deleted from Quran Lab's servers. This action is irreversible.",
+   "delete.action": "Delete",
+   "delete.cancel": "Cancel",
+   "delete.done": "Done. What you have shared has been deleted from Quran Lab's servers and will be excluded from future training.",
+   "reask": "Your recitation today could help another learner tomorrow. Would you like to share it?",
+   "impact.minutes": {
+    "one": "You have shared {minutes} minute of recitation. May Allah reward you.",
+    "many": "You have shared {minutes} of minutes of recitation. May Allah reward you.",
+    "other": "You have shared {minutes} minutes of recitation. May Allah reward you."
+   },
+   "recovery.hint": "Keep this single-use code to delete your shares if you lose this device: portal.quranlab.ai/delete"
+  },
+  "back_translation_hadith_intro": "The Prophet, peace be upon him, said:",
+  "drift": [
+   {
+    "keys": [
+     "recovery.hint"
+    ],
+    "found": "\"code unique\" is ambiguous (unique vs one-time)",
+    "fixed": "edited by hand to \"code à usage unique\" (single-use)"
+   }
+  ],
+  "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"
+ }
+}

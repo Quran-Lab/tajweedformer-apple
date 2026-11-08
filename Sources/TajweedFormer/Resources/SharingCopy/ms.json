@@ -1,0 +1,83 @@
+{
+ "format": "quranlab.sharing-copy/1",
+ "version": "2026-11-07.2",
+ "lang": "ms",
+ "dir": "ltr",
+ "source_lang": "en",
+ "consent_version": "share-2026-11-07b",
+ "delete_days": 0,
+ "delete_timing": "immediate",
+ "strings": {
+  "sheet.title": "Biarlah bacaan anda terus mengalirkan kebaikan",
+  "sheet.body": "Apabila anda berkongsi bacaan, ia membantu melatih model tajwid percuma aplikasi ini agar dapat mendengar dengan lebih baik. Setiap pembelajar yang dibantunya selepas ini moga menjadi kebaikan yang terus mengalir buat anda walaupun selepas selesai membaca, insya-Allah: sebagai sedekah jariah.",
+  "sheet.hadith": "Rasulullah SAW bersabda: \"Apabila seseorang meninggal dunia, terputuslah amalannya melainkan tiga perkara: sedekah jariah, ilmu yang bermanfaat, atau anak soleh yang mendoakannya.\"",
+  "sheet.hadith_ref": "Sahih Muslim 1631",
+  "sheet.mistakes": "Kesilapan anda adalah bahagian yang paling bernilai. Ia mengajar model ini menegur pelajar seterusnya dengan lembut.",
+  "sheet.what": "Audio daripada sesi bacaan anda dalam aplikasi ini semasa ia mendengar, ayat yang dibaca, serta maklumat teknikal asas seperti versi model dan jenis peranti. Tiada nama, senarai kenalan mahupun lokasi.",
+  "sheet.who": "Quran Lab, sebuah inisiatif wakaf. Model yang dilatih adalah percuma untuk semua, selama-lamanya, dan tidak akan sesekali dijual.",
+  "sheet.control": "Anda boleh berhenti pada bila-bila masa dan memadam apa yang telah dikongsi melalui tetapan.",
+  "sheet.share": "Kongsi bacaan saya",
+  "sheet.not_now": "Bukan sekarang",
+  "sheet.guardian.title": "Pertanyaan untuk ibu bapa atau penjaga",
+  "sheet.guardian.body": "Aplikasi ini direka untuk kanak-kanak. Sila baca ini bersama anak anda: perkongsian ini akan menghantar audio bacaan mereka kepada Quran Lab untuk membantu pembelajar lain. Hanya ibu bapa atau penjaga yang boleh mengaktifkannya.",
+  "sheet.guardian.confirm": "Saya ibu bapa atau penjaga kepada anak ini, dan saya bersetuju untuk berkongsi bacaan mereka.",
+  "sheet.guardian.share": "Kongsi sebagai penjaga",
+  "thanks": "Jazakallahu khairan. Bacaan anda kini membantu pembelajar lain. Semoga Allah menerimanya daripada anda.",
+  "settings.toggle": "Kongsi bacaan saya",
+  "settings.what": "Maklumat yang dikongsi",
+  "settings.delete": "Padam apa yang dikongsi",
+  "what.detail": "Apabila perkongsian diaktifkan, audio sesi bacaan anda dalam aplikasi ini akan dihantar kepada Quran Lab bersama ayat yang dibaca, butiran teknikal umum (versi model, jenis peranti, versi sistem, hari) dan kod rawak bagi pemasangan ini. Nama, akaun, kenalan, lokasi atau pengecam peranti anda tidak akan diambil sama sekali. Data ini disimpan di EU dan hanya digunakan untuk menambah baik model bacaan al-Quran percuma. Mematikan perkongsian akan menghentikan muat naik serta-merta, dan anda boleh memadamkan semua yang telah dikongsi melalui tetapan pada bila-bila masa: ia akan dipadamkan daripada pelayan Quran Lab serta-merta.",
+  "delete.confirm": "Rakaman bacaan yang anda kongsi akan dipadamkan daripada pelayan Quran Lab serta-merta. Tindakan ini tidak boleh dibatalkan.",
+  "delete.action": "Padam",
+  "delete.cancel": "Batal",
+  "delete.done": "Selesai. Apa yang telah anda kongsi telah dipadamkan daripada pelayan Quran Lab dan tidak akan disertakan dalam latihan model pada masa hadapan.",
+  "recovery.hint": "Simpan kod sekali guna ini untuk memadamkan apa yang telah anda kongsi sekiranya anda kehilangan peranti ini: portal.quranlab.ai/delete",
+  "reask": "Bacaan anda hari ini mungkin dapat membantu pembelajar lain esok. Sudikah anda berkongsinya?",
+  "impact.minutes": {
+   "other": "Anda telah berkongsi {minutes} minit bacaan. Semoga Allah membalas kebaikan anda."
+  }
+ },
+ "hadith_source": {
+  "collection": "Sahih Muslim",
+  "number": 1631,
+  "url": "https://sunnah.com/muslim:1631",
+  "translation_source": null,
+  "translated": true,
+  "verified_at": "2026-11-07",
+  "note": "no established translation of this hadith found online in this language (HadeethEnc has none for 65566); translated by the router from the verified English and back-translated: When a person dies, their deeds are cut off except for three things: continuous charity, beneficial knowledge, or a righteous child who prays for them."
+ },
+ "review": {
+  "back_translation": {
+   "sheet.title": "Let your recitation continue to flow goodness",
+   "sheet.body": "When you share recitation, it helps train this app's free tajwid model so that it can listen better. Every learner that it helps after this, may it become goodness that continues to flow for you even after finishing reciting, in sha Allah: as continuous charity.",
+   "sheet.hadith_ref": "Sahih Muslim 1631",
+   "sheet.mistakes": "Your mistakes are the most valuable part. It teaches this model to correct the next learner gently.",
+   "sheet.what": "Audio from your recitation sessions in this app while it is listening, the verse recited, as well as basic technical information such as model version and device type. No name, contact list, nor location.",
+   "sheet.who": "Quran Lab, a waqf initiative. The trained model is free for everyone, forever, and will never be sold.",
+   "sheet.control": "You can stop at any time and delete what has been shared through settings.",
+   "sheet.share": "Share my recitation",
+   "sheet.not_now": "Not now",
+   "sheet.guardian.title": "Question for parents or guardians",
+   "sheet.guardian.body": "This app is designed for children. Please read this with your child: this sharing will send their recitation audio to Quran Lab to help other learners. Only a parent or guardian can activate it.",
+   "sheet.guardian.confirm": "I am a parent or guardian of this child, and I agree to share their recitation.",
+   "sheet.guardian.share": "Share as guardian",
+   "thanks": "Jazakallahu khairan. Your recitation is now helping other learners. May Allah accept it from you.",
+   "settings.toggle": "Share my recitation",
+   "settings.what": "Information that is shared",
+   "settings.delete": "Delete what has been shared",
+   "what.detail": "When sharing is enabled, the audio of your recitation session in this app will be sent to Quran Lab along with the recited verse, general technical details (model version, device type, system version, day), and a random code for this installation. Your name, account, contacts, location, or device identifier will not be collected at all. This data is stored in the EU and is only used to improve the free Quran recitation model. Disabling sharing will stop uploads immediately, and you can delete everything that has been shared via settings at any time: it will be deleted from the Quran Lab servers immediately.",
+   "delete.confirm": "The recitation recordings you shared will be deleted from the Quran Lab servers immediately. This action cannot be undone.",
+   "delete.action": "Delete",
+   "delete.cancel": "Cancel",
+   "delete.done": "Done. What you have shared has been deleted from the Quran Lab servers and will not be included in future model training.",
+   "reask": "Your recitation today might be able to help other learners tomorrow. Would you be willing to share it?",
+   "impact.minutes": {
+    "other": "You have shared {minutes} minutes of recitation. May Allah reward your goodness."
+   },
+   "recovery.hint": "Save this one-time code to delete what you have shared in case you lose this device: portal.quranlab.ai/delete"
+  },
+  "back_translation_hadith_intro": "The Messenger of Allah SAW said:",
+  "drift": [],
+  "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"
+ }
+}

@@ -1,0 +1,42 @@
+{
+ "format": "quranlab.selftest/1",
+ "clips": [
+  {
+   "id": "Husary_001001",
+   "surah": 1,
+   "ayah": 1,
+   "file": "selftest/Husary_001001.s16",
+   "samples": 1600,
+   "sample_rate": 16000,
+   "must_decode": true,
+   "kind": "clean"
+  },
+  {
+   "id": "Husary_112001",
+   "surah": 112,
+   "ayah": 1,
+   "file": "selftest/Husary_112001.s16",
+   "samples": 1600,
+   "sample_rate": 16000,
+   "must_decode": false
+  },
+  {
+   "id": "Husary_112001_planted",
+   "surah": 112,
+   "ayah": 1,
+   "file": "selftest/Husary_112001_planted.s16",
+   "samples": 1600,
+   "sample_rate": 16000,
+   "must_decode": false,
+   "kind": "planted"
+  }
+ ],
+ "rules": {
+  "tokens": "identical",
+  "flagged_sites": "identical",
+  "flagged_words": "identical",
+  "finite": true,
+  "p90_max_of_chunk": 0.5,
+  "median_below_cpu": true
+ }
+}

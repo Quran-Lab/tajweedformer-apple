@@ -1,0 +1,121 @@
+name: CI
+
+# swift test on macOS, and package builds for iOS, the iOS Simulator and macOS.
+# ZipformerCore.xcframework is rebuilt from the engine submodule (Quran-Lab/tajweedformer-engine) and must be
+# what the package links. The model-dependent tests (V4 through the exact engine, every output of every
+# chunk; CoreML parity) need the model, which is gated on Hugging Face: they run when the release
+# `test-fixtures-v4` of this repository or an HF_TOKEN secret provides it, and skip otherwise.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  xcframework:
+    name: ZipformerCore.xcframework from the engine submodule
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
+      - name: Engine submodule
+        run: bash scripts/ci-engine.sh engine && echo "ZF_ENGINE_DIR=$GITHUB_WORKSPACE/engine" >> "$GITHUB_ENV"
+      - name: Build (scripts/build_xcframework.sh)
+        run: scripts/build_xcframework.sh
+      - name: The committed xcframework is this build
+        run: |
+          for s in ios-arm64 ios-arm64-simulator macos-arm64; do
+            for h in zf_tajweed.h zf/stream.h zf/decode.h zf/fbank.h zf/resample.h; do
+              git show "HEAD:ZipformerCore.xcframework/$s/Headers/$h" > "$RUNNER_TEMP/committed.h"
+              if ! cmp "$RUNNER_TEMP/committed.h" "ZipformerCore.xcframework/$s/Headers/$h"; then
+                ls -la "ZipformerCore.xcframework/$s/Headers" || true
+                diff "$RUNNER_TEMP/committed.h" "ZipformerCore.xcframework/$s/Headers/$h" | head -20 || true
+                echo "::error::committed $s/$h differs from the engine's"; exit 1
+              fi
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZipformerCore-xcframework
+          path: ZipformerCore.xcframework
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-conformance
+          path: ${{ env.ZF_ENGINE_DIR }}/conformance
+
+  macos:
+    name: swift test (macOS)
+    needs: xcframework
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && swift --version
+      - uses: actions/download-artifact@v4
+        with:
+          name: ZipformerCore-xcframework
+          path: ${{ runner.temp }}/xcf
+      - name: Use it
+        run: rm -rf ZipformerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" ZipformerCore.xcframework
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine-conformance
+          path: engine/conformance
+      - name: GitHub token for the COpus release asset
+        run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
+      - name: Model fixtures (optional)
+        run: |
+          echo "TAJWEED_V4_EXPECTED=$GITHUB_WORKSPACE/engine/conformance" >> "$GITHUB_ENV"
+          if gh release view test-fixtures-v4 -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download test-fixtures-v4 -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP"
+            mkdir -p "$RUNNER_TEMP/v4-folder" "$RUNNER_TEMP/tajweed-coreml" "$RUNNER_TEMP/audio"
+            tar xzf "$RUNNER_TEMP/tajweed_v4_c16_folder.tar.gz" -C "$RUNNER_TEMP/v4-folder"
+            tar xzf "$RUNNER_TEMP/tajweed_coreml_test.tar.gz" -C "$RUNNER_TEMP/tajweed-coreml"
+            mkdir -p ExampleApp/Audio && tar xzf "$RUNNER_TEMP/conformance-v2-audio.tar.gz" -C ExampleApp/Audio
+            echo "TAJWEED_V4_FOLDER=$RUNNER_TEMP/v4-folder" >> "$GITHUB_ENV"
+            echo "TAJWEED_COREML=$RUNNER_TEMP/tajweed-coreml" >> "$GITHUB_ENV"
+          else
+            echo "::notice::no test-fixtures-v4 release: the model-dependent tests skip"
+          fi
+      - name: swift test
+        run: set -o pipefail; swift test 2>&1 | tee "$RUNNER_TEMP/test.log"
+      - name: Summary
+        if: always()
+        run: grep -E "^(v4-coreml|v4-scorer|v4-exact)|Executed [0-9]+ tests|skipped" "$RUNNER_TEMP/test.log" | sort | uniq -c | tail -40 || true
+
+  builds:
+    name: iOS and macOS builds
+    needs: xcframework
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
+      - uses: actions/download-artifact@v4
+        with:
+          name: ZipformerCore-xcframework
+          path: ${{ runner.temp }}/xcf
+      - name: Use it
+        run: rm -rf ZipformerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" ZipformerCore.xcframework
+      - name: GitHub token for the COpus release asset
+        run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
+      - name: Package, iOS device
+        run: xcodebuild -scheme TajweedFormer -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" build CODE_SIGNING_ALLOWED=NO
+      - name: Package, iOS Simulator (arm64)
+        run: xcodebuild -scheme TajweedFormer -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/dd" ARCHS=arm64 build CODE_SIGNING_ALLOWED=NO
+      - name: Package, macOS
+        run: xcodebuild -scheme TajweedFormer -destination 'platform=macOS,arch=arm64' -derivedDataPath "$RUNNER_TEMP/dd" build CODE_SIGNING_ALLOWED=NO

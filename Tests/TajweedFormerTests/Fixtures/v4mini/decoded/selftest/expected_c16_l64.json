@@ -1,0 +1,55 @@
+{
+ "format": "quranlab.selftest-expected/1",
+ "context": "c16_l64",
+ "calibration_sha256": "a379b9e1a082d1862c6a5d1f54761d7e3160bba4b977c165920b6a35ffbe1388",
+ "site_preset": "balanced",
+ "word_preset": "general",
+ "clips": {
+  "Husary_001001": {
+   "chunks": 3,
+   "tokens": [
+    3,
+    4,
+    5
+   ],
+   "flagged_sites": [],
+   "flagged_words": [],
+   "word_scores": [
+    0.5
+   ]
+  },
+  "Husary_112001": {
+   "chunks": 3,
+   "tokens": [
+    3,
+    4,
+    5
+   ],
+   "flagged_sites": [],
+   "flagged_words": [],
+   "word_scores": [
+    0.5
+   ]
+  },
+  "Husary_112001_planted": {
+   "chunks": 3,
+   "tokens": [
+    3,
+    4,
+    6
+   ],
+   "flagged_sites": [
+    [
+     2,
+     "vowel_sub"
+    ]
+   ],
+   "flagged_words": [
+    0
+   ],
+   "word_scores": [
+    7.25
+   ]
+  }
+ }
+}
