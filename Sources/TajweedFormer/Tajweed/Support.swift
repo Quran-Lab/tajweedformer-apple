@@ -51,6 +51,15 @@ struct SelfTestClips {
 
     let clips: [Clip]
 
+    /// The exact CPU engine's greedy tokens for the bundled clip `Saood_112002`, by context (the same values as the
+    /// Android SDK's self-test). The engine gives the same tokens on every device.
+    static let saood112002Tokens: [String: [Int]] = [
+        "c16_l64": [2, 31, 24, 34, 27, 33, 15, 31, 25, 31, 9],
+        "c8_l64": [2, 31, 24, 34, 27, 33, 15, 31, 25, 31, 9],
+        "c24_l72": [2, 31, 24, 34, 27, 33, 15, 31, 25, 31, 9],
+        "c24_l256": [2, 31, 24, 34, 27, 33, 15, 31, 25, 31, 9],
+    ]
+
     static func load() throws(RecognizerError) -> SelfTestClips {
         guard let dir = Bundle.module.url(forResource: "SelfTest", withExtension: nil),
               let data = try? Data(contentsOf: dir.appendingPathComponent("selftest.json")),

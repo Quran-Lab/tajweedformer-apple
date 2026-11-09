@@ -72,7 +72,7 @@ public actor ModelUpdater {
         var report = InstallReport()
         var profileName = "apple-cpu"
         do throws(RecognizerError) {
-            let (manifest, _) = try await client.manifest(id, revision: cdnRevision)
+            let manifest = try await client.manifest(id, revision: cdnRevision)
             let ctx = context ?? manifest.defaultContext
             guard manifest.contexts.contains(ctx) else { throw RecognizerError.invalidArgument("context \(ctx) is not in \(id) \(cdnRevision)") }
             let profile = DownloadProfile(context: ctx, coreML: coreML, compact: compact)

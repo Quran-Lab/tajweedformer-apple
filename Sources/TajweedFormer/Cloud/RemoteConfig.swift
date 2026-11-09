@@ -28,6 +28,17 @@ public struct RemoteConfig: Codable, Sendable, Equatable {
         public let source: String
 
         public var modelID: ModelID { ModelID(model_id, repository: model, folder: folder) }
+
+        /// A config without a folder means `sdk/<model_id>`.
+        public init(from d: any Decoder) throws {
+            let c = try d.container(keyedBy: CodingKeys.self)
+            model = try c.decode(String.self, forKey: .model)
+            model_id = try c.decode(String.self, forKey: .model_id)
+            revision = try c.decode(String.self, forKey: .revision)
+            source = try c.decode(String.self, forKey: .source)
+            let f = (try? c.decodeIfPresent(String.self, forKey: .folder)) ?? nil
+            folder = f.flatMap { $0.isEmpty ? nil : $0 } ?? "sdk/\(model_id)"
+        }
     }
 
     public struct DenyRule: Codable, Sendable, Equatable {
@@ -78,6 +89,16 @@ public struct RemoteConfig: Codable, Sendable, Equatable {
     /// 2.0.0: the portal's tajweed settings for V4, raw; absent on older servers. Read it with
     /// `RemoteTajweedBlock.parse` (TajweedRecognizer does): an invalid field is dropped, never the config.
     public let tajweed: JSONValue?
+    /// Where model files are served, signed with the rest of the config. Read it with `modelBase`: any other JSON type
+    /// is ignored there rather than failing the whole config.
+    public let base: JSONValue?
+
+    /// `base` when it is an https URL, the same rule qlab-api applies when it signs it.
+    public var modelBase: URL? {
+        guard let s = base?.string,
+              s.range(of: #"^https://[A-Za-z0-9.-]+(:\d+)?(/[A-Za-z0-9._~/-]*)?$"#, options: .regularExpression) != nil else { return nil }
+        return URL(string: s)
+    }
 
     public var expiresAt: Date { Date(timeIntervalSince1970: TimeInterval(expires_at)) }
 

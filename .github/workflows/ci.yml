@@ -3,8 +3,10 @@ name: CI
 # swift test on macOS, and package builds for iOS, the iOS Simulator and macOS.
 # TajweedFormerCore.xcframework is rebuilt from the engine submodule (Quran-Lab/tajweedformer-engine) and must be
 # what the package links. The model-dependent tests (V4 through the exact engine, every output of every
-# chunk; CoreML parity) need the model, which is gated on Hugging Face: they run when the release
-# `test-fixtures-v4` of this repository or an HF_TOKEN secret provides it, and skip otherwise.
+# chunk; CoreML parity) need the model, which Quran Lab serves with an app key: they run when the
+# release `test-fixtures-v4` of this repository provides it, or the V4 folder is downloaded from
+# cdn.quranlab.ai/models with the QURANLAB_CI_KEY secret (scripts/fetch-model.py; the variable
+# QURANLAB_MODEL_REVISION pins the revision), and skip otherwise.
 
 on:
   push:
@@ -74,7 +76,12 @@ jobs:
         with:
           name: engine-conformance
           path: engine/conformance
+      - name: GitHub token for the COpus release asset
+        run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
       - name: Model fixtures (optional)
+        env:
+          QURANLAB_KEY: ${{ secrets.QURANLAB_CI_KEY }}
+          QURANLAB_MODEL_REVISION: ${{ vars.QURANLAB_MODEL_REVISION }}
         run: |
           echo "TAJWEED_V4_EXPECTED=$GITHUB_WORKSPACE/engine/conformance" >> "$GITHUB_ENV"
           if gh release view test-fixtures-v4 -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -85,8 +92,11 @@ jobs:
             mkdir -p ExampleApp/Audio && tar xzf "$RUNNER_TEMP/conformance-v2-audio.tar.gz" -C ExampleApp/Audio
             echo "TAJWEED_V4_FOLDER=$RUNNER_TEMP/v4-folder" >> "$GITHUB_ENV"
             echo "TAJWEED_COREML=$RUNNER_TEMP/tajweed-coreml" >> "$GITHUB_ENV"
+          elif [ -n "$QURANLAB_KEY" ]; then
+            python3 scripts/fetch-model.py "$RUNNER_TEMP/model" --decode
+            echo "TAJWEED_V4_FOLDER=$RUNNER_TEMP/model/sdk/v4.0" >> "$GITHUB_ENV"
           else
-            echo "::notice::no test-fixtures-v4 release: the model-dependent tests skip"
+            echo "::notice::no test-fixtures-v4 release and no QURANLAB_CI_KEY secret: the model-dependent tests skip"
           fi
       - name: swift test
         run: set -o pipefail; swift test 2>&1 | tee "$RUNNER_TEMP/test.log"
@@ -109,6 +119,8 @@ jobs:
           path: ${{ runner.temp }}/xcf
       - name: Use it
         run: rm -rf TajweedFormerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" TajweedFormerCore.xcframework
+      - name: GitHub token for the COpus release asset
+        run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
       - name: Package, iOS device
         run: xcodebuild -scheme TajweedFormer -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" build CODE_SIGNING_ALLOWED=NO
       - name: Package, iOS Simulator (arm64)

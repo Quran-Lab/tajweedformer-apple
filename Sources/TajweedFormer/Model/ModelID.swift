@@ -4,7 +4,7 @@ import Foundation
 /// TajweedFormer V4 (`.v4_0`); the earlier phoneme models stay with the 1.x SDKs.
 public struct ModelID: Sendable, Hashable, CustomStringConvertible {
     public let name: String
-    /// The Hugging Face repository the CDN mirrors it from, and the key of the remote config's `models`.
+    /// The model repository (`owner/name`) in its CDN path, and the key of the remote config's `models`.
     public let repository: String
     /// The folder inside the repository holding the SDK build (manifest.json and its files).
     public let folder: String
@@ -16,7 +16,8 @@ public struct ModelID: Sendable, Hashable, CustomStringConvertible {
     }
 
     /// TajweedFormer V4: 38 tj3 tokens, blank 0, every head of the network and the calibrated tajweed checks;
-    /// contexts c16_l64 (320 ms chunks, the default), c24_l72 and c24_l256 (480 ms).
+    /// contexts c16_l64 (320 ms chunks, the default), c8_l64 (160 ms, exact CPU engine only), c24_l72 and c24_l256
+    /// (480 ms). A revision ships the contexts its manifest lists.
     public static let v4_0 = ModelID("v4.0", repository: "Quran-Lab/tajweedformer-v4", folder: "sdk/v4.0")
 
     /// Whatever TajweedFormer model Quran Lab recommends for this app and SDK version (the signed remote config's

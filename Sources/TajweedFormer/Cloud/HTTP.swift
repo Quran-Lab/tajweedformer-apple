@@ -5,8 +5,9 @@ import Foundation
 public struct CloudOptions: Sendable {
     /// qlab-api.
     public var apiURL: URL
-    /// qlab-cdn: model files and the file index.
-    public var cdnURL: URL
+    /// Where model files are served. Nil, the default: the `base` of the signed remote config, else
+    /// `https://cdn.quranlab.ai/models`. Set, it wins over the config.
+    public var cdnURL: URL?
     /// Raw 32-byte Ed25519 public keys that config responses and model manifests may be signed with.
     public var signingKeys: [Data]
     /// Send error reports (independent of `analytics`). The remote config can also turn them off.
@@ -32,7 +33,7 @@ public struct CloudOptions: Sendable {
     public var backgroundUploads: Bool
 
     public init(apiURL: URL = URL(string: "https://api.quranlab.ai")!,
-                cdnURL: URL = URL(string: "https://cdn.quranlab.ai")!,
+                cdnURL: URL? = nil,
                 signingKeys: [Data] = [ManifestVerifier.quranLabPublicKey],
                 issueReports: Bool = true,
                 updatesOnWiFiOnly: Bool = true,

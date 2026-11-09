@@ -150,9 +150,10 @@ enum CloudFixtures {
     }
 
     static func options(analytics: AnalyticsLevel = .on, updates: UpdatePolicy = .automatic,
-                        signingKeys: [Data]? = nil, contributions: Bool = false, storage: URL? = nil) -> QuranLab.Options {
+                        signingKeys: [Data]? = nil, contributions: Bool = false, storage: URL? = nil,
+                        cdnURL: URL? = CloudFixtures.cdn) -> QuranLab.Options {
         QuranLab.Options(modelSource: [.cache], updates: updates, analytics: analytics, storageDirectory: storage,
-                         cloud: CloudOptions(apiURL: api, cdnURL: cdn,
+                         cloud: CloudOptions(apiURL: api, cdnURL: cdnURL,
                                              signingKeys: signingKeys ?? [signer.publicKey.rawRepresentation],
                                              updatesOnWiFiOnly: false,
                                              app: app, urlSession: StubProtocol.session(),
@@ -171,7 +172,7 @@ enum CloudFixtures {
     /// A signed config body and its headers.
     static func config(models: [String: String] = ["Quran-Lab/tajweedformer-v4": "rev-b"],
                        deny: [[String: Any]] = [], flags: [String: Any] = [:], tajweed: [String: Any]? = nil,
-                       recommended: [String: Any]? = nil,
+                       recommended: [String: Any]? = nil, base: Any? = nil,
                        expires: Int = Int(Date().timeIntervalSince1970) + 86_400,
                        key: Curve25519.Signing.PrivateKey = signer) -> StubProtocol.Reply {
         let now = Int(Date().timeIntervalSince1970)
@@ -181,6 +182,7 @@ enum CloudFixtures {
             "flags": (["analytics": true, "issues": true, "contributions": true] as [String: Any]).merging(flags) { _, b in b },
         ]
         if let recommended { cfg["recommended"] = recommended }
+        if let base { cfg["base"] = base }
         if let tajweed { cfg["tajweed"] = tajweed }
         let body = try! JSONSerialization.data(withJSONObject: cfg, options: [.sortedKeys])
         let sig = try! key.signature(for: body)

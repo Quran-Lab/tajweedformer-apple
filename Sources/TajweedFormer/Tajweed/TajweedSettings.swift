@@ -100,7 +100,7 @@ public struct TajweedOptions: Sendable, Hashable {
     /// Keys: a class name (`TajweedClass.rawValue`), or `madd`, `qalqalah`, `gemination` (preset only).
     public var overrides: [String: TajweedOverride]
     public var checks: [TajweedCheck: Bool]
-    /// A context calibration.json ships ("c16_l64", "c24_l72", ...); nil for the portal's or the default.
+    /// A context calibration.json ships ("c16_l64", "c8_l64", "c24_l72", ...); nil for the portal's or the default.
     public var context: String?
     /// The per-word level; nil for the portal's or calibration's default.
     public var word: TajweedWordLevel?

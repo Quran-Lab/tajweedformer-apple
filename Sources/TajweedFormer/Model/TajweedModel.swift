@@ -57,9 +57,10 @@ public struct TajweedModel: Sendable {
     }
 
     /// The CoreML build for `context`, when the folder has a verified one on disk: the default (fp16) build preferred
-    /// over the compact (int8) one, the multifunction package (context `*`) over a context's own package.
+    /// over the compact (int8) one, the multifunction package (context `*`) over a context's own package. Always nil for
+    /// a CPU-only context (`ModelContexts`).
     public func coreML(context: String) -> CoreMLBuild? {
-        guard coreMLProblem == nil, contexts.contains(context) else { return nil }
+        guard !ModelContexts.isCPUOnly(context), coreMLProblem == nil, contexts.contains(context) else { return nil }
         guard let keeps = manifest.files.first(where: { $0.role == "coreml-keeps" && $0.context == context }),
               verifiedFiles.contains(keeps.localPath) else { return nil }
         for (role, scope) in [("coreml", "*"), ("coreml", context), ("coreml-compact", "*"), ("coreml-compact", context)] {

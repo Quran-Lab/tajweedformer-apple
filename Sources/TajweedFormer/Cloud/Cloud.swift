@@ -60,11 +60,14 @@ public final class QuranLabCloud: Sendable {
         let wifiOnly = cloud.updatesOnWiFiOnly
         let analytics = self.analytics, issues = self.issues
         let issueContext = (app: app, enabled: cloud.issueReports)
-        let cdn = CDNClient(http: http, cdnURL: cloud.cdnURL, key: key ?? "",
-                            verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true))
-        let hasKey = key != nil
+        let explicitBase = cloud.cdnURL
+        let cdnKey = key
+        let cdnVerifier = ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true)
         let telemetryOn = options.analytics != .off
-        updater = ModelUpdater(store: store, client: { hasKey ? cdn : nil },
+        updater = ModelUpdater(store: store, client: {
+            guard let cdnKey else { return nil }
+            return CDNClient(http: http, base: ModelHost.base(explicit: explicitBase, config: config.current), key: cdnKey, verifier: cdnVerifier)
+        },
                                coreML: DownloadProfile.osRunsCoreML && options.neuralEngine, compact: options.compactCoreML,
                                rangeSize: cloud.rangeSize,
                                networkAllowed: networkAllowed ?? { first in

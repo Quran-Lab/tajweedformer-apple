@@ -11,6 +11,14 @@ import Foundation
 ///   The CPU engine's weight files are then rebuilt from the package's weights and the correction instead of
 ///   downloaded (`DownloadProfile.rebuilt`), and checked against the manifest's decoded SHA-256 like any download.
 ///   Older systems cannot run the package, so they skip it and download the CPU set.
+public enum ModelContexts {
+    /// Contexts with no CoreML package: the exact CPU engine runs them on every device, whatever backend is requested.
+    /// c8_l64 is 8 frames at 20 ms per step (160 ms chunks) with 64 left frames.
+    public static let cpuOnly: Set<String> = ["c8_l64"]
+
+    public static func isCPUOnly(_ context: String) -> Bool { cpuOnly.contains(context) }
+}
+
 public struct DownloadProfile: Sendable, Hashable {
     public static let platform = "apple"
     /// The roles of every Apple file (both builds); never part of the CPU set.
@@ -19,14 +27,15 @@ public struct DownloadProfile: Sendable, Hashable {
     public static let packageRoles: Set<String> = ["coreml", "coreml-compact"]
 
     public let context: String
-    /// Whether the Apple files are part of the profile (the OS can run the CoreML package and the app allows it).
+    /// Whether the Apple files are part of the profile (the OS can run the CoreML package, the app allows it, and the
+    /// context is not CPU-only).
     public let coreML: Bool
     /// The compact (int8) CoreML build instead of the default fp16 one.
     public let compact: Bool
 
     public init(context: String, coreML: Bool = DownloadProfile.osRunsCoreML, compact: Bool = false) {
         self.context = context
-        self.coreML = coreML
+        self.coreML = coreML && !ModelContexts.isCPUOnly(context)
         self.compact = compact
     }
 

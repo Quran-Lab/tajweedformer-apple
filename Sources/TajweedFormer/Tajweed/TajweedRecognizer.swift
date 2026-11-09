@@ -36,7 +36,8 @@ public actor TajweedRecognizer: AudioBufferSink {
     public enum Backend: String, Sendable {
         /// The exact CPU engine first; the Neural Engine once it is prepared and passed its self-test.
         case automatic
-        /// Debug builds only: the Neural Engine at once, without the self-test; throws where it cannot load.
+        /// Debug builds only: the Neural Engine at once, without the self-test; throws where it cannot load. A CPU-only
+        /// context (`ModelContexts`) stays on the exact CPU engine, without an error.
         case neuralEngine
         /// The exact CPU engine only.
         case exact
@@ -172,7 +173,7 @@ public actor TajweedRecognizer: AudioBufferSink {
         exact?.setHeads(HeadSelection(selection.heads.union([.conf])).engineMask)
         activeBackend = .exact
         QuranLab.record(.modelLoaded(revision: model.revision, milliseconds: Date().timeIntervalSince(t0) * 1000, cohort: cohort))
-        guard requested != .exact else { return }
+        guard Self.mayUseAccelerator(requested: requested, context: ctx) else { return }
         guard DownloadProfile.osRunsCoreML else {
             if requested == .neuralEngine { throw .neuralEngineUnavailable("the V4 CoreML package needs iOS 18 or macOS 15") }
             if model.manifest.files.contains(where: { DownloadProfile.packageRoles.contains($0.role) }) {
@@ -220,6 +221,11 @@ public actor TajweedRecognizer: AudioBufferSink {
         #if os(macOS)
         schedulePreparation(now: true)
         #endif
+    }
+
+    /// Whether the Neural Engine is considered at all. Never for a CPU-only context, even when it is asked for.
+    static func mayUseAccelerator(requested: Backend, context: String) -> Bool {
+        requested != .exact && !ModelContexts.isCPUOnly(context)
     }
 
     /// Starts the background preparation once: now (macOS, `awaitReady`), or after the first finished take (iOS).
