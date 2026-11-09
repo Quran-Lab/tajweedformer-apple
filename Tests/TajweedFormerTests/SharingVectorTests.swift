@@ -185,8 +185,14 @@ final class SharingVectorTests: XCTestCase {
         let exp = try XCTUnwrap(JSONValue(data: Data(contentsOf: dir.appendingPathComponent("expected.json"))))
         let input = try XCTUnwrap(exp["input"])
         let n = Int(try XCTUnwrap(input["packets"]?.number))
-        let packets: [Data] = (0..<n).map { i in
-            Data((0..<(3 + (i * 37) % 290)).map { j in UInt8((i * 31 + j * 7 + 1) & 255) })
+        // spelled out with types: newer Xcode's type checker gives up on the one-expression form
+        let packets: [Data] = (0..<n).map { (i: Int) -> Data in
+            let length: Int = 3 + (i * 37) % 290
+            let bytes: [UInt8] = (0..<length).map { (j: Int) -> UInt8 in
+                let value: Int = (i * 31 + j * 7 + 1) & 255
+                return UInt8(value)
+            }
+            return Data(bytes)
         }
         let replay = try Replay(sampleRate: OpusSettings.codedRate, channels: 1, settings: .shared)
         replay.calls = [Array(packets.dropLast())]

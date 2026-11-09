@@ -17,9 +17,6 @@
   <img alt="model licence: NPL-1.2" src="https://img.shields.io/badge/model%20licence-NPL--1.2-1c1b19?style=flat-square">
 </p>
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/listen-dark.svg"><img alt="Illustration: the four words of Al-Fatihah 1:2 light up one by one as they are heard. Three get a check; the last is flagged: madd held too short." src="docs/listen-light.svg" width="100%"></picture></p>
-<p align="center"><sub>An illustration of what your app can show while the learner recites. Each word lights up as it is heard, and the word to fix says why.</sub></p>
-
 ## What you get
 
 <table>
@@ -60,8 +57,6 @@
 </table>
 
 ### Strict or gentle: you choose
-
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/presets-dark.svg"><img alt="The four presets on a slider, from Strict (fewer false flags) to Very sensitive (more mistakes caught). Balanced is the default." src="docs/presets-light.svg" width="100%"></picture></p>
 
 **Strict** almost never flags a correct recitation. **Balanced** is the default. **Sensitive** catches more, and **Very sensitive** catches the most, for a teacher who reviews every flag first. The word level follows your learners: **strict** for huffaz and advanced students, **general** for most apps, **beginner** for children and classes.
 
