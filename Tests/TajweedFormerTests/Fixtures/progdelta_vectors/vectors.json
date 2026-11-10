@@ -1,0 +1,149 @@
+{
+ "about": "QLPD1 cross-SDK vectors (make_vectors.py, reference progdelta.py of tajweedformer-coreml 145afda). For each case: rebuild cases/<name>.qlpd.gz against cpu/ (flat: layers.zfw, frontend.zfw, model_engine2.onnx.zfg, model_engine2.onnx.zfg.bin); the result must equal cases/<name>.bin byte for byte and its SHA-256 the header's target.sha256. Against cpu_wrong/ (64 int8 codes of L00.a changed), int8_rowmajor_per_row must NOT match, and the header's cpu hash of layers.zfw differs: refuse.",
+ "reference": "tajweedformer-coreml v4-accel-delta 145afda release/progdelta.py",
+ "cpu_sha256": {
+  "layers.zfw": "22adcf5a3d123e4505cd66b5f053c53545c60a3931e92e33392f8b0200c95bf2",
+  "frontend.zfw": "59678b5eaca2911412d5a93955b2bd0b1ad28dbc2580d51bb32a6644dd555e16",
+  "model_engine2.onnx.zfg.bin": "aca3e1e86a0c9d599cb911cef1f9543df17ad7f105eca4828f6cba199e0decc2"
+ },
+ "cases": [
+  {
+   "name": "int8_rowmajor_per_row",
+   "delta": "cases/int8_rowmajor_per_row.qlpd.gz",
+   "target": "cases/int8_rowmajor_per_row.bin",
+   "size": 2009,
+   "sha256": "2443e915cc1a9806044c7b06909c7746ea4a345764d5d93db5719c3da84d2dfc",
+   "delta_sha256": "db7ca021a1a5083d413e4953ea31257964ff00bedbe2c9d496dfe1fc2bf4a263",
+   "tensors": [
+    {
+     "src": "layers.zfw:L00.a",
+     "kind": "int8",
+     "layout": "rowmajor",
+     "transposed": false,
+     "regions": 3
+    }
+   ]
+  },
+  {
+   "name": "int8_transposed_colblock8_flip_neg",
+   "delta": "cases/int8_transposed_colblock8_flip_neg.qlpd.gz",
+   "target": "cases/int8_transposed_colblock8_flip_neg.bin",
+   "size": 1995,
+   "sha256": "dd61a16094c3ee4b9a395a684fd6a696cb0b4b50114353bf4491ee6ee9d8745a",
+   "delta_sha256": "b7918c91b3b36723c61471557cd1a73cd21979689379b8cf197ee29fe502157b",
+   "tensors": [
+    {
+     "src": "layers.zfw:L00.a",
+     "kind": "int8",
+     "layout": "colblock8",
+     "transposed": true,
+     "regions": 3
+    }
+   ]
+  },
+  {
+   "name": "int8_colblock4_per_column_odd_shape",
+   "delta": "cases/int8_colblock4_per_column_odd_shape.qlpd.gz",
+   "target": "cases/int8_colblock4_per_column_odd_shape.bin",
+   "size": 797,
+   "sha256": "a3e790afb96eb6406ccca2154b8633bf22a00df3ea6645712019404c869af551",
+   "delta_sha256": "f3d116444742169aa4a3d7eb0e6508c82c8a9290349e465a4a2d5efd0f8e56b1",
+   "tensors": [
+    {
+     "src": "layers.zfw:L01.b",
+     "kind": "int8",
+     "layout": "colblock4",
+     "transposed": false,
+     "regions": 3
+    }
+   ]
+  },
+  {
+   "name": "int8_Tcolblock8_per_row",
+   "delta": "cases/int8_Tcolblock8_per_row.qlpd.gz",
+   "target": "cases/int8_Tcolblock8_per_row.bin",
+   "size": 1994,
+   "sha256": "290970ef1b548d6b228cb2ca01f995f062bdcf61f73b5fe6625ed67794d31423",
+   "delta_sha256": "c38d4981fa166ef1f95035450d604533d3371cd3c6ed108d966ba420a5bfbdc4",
+   "tensors": [
+    {
+     "src": "layers.zfw:L00.a",
+     "kind": "int8",
+     "layout": "Tcolblock8",
+     "transposed": false,
+     "regions": 3
+    }
+   ]
+  },
+  {
+   "name": "int8_units8x4_zfg_strided",
+   "delta": "cases/int8_units8x4_zfg_strided.qlpd.gz",
+   "target": "cases/int8_units8x4_zfg_strided.bin",
+   "size": 2766,
+   "sha256": "56c19490aab27312507b288f932197a82f15f332518acb8e2d6e865b8037f2b0",
+   "delta_sha256": "e990851b4df1f25964259911ef1080e0dfa344fd5935760acd5559e74c1f73ee",
+   "tensors": [
+    {
+     "src": "zfg:/w/MatMul_quant_packed",
+     "kind": "int8",
+     "layout": "units8x4",
+     "transposed": false,
+     "regions": 5
+    }
+   ]
+  },
+  {
+   "name": "int8_frontend_and_two_tensors",
+   "delta": "cases/int8_frontend_and_two_tensors.qlpd.gz",
+   "target": "cases/int8_frontend_and_two_tensors.bin",
+   "size": 2537,
+   "sha256": "584eddba2ba174d5b42c1a91272a8cda927ab222f4476f2102d08927e5392886",
+   "delta_sha256": "74721dc66640137779e4e37c94d8621aa03912b189c5bc166e8f4e72438f66ff",
+   "tensors": [
+    {
+     "src": "frontend.zfw:fe.f",
+     "kind": "int8",
+     "layout": "colblock16",
+     "transposed": false,
+     "regions": 3
+    },
+    {
+     "src": "layers.zfw:L00.a",
+     "kind": "int8",
+     "layout": "transposed",
+     "transposed": false,
+     "regions": 3
+    }
+   ]
+  },
+  {
+   "name": "fp16_planes",
+   "delta": "cases/fp16_planes.qlpd.gz",
+   "target": "cases/fp16_planes.bin",
+   "size": 5417,
+   "sha256": "bf514b9f956e1e3707e9542b14a2f171f4ee06bc1b1152c126e59c25a7b55a49",
+   "delta_sha256": "2caee3441ce46453b80af64b63bd281214102bb031cc421016189a238802b686",
+   "tensors": [
+    {
+     "src": "layers.zfw:L00.a",
+     "kind": "fp16",
+     "layout": null,
+     "transposed": false,
+     "regions": 3
+    },
+    {
+     "src": "layers.zfw:L01.b",
+     "kind": "fp16",
+     "layout": null,
+     "transposed": false,
+     "regions": 3
+    }
+   ]
+  }
+ ],
+ "wrong_cpu": {
+  "dir": "cpu_wrong",
+  "case": "int8_rowmajor_per_row",
+  "must": "refuse"
+ }
+}

@@ -87,6 +87,44 @@ public struct ModelManifest: Sendable, Hashable {
     public let contexts: [String]
     public let files: [File]
     public var signature: String?
+    /// The golden test's tolerance per accelerator build (`coreml`, `coreml-compact`, `npu:<soc>:<context>`), from the
+    /// signed manifest's optional `golden_tolerance`; a build not listed (or listed with a malformed value) is exact.
+    /// Empty when the field is absent, or present but not covered by the signature.
+    public var goldenTolerance: [String: GoldenTolerance] = [:]
+
+    /// How far an accelerator may be from the CPU engine over the whole self-test set and still pass: token edits on
+    /// the clean clips, and the symmetric differences of the flagged sites and flagged words on every clip.
+    public struct GoldenTolerance: Sendable, Hashable {
+        public let tokenDiffs: Int
+        public let siteFlagDiffs: Int
+        public let wordFlagDiffs: Int
+        public static let exact = GoldenTolerance(tokenDiffs: 0, siteFlagDiffs: 0, wordFlagDiffs: 0)
+        public init(tokenDiffs: Int, siteFlagDiffs: Int, wordFlagDiffs: Int) {
+            self.tokenDiffs = tokenDiffs; self.siteFlagDiffs = siteFlagDiffs; self.wordFlagDiffs = wordFlagDiffs
+        }
+    }
+
+    /// The tolerance of `build`: exact unless the signed manifest gives one.
+    public func tolerance(build: String) -> GoldenTolerance { goldenTolerance[build] ?? .exact }
+
+    /// `golden_tolerance` read leniently: each build whose three counts are integers 0 or more; any other build entry is
+    /// left out (exact).
+    static func parseTolerance(_ any: Any?) -> [String: GoldenTolerance] {
+        guard let o = any as? [String: Any] else { return [:] }
+        func count(_ v: Any?) -> Int? {
+            guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+            let d = n.doubleValue
+            guard d.isFinite, d >= 0, d == d.rounded(), d <= 1_000_000 else { return nil }
+            return Int(d)
+        }
+        var out: [String: GoldenTolerance] = [:]
+        for (build, v) in o {
+            guard !build.isEmpty, !build.contains(" "), !build.contains("\n"), let e = v as? [String: Any],
+                  let t = count(e["token_diffs"]), let s = count(e["site_flag_diffs"]), let w = count(e["word_flag_diffs"]) else { continue }
+            out[build] = GoldenTolerance(tokenDiffs: t, siteFlagDiffs: s, wordFlagDiffs: w)
+        }
+        return out
+    }
 
     public init(modelID: String, family: String = "tajweedformer", revision: String, minSDKVersion: String = "2.0.0",
                 engineFormat: Int = 3, coremlFormat: Int = 9, tokens: String = "tokens.txt", tokensSHA256: String,
@@ -148,8 +186,10 @@ public struct ModelManifest: Sendable, Hashable {
                               coremlFormat: try int("coreml_format"), tokens: try str("tokens"),
                               tokensSHA256: try str("tokens_sha256"), defaultContext: try str("default_context"),
                               contexts: ctxs, files: files, signature: o["signature"] as? String)
-        try m.checkPaths()
-        return m
+        var mm = m
+        mm.goldenTolerance = parseTolerance(o["golden_tolerance"])
+        try mm.checkPaths()
+        return mm
     }
 
     /// manifest.json for this manifest (sorted keys; the signature is over `signedMessage`, so formatting is free).
@@ -168,6 +208,11 @@ public struct ModelManifest: Sendable, Hashable {
                                 "coreml_format": coremlFormat, "tokens": tokens, "tokens_sha256": tokensSHA256,
                                 "default_context": defaultContext, "contexts": contexts, "files": list]
         if let signature { o["signature"] = signature }
+        if !goldenTolerance.isEmpty {
+            o["golden_tolerance"] = goldenTolerance.mapValues {
+                ["token_diffs": $0.tokenDiffs, "site_flag_diffs": $0.siteFlagDiffs, "word_flag_diffs": $0.wordFlagDiffs]
+            }
+        }
         return (try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])) ?? Data()
     }
 
@@ -206,12 +251,22 @@ public struct ModelManifest: Sendable, Hashable {
     ///     contexts c16_l64,c24_l72,c24_l256
     ///     file <sha256> <size> <path> <platforms> <soc> <context> <role> <need> <encoding> <dsha256> <dsize> <dpath>
     ///
-    /// For `identity` files the three decoded fields are `-`.
-    public var signedMessage: Data {
+    /// For `identity` files the three decoded fields are `-`. With `golden_tolerance` (SDK 2.0.1), one line per build
+    /// after the header lines, sorted by the build key's bytes: `golden_tolerance <build> <token_diffs>
+    /// <site_flag_diffs> <word_flag_diffs>`; none when the field is absent.
+    public var signedMessage: Data { signedMessage(tolerance: true) }
+
+    func signedMessage(tolerance: Bool) -> Data {
         var s = "quranlab-model-manifest 3\n"
         s += "model_id \(modelID)\nfamily \(family)\nrevision \(revision)\nmin_sdk_version \(minSDKVersion)\n"
         s += "engine_format \(engineFormat)\ncoreml_format \(coremlFormat)\ntokens \(tokens)\ntokens_sha256 \(tokensSHA256)\n"
         s += "default_context \(defaultContext)\ncontexts \(contexts.joined(separator: ","))\n"
+        if tolerance {
+            for b in goldenTolerance.keys.sorted(by: { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }) {
+                let t = goldenTolerance[b]!
+                s += "golden_tolerance \(b) \(t.tokenDiffs) \(t.siteFlagDiffs) \(t.wordFlagDiffs)\n"
+            }
+        }
         for f in files.sorted(by: { Array($0.path.utf8).lexicographicallyPrecedes(Array($1.path.utf8)) }) {
             let d = f.decoded
             s += "file \(f.sha256) \(f.size) \(f.path) \(Self.platformField(f.platforms)) \(f.soc) \(f.context) "
@@ -315,17 +370,26 @@ public struct ManifestVerifier: Sendable {
     }
 
     /// The signature must verify when present, and be present when `required` (or the verifier requires it).
-    func verifySignature(_ m: ModelManifest, required: Bool = false) throws(RecognizerError) {
+    /// Checks the signature and returns the manifest as trusted: with `golden_tolerance` when the signature covers it,
+    /// without it (every build exact) when the field is there but only the rest is signed.
+    @discardableResult
+    func verifySignature(_ m: ModelManifest, required: Bool = false) throws(RecognizerError) -> ModelManifest {
         if let sig = m.signature {
             guard let raw = Data(base64Encoded: sig) else { throw .signatureInvalid }
-            let message = m.signedMessage
-            let ok = trustedKeys.contains { key in
-                guard let pk = try? Curve25519.Signing.PublicKey(rawRepresentation: key) else { return false }
-                return pk.isValidSignature(raw, for: message)
+            func ok(_ message: Data) -> Bool {
+                trustedKeys.contains { key in
+                    guard let pk = try? Curve25519.Signing.PublicKey(rawRepresentation: key) else { return false }
+                    return pk.isValidSignature(raw, for: message)
+                }
             }
-            guard ok else { throw .signatureInvalid }
+            if ok(m.signedMessage(tolerance: true)) { return m }
+            guard !m.goldenTolerance.isEmpty, ok(m.signedMessage(tolerance: false)) else { throw .signatureInvalid }
+            var unsigned = m
+            unsigned.goldenTolerance = [:]
+            return unsigned
         } else if required || requireSignature {
             throw .signatureInvalid
         }
+        return m
     }
 }

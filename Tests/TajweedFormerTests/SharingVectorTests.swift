@@ -48,6 +48,10 @@ final class SharingVectorTests: XCTestCase {
             return p
         }
         var finalGranulePosition: Int64 { inner.finalGranulePosition }
+        var beforePacket: ((Int64) -> Int?)? {
+            get { inner.beforePacket }
+            set { inner.beforePacket = newValue }
+        }
     }
 
     /// Hands back recorded packets, call by call: the Ogg layer alone.
@@ -67,6 +71,8 @@ final class SharingVectorTests: XCTestCase {
             return at < calls.count ? calls[at] : []
         }
         var finalGranulePosition: Int64 { granule }
+        /// Recorded packets keep their bitrate: the hook is not called.
+        var beforePacket: ((Int64) -> Int?)?
     }
 
     struct Run {

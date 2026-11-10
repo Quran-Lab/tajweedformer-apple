@@ -29,6 +29,8 @@ final class TajweedNeuralEngine {
     private(set) var take = TajweedHeads()
     /// Seconds spent in predictions, per chunk (for latency reporting).
     private(set) var chunkSeconds: [Double] = []
+    /// The error behind the last failed prediction (its domain and code go into incident reports).
+    private(set) var lastError: NSError?
 
     convenience init(_ build: TajweedModel.CoreMLBuild, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws(RecognizerError) {
         try self.init(model: build.package, keeps: build.keeps, front: build.frontFunction, back: build.backFunction,
@@ -109,6 +111,7 @@ final class TajweedNeuralEngine {
         pending.removeAll(keepingCapacity: true)
         take = TajweedHeads()
         chunkSeconds.removeAll()
+        lastError = nil
     }
 
     /// One chunk of `window` fbank frames: both functions, every head read out.
@@ -131,6 +134,7 @@ final class TajweedNeuralEngine {
             _ = try back.prediction(from: MLDictionaryFeatureProvider(dictionary: [crossName: cross[crossName]!, "st": cur["b:st"]!,
                                                                                    "zf_keepb": keeps["zf_keepb"]!]), options: bopt)
         } catch {
+            lastError = error as NSError
             throw .neuralEngineUnavailable("prediction failed: \(error.localizedDescription)")
         }
         var chunk: [String: [Float]] = [:]

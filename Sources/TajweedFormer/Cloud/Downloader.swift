@@ -34,9 +34,9 @@ struct CDNClient: Sendable {
             }
             throw error.recognizerError
         }
-        let m = try ModelManifest.parse(resp.body)
-        guard m.modelID == id.name else { throw .manifestInvalid("the CDN manifest is for \(m.modelID), not \(id.name)") }
-        try verifier.verifySignature(m, required: true)
+        let parsed = try ModelManifest.parse(resp.body)
+        guard parsed.modelID == id.name else { throw .manifestInvalid("the CDN manifest is for \(parsed.modelID), not \(id.name)") }
+        let m = try verifier.verifySignature(parsed, required: true)
         try m.checkCompatible()
         return m
     }

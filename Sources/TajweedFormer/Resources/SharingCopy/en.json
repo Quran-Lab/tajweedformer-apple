@@ -1,10 +1,10 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-07.2",
+ "version": "2026-11-09.1",
  "lang": "en",
  "dir": "ltr",
  "source_lang": "en",
- "consent_version": "share-2026-11-07b",
+ "consent_version": "share-2026-11-09",
  "delete_days": 0,
  "delete_timing": "immediate",
  "strings": {
@@ -13,7 +13,7 @@
   "sheet.hadith": "The Prophet, peace be upon him, said: \"When a person dies, his deeds come to an end except for three things: ongoing charity, beneficial knowledge, or a pious child who supplicates for him.\"",
   "sheet.hadith_ref": "Sahih Muslim 1631",
   "sheet.mistakes": "Your mistakes are the most valuable part. They teach the model to correct the next learner gently.",
-  "sheet.what": "The audio of your recitation sessions in this app, while it listens, the ayat you recited, and basic technical details such as the model version and device type. No name, no contacts, no location.",
+  "sheet.what": "The audio of your recitation sessions in this app, while it listens, and basic technical details such as the model version and device type. No name, no contacts, no location.",
   "sheet.who": "Quran Lab, a waqf. The models it trains are free for everyone, forever, and are never sold.",
   "sheet.control": "You can stop at any time and delete what you shared from the settings.",
   "sheet.share": "Share my recitations",
@@ -26,12 +26,21 @@
   "settings.toggle": "Share my recitations",
   "settings.what": "What is shared",
   "settings.delete": "Delete what I shared",
-  "what.detail": "When sharing is on, the audio of your recitation sessions in this app is sent to Quran Lab, with the ayah you recited, coarse technical details (model version, device type, system version, the day) and a random code for this install. Never your name, account, contacts, location or device identifiers. It is stored in the EU and used only to improve free Quran recitation models. Turning sharing off stops uploads at once, and you can delete everything you shared from the settings at any time: it is removed from Quran Lab's servers right away.",
+  "what.detail": "When sharing is on, the audio of your recitation sessions in this app is sent to Quran Lab, with coarse technical details (model version, device type, system version, the day) and a random code for this install. Never your name, account, contacts, location or device identifiers. It is stored in the EU and used only to improve free Quran recitation models. Turning sharing off stops uploads at once, and you can delete everything you shared from the settings at any time: it is removed from Quran Lab's servers right away.",
   "delete.confirm": "Your shared recitations will be deleted from Quran Lab's servers right away. This cannot be undone.",
   "delete.action": "Delete",
   "delete.cancel": "Cancel",
-  "delete.done": "Done. What you shared has been deleted from Quran Lab's servers and will be left out of future training.",
+  "delete.done": "Done. What you shared has been deleted from Quran Lab's servers. Copies already used to train a model are left out of future training.",
+  "delete.failed.title": "Could not delete",
+  "delete.failed.network": "We could not reach Quran Lab. Nothing was deleted. Check your connection and try again.",
+  "delete.retry": "Try again",
   "recovery.hint": "Keep this one-time code to delete what you shared if you lose this device: portal.quranlab.ai/delete",
+  "recovery.reveal": "Show my recovery code",
+  "recovery.copy": "Copy",
+  "recovery.copied": "Copied",
+  "recovery.keep": "Keep this code safe. It is the only way to delete what you shared from another device, and it works once.",
+  "recovery.used": "This recovery code was already used.",
+  "recovery.invalid": "This code is not valid. Check the words and try again.",
   "reask": "Your recitation today could help another learner tomorrow. Would you like to share it?",
   "impact.minutes": {
    "one": "You have shared {minutes} minute of recitation. May Allah reward you.",
@@ -50,7 +59,13 @@
  "review": {
   "back_translation": null,
   "back_translation_hadith_intro": null,
-  "drift": [],
+  "drift": [
+   {
+    "version": "2026-11-09.1",
+    "change": "removed the recited ayah from sheet.what and what.detail: the SDKs do not send it",
+    "method": "exact phrase removal from the reviewed 2026-11-07.3 text, no re-translation"
+   }
+  ],
   "translator_model": null
  }
 }

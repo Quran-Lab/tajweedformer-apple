@@ -10,3 +10,6 @@ TestAudio/
 *.f32
 .DS_Store
 !Tests/TajweedFormerTests/Fixtures/v4mini/**
+
+# the cross-SDK program delta vectors: tiny synthetic CPU files (not model weights), needed by ProgramDeltaTests
+!Tests/TajweedFormerTests/Fixtures/progdelta_vectors/**

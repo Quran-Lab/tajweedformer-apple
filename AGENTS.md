@@ -58,7 +58,7 @@ Copy the setup prompt from [portal.quranlab.ai](https://portal.quranlab.ai) and 
 
 ## At a glance
 
-- **What it is:** the Swift package `TajweedFormer` (SDK 2.0.0) for the Quran Lab TajweedFormer V4 model
+- **What it is:** the Swift package `TajweedFormer` (SDK 2.0.1) for the Quran Lab TajweedFormer V4 model
   (`Quran-Lab/tajweedformer-v4`, folder `sdk/v4.0`). It hosts only V4; the earlier phoneme models stay with the 1.x
   SDKs.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon. The Neural Engine backend needs iOS 18 or macOS 15; on older
@@ -70,7 +70,7 @@ Copy the setup prompt from [portal.quranlab.ai](https://portal.quranlab.ai) and 
 ```swift
 import TajweedFormer
 
-QuranLab.configure(key: "qlk_v1_...", options: .init(contributions: true))   // once, at launch
+QuranLab.configure(key: "qlk_v1_...")             // once, at launch
 
 let model = try await TajweedModel.load()          // this device's download profile, verified
 let r = try TajweedRecognizer(model: model, options: TajweedOptions(preset: .balanced, word: .general))
@@ -103,18 +103,17 @@ inflated, and a mismatch deletes both.
 
 | iPhone or Mac, default context | Before (one folder per context) | Now (estimates until measured) |
 |-|-|-|
-| iOS 18 / macOS 15, default | about 610 MB (three CoreML fp16 packages and three CPU engine folders), or 206 MB for the default context alone | about 125 MB: the CPU files of the context, ONE fp16 CoreML package for every context, its keep table and the correction file |
-| iOS 18 / macOS 15, `compactCoreML: true` | the same | about 60 MB: the same with the int8 package, for low-storage devices; slightly less accurate |
-| older systems | the same | about 56.5 MB: the CPU files only |
+| first install, any iPhone or Mac | about 610 MB (three CoreML fp16 packages and three CPU engine folders), or 206 MB for the default context alone | about 56.5 MB: the CPU files of the context only |
+| later, iOS 18 / macOS 15, in the background | (part of the first download) | on an unmetered network: ONE fp16 CoreML package for every context (about 120 MB, or about 76 MB when the model ships its program as a delta against the CPU weights already on the device), its keep table and the self-test set |
+| later, `compactCoreML: true` | the same | about 55 MB more: the int8 package instead, for low-storage devices; slightly less accurate |
 | another context later | another full folder | about 1 MB |
 
-The CPU engine's weights (`layers.zfw`, `frontend.zfw`) are not downloaded on iOS 18 / macOS 15: they are rebuilt on
-the device from the CoreML package's own int8 weights plus `coreml/engine.zfs` right after the download, byte for
-byte, and checked against the manifest's SHA-256 like any download. If the correction is missing or a rebuild fails,
-they are downloaded instead. A device holds one CoreML build: the default fp16 package, or with
-`QuranLab.Options(compactCoreML: true)` the int8 package (for low-storage devices; slightly less accurate); changing the
-option replaces the build on disk at the next install. `QuranLab.Options(neuralEngine: false)` downloads the CPU set
-only.
+The first install of a model fetches the CPU set only, so the first session can start as soon as possible; the
+Neural Engine's files come later (see "CPU first, then the accelerator"). A device holds one CoreML build: the default
+fp16 package, or with `QuranLab.Options(compactCoreML: true)` the int8 package (for low-storage devices; slightly
+less accurate); changing the option replaces the build on disk at the next promotion. `QuranLab.Options(neuralEngine:
+false)` never downloads a CoreML build. The correction file of 2.0.0 (`coreml/engine.zfs`, which rebuilt the CPU
+weights from the package) is no longer downloaded or used: with the CPU set first, the weights are already on disk.
 
 Sources, in order: `.bundle` (`QuranLabModels/v4.0/` in the app, decoded), `.cache` (the SDK's store), `.cdn`. The
 updater stages new revisions in the background and switches at the next load.
@@ -130,35 +129,64 @@ updater stages new revisions in the background and switches at the next load.
 The default context is `c16_l64` (320 ms chunks). `c8_l64` (160 ms chunks, 64 left frames) has no CoreML package: it
 always runs on the exact CPU engine, whichever backend is asked for, and it ships in the next V4.0 revision.
 
-CPU first, the Neural Engine as a verified upgrade. With `.automatic` (the default, no code needed):
+### CPU first, then the accelerator
 
-1. The exact CPU engine serves from the first take, always. Its weights are rebuilt from the CoreML package right
-   after the download, before any CoreML work starts.
-2. The CoreML package is prepared in the background, at low priority and with a timeout: the first load of the
-   context's functions with the Neural Engine allowed, which runs the on-device compiler. On macOS this starts once the
-   CPU engine is ready; on iOS after the first finished take, or earlier from the app's background task
-   (`QuranLab.registerAcceleratorPreparation(identifier:)`, a `BGProcessingTask` that waits for external power).
-3. A self-test before promotion, on the model folder's self-test set (`selftest/`, Basmala clips included): greedy
-   tokens identical to the exact engine's expected outputs on the clean clips, and flagged sites and flagged words
-   identical on every clip at the default settings (compared as sets both ways, so a missed flag on the
-   planted-mistake clip fails as surely as an extra one; its tokens are not compared, since a mistaken reading may
-   decode differently at int8 and fp16 while flagging the same sites);
-   no NaN or inf; per-chunk p90 at most half the chunk's audio, and the median below the CPU engine's in the same run.
-   A failure is kept for that model revision, OS build, device model and context and never retried for them; a new
-   revision or OS build prepares again.
-4. Promotion at the next take, never during one.
-5. Runtime guards: a chunk over three times its audio, a NaN or inf, three all-blank chunks in a row while the audio
-   has energy, or an exception sends the take back to the CPU engine (it re-runs there; chunks already handed out are
-   not handed out again) and keeps the CPU engine for the rest of the launch; a second trip on the same model revision
-   and OS build, in any launch, disables the package for them for good. A crash sentinel is written before every
-   load and first prediction; found at the next launch, it disables the package for that revision and OS build.
-   Thermal state serious or critical, and memory warnings, prefer the CPU engine.
-6. The signed config's deny-list forces the CPU engine per device class, OS version or model revision. Every
-   fallback, its reason and the time to ready go to telemetry.
+With `.automatic` (the default, no code needed):
+
+1. **First run.** The first install downloads only the CPU set. The first session runs on the exact CPU engine and
+   nothing is queued in front of it: the Neural Engine's work starts after the first session ends, or after 20 seconds
+   with no session. On every later launch the CPU engine serves until the Neural Engine is loaded and warm again; a
+   session never waits for it.
+2. **In the background,** one pipeline per model revision, context, build, OS build and device model, with its state
+   kept on disk after each stage (an app killed in the middle resumes at the next launch where it stopped):
+   download (the CoreML build, its keep table and the self-test set, on Wi-Fi or Ethernet only, resumable, every file
+   verified; when the model ships the build's `weight.bin` as a delta, the delta is downloaded and the program rebuilt
+   on the device from the CPU weights it already has, its SHA-256 checked against the signed manifest before CoreML
+   sees it, the full file downloaded instead if that fails), compile (the first load with the Neural Engine allowed: the on-device compiler, 10 minutes at most),
+   warm-up (silence and a self-test clip; no NaN or inf), golden test, measure, promote. It runs only while the device
+   is in good shape (not in Low Power Mode, battery at least 20 % or charging, thermal state nominal or fair) and it
+   waits otherwise. An app that registers `QuranLab.registerAcceleratorPreparation(identifier:)` (a
+   `BGProcessingTask` that waits for external power) also lets it run while the device is idle.
+3. **The golden test** decodes every clip of the model's self-test set (the Basmala clips and a planted mistake
+   included) through the Neural Engine and through the CPU engine, with the same streaming code a session uses: greedy
+   tokens identical on the clean clips, flagged sites and flagged words identical on every clip, no NaN or inf, and the
+   CPU engine's own results equal to the shipped expected file. A build may differ from the CPU engine by the
+   tolerance the signed manifest gives it (exact when it gives none), but a missed planted mistake always fails. It
+   runs only while no session runs; a session that
+   starts stops it, without counting a failure, and it runs again later. Speed is measured and reported, never a
+   reason to stay on the CPU: a build that passes is promoted.
+4. **The swap** happens only when a session starts, and only to a build that is loaded and warm: the app sees the
+   same API, the same results and faster chunks; `activeBackend` says which engine runs. A promoted build is kept with
+   its verdict: at the next launch it is loaded and warmed as soon as the recognizer is created, so the first session
+   normally starts on it; the golden test runs again only for a new model revision, OS build or build, or when the
+   program on disk changed or is gone.
+5. **Failing safe.** Any failure keeps the CPU engine and records the stage and the reason (`acceleratorState`
+   `.disabled(reason)`). A failure is retried for the same model revision and OS build after 1 hour, 6 hours and 24
+   hours, then not again; a golden-test mismatch, a NaN or a crash is never retried for them (a new model revision or
+   OS update tries again). A crash marker written around every compile, load and first inference turns a crash there
+   into such a failure at the next launch. The signed config's deny-list (`denylist`, and `accel_deny` rules matched
+   on the device model, chip, OS build and version, model revision and SDK version) keeps the Neural Engine off; a
+   promoted build goes back to the CPU at the next session boundary.
+6. **During a session**, every Neural Engine chunk is checked: an exception, a NaN or infinite value, a value outside
+   the heads' range, chunks that hear nothing while the audio has sound, or a chunk that misses its deadline (from
+   this device's measured chunk times, at most 300 ms; a call that does not return is abandoned). The session then
+   switches to the CPU engine at that chunk: the take's recent audio is replayed through it, the chunks already
+   handed out stay, and the session continues with no error. For a take the CPU can replay within about a quarter of a
+   second (a few seconds of audio on a phone, longer on a Mac) the result is exactly the CPU engine's; for a longer
+   take the CPU replays its last seconds and continues from the failed chunk. The build is then demoted for that model
+   revision and OS build and retested no sooner than a day later. The CPU engine is not kept loaded behind the Neural
+   Engine: its weights are rewritten into the CPU's fast layout when it loads, so a standby would hold about 64 MB of
+   memory for the whole session; it is opened again at the switch instead.
+7. **Telemetry** counts, per backend, model revision and context, the attempts, promotions, the stage and reason of
+   each failure, the compile time and the speedup, and the in-session switches with their cause and how long they
+   stalled (`promotions`, see [docs/platform-client.md](docs/platform-client.md)); every failure and switch is also
+   an issue report (`promotion_failed`, `accelerator_failover`), with the stage, the cause, the device model, OS build
+   and chip, and no audio, text or identifier.
 
 The app can watch it (`acceleratorState`: `.cpu`, `.preparing`, `.ready`, `.disabled(reason)`;
-`acceleratorStates()` streams changes), wait for it (`awaitReady(timeout:)`), or choose a backend: `.exact` always,
-`.neuralEngine` in debug builds (no self-test).
+`acceleratorStates()` streams changes), start it and wait for it (`awaitReady(timeout:)`), read the golden test's
+numbers (`acceleratorSelfTest`), or choose a backend: `.exact` always, `.neuralEngine` in debug builds (the build
+in the folder at once, without the pipeline).
 
 ## The three layers
 
@@ -189,26 +217,61 @@ taken.
 
 ## Quran Lab platform
 
-`QuranLab.configure(key:)` links the app to [portal.quranlab.ai](https://portal.quranlab.ai): registration, the signed
-config (refreshed within a minute of a portal change), issue reports (kind and code only), and telemetry.
+`QuranLab.configure(key:)` links the app to [portal.quranlab.ai](https://portal.quranlab.ai): registration (once per
+UTC day per install), the signed config (refreshed within a minute of a portal change), issue reports (kind and code
+only), and telemetry. What the SDK sends, when, and what an app can change is in
+[docs/platform-client.md](docs/platform-client.md), the same page in every TajweedFormer SDK.
 
-Telemetry is on by default and anonymous by construction: daily sums and histograms (backend and fallback reasons,
-device class, latency, real-time factor, sessions and minutes, surah coverage, presets in use, flag rates, margins and
-confidences, downloads), never audio, recognised text or any identifier. The signed config's `flags.analytics` turns
-it off for every install of an app; `analytics: .off` turns it off in code.
+Telemetry is on by default and anonymous by construction: sums and histograms per UTC day (backend and fallback
+reasons, device class, latency, real-time factor, sessions and minutes, surah coverage, presets in use, flag rates,
+margins and confidences, downloads, and since 2.0.1 launches, ayahs and words scored, per rule what was checked and
+flagged, and how often the sharing sheet was shown and answered), never audio, recognised text or any identifier.
+Since 2.0.1 it goes as deltas during the day: every 15 minutes while the app is in use, when it goes to the
+background, and at launch, each with a random `report_id` so a retry is counted once. The signed config's
+`flags.analytics` turns it off for every install of an app; `analytics: .off` turns it off in code.
 
 ## Sharing recitations
 
-One switch: `QuranLab.Options(contributions: true)` (and `audience: .children` for a children's app). The SDK then
-asks the learner at the right moment with its own consent sheet: never on first launch; after a finished session with
-feedback (`endSession(feedback:)`); after "Not now" at most twice more, each at least 7 sessions later. Add
-`.quranLabSharing()` to a SwiftUI view near the root, or present `SharingConsentViewController` (UIKit) or
-`SharingConsentViewControllerMac` (AppKit) when `endSession` returns `.ask`. `SharingSettingsView` gives the learner
-the switch, "What is shared", "Delete what I shared" and their recovery code. The copy ships in eight languages; apps
-may restyle it and choose the timing (`Contributions.askNow()`), never change what it discloses.
+Quran Lab decides per app whether the SDK offers sharing (the signed config's `flags.contributions`; since 2.0.1
+`QuranLab.Options.contributions` is ignored). Set `audience: .children` for a children's app. Offered is never consent:
+nothing is recorded for sharing or sent before the learner taps "Share". The SDK asks at the right moment: never on
+first launch; after a finished session with feedback (`endSession(feedback:)`); after "Not now" again, each time at
+least 7 sessions later, until the sheet was shown three times on the install in all, then never. Apps may choose the
+timing (`Contributions.askNow()`; it counts as one of the three). A yes ends asking for good: the learner keeps the
+consent version they agreed to across copy decks, your wording and SDK upgrades (a 2.0.0 grant keeps sharing under
+`share-2026-11-07b`, with no sheet), and every shared session carries that version. Turning sharing off after a yes
+never brings the sheet back; only the settings switch turns it on or off again. The copy ships in eight languages
+(deck `2026-11-09.1`, consent version `share-2026-11-09`). `SharingSettingsView` gives the learner the switch, "What is
+shared", "Delete what I shared" and their recovery code; stopping and deleting work whatever version the learner
+agreed to.
+
+How the ask looks:
+
+1. **Default.** The SDK's own sheet: add `.quranLabSharing()` to a SwiftUI view near the root, or present
+   `SharingConsentViewController` (UIKit) or `SharingConsentViewControllerMac` (AppKit) when `endSession` returns
+   `.ask`. On iOS an app that does neither still gets the sheet, over the front view controller.
+2. **Themed.** `SharingTheme` (accent, background, text and secondary text colours, corner radius, title and body
+   fonts): pass it to `.quranLabSharing(theme:)` and the views, or set `Contributions.theme` once (the sheet the SDK
+   presents by itself uses it). The words and the consent version do not change.
+3. **Your own UI.** `Contributions.setPresenter { moment in ... }`: the SDK hands each moment (`.ask`, `.thanks`) to
+   your closure on the main actor and shows nothing itself. Show the strings of `Contributions.copy`, with buttons of
+   equal weight, and report the learner's own tap with `Contributions.answer(share:guardianConfirmed:)`. The SDK
+   counts the asks and keeps the same rules (three in all) as for its own sheet.
+4. **Your own wording.** `try Contributions.setWording(["sheet.what": "...", ...])` (deck keys; a plural line by
+   category, `impact.minutes.one`) before the first session, at every launch. A learner who agrees from then on
+   agrees to your words: their consent version is `custom-` and 24 hex digits of the words' hash, and every session
+   they share carries it and `consent_text_sha256`. A learner who agreed earlier is not asked again and keeps the
+   version (and hash) they agreed to.
+   `Contributions.consentTextSHA256` and `Contributions.consentText` give you the hash and the canonical text to send
+   to Quran Lab. An unknown key or an empty text throws `invalidArgument`. Your words must still say that the audio
+   of recitation sessions is sent to Quran Lab, what else is sent, what it is used for, and how to stop and delete.
 
 While the learner shares, every take is uploaded in full as it runs: Ogg Opus, mono, 48 kHz, in segments of 10, 20, 40
-and then 60 seconds, PUT to presigned URLs from a persistent outbox that survives force-quit and reboot. Deleting is
+and then 60 seconds, PUT to presigned URLs from a persistent outbox that survives force-quit and reboot. On a bad
+network the SDK lowers the bitrate of the audio still to be encoded (192, 96, 64, 32 kbit/s: a network failure of an
+upload, or 120 s or more of closed audio waiting when a segment closes, one step down; three uploads in a row with at
+most 30 s waiting, one step up); a change takes effect at the next segment, and `Contribution.segmentBitrates` lists
+each segment's bitrate. Details: [docs/platform-client.md](docs/platform-client.md). Deleting is
 signed with a P-256 key made on the device (in the Secure Enclave where there is one): no app key or token can delete
 a learner's recordings, and there is no call to do so for another learner. On a Mac without App Attest support
 (`DCAppAttestService.isSupported` false), the SDK runs unattested and sharing waits until Quran Lab opens the
@@ -231,7 +294,7 @@ tests use.
 
 | Path | Contents |
 |-|-|
-| `Sources/TajweedFormer/Model` | the manifest, the download profile, the installer, gzip, the correction rebuild, the store |
+| `Sources/TajweedFormer/Model` | the manifest, the download profile, the installer, gzip, the store |
 | `Sources/TajweedFormer/Tajweed` | the recognizer, both backends, the layers, settings and the scorer |
 | `Sources/TajweedFormer/Cloud` | token and App Attest, config, registration, telemetry, issues, updates, the sharing outbox |
 | `Sources/TajweedFormer/Sharing` | the consent state and views, the copy decks, the device key, the Ogg Opus writer |

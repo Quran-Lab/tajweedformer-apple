@@ -29,6 +29,8 @@ public struct Contribution: Sendable, Hashable, Identifiable {
     public let attempts: Int
     /// Why the last attempt did not finish; nil once it has.
     public let lastError: String?
+    /// The bitrate (bit/s) of each closed segment, in segment order (2.0.1: the adaptive bitrate, 192000 to 32000).
+    public let segmentBitrates: [Int]
 }
 
 /// The random contributor id of this install: 128 bits, 32 lowercase hex, in the Keychain (this
@@ -154,9 +156,11 @@ struct ContributionClient: Sendable {
     /// `input_sample_rate` the capture rate (the SDK resamples anything else to 48 kHz first), and
     /// `input_route` the kind of input (`AudioRoute`, no device names). A session has one input
     /// rate: the recognizer ends a session whose input rate changes, so no mixed-rate field.
+    /// `consentTextSHA256`: the hash of the app's own consent wording the learner agreed to (2.0.1); sent only then,
+    /// next to `consent_version` (a server before 2.0.1 refuses unknown fields).
     static func session(modelRevision: String?, backend: String, weightsSHA256: String?, consentVersion: String?,
                         contributor: String, day: String, inputSampleRate: Int, inputRoute: String,
-                        contributorKey: String? = nil, recoveryHash: String? = nil) -> Data {
+                        contributorKey: String? = nil, recoveryHash: String? = nil, consentTextSHA256: String? = nil) -> Data {
         var o: [String: Any] = [
             "format": 1,
             "audio": ["codec": "opus", "container": "ogg", "sample_rate": Int(OggOpusWriter.rate), "channels": 1,
@@ -169,6 +173,7 @@ struct ContributionClient: Sendable {
             "os_major": DeviceContext.osMajor,
         ]
         if let consentVersion { o["consent_version"] = consentVersion }
+        if let consentTextSHA256, consentVersion?.hasPrefix("custom-") == true { o["consent_text_sha256"] = consentTextSHA256 }
         // the learner's deletion credential: the device key's public half and the hash of the
         // recovery code; the server binds them to the contributor once
         if let contributorKey { o["contributor_key"] = contributorKey }
@@ -186,12 +191,14 @@ enum ShareFiles {
     static let end = "end.json"
     static func name(_ n: Int) -> String { String(format: "seg-%05d", n) }
 
-    /// A closed segment: its size and hash, and where the stream stood.
+    /// A closed segment: its size and hash, where the stream stood, and the bitrate it was encoded at (absent in
+    /// markers of SDKs before 2.0.1, which encoded at 192000).
     struct Marker: Codable, Sendable {
         var n: Int
         var bytes: Int64
         var sha256: String
         var granule: Int64
+        var bitrate: Int?
     }
 
     struct End: Codable, Sendable {
@@ -199,8 +206,12 @@ enum ShareFiles {
         var completed: Bool
     }
 
+    /// Written when the capture starts and again as each segment opens, so recovery of a killed capture knows the
+    /// bitrate of the segment it closes.
     struct Capture: Codable, Sendable {
         var preSkip: Int
+        /// The bitrate of each segment opened so far, in order.
+        var bitrates: [Int]?
     }
 
     static func sha256(_ url: URL) -> (Int64, String)? {
@@ -224,10 +235,28 @@ enum ShareFiles {
     }
 
     /// Closes segment `n`: its marker, from the files as they are on disk.
-    static func mark(_ folder: URL, n: Int, granule: Int64) throws {
+    static func mark(_ folder: URL, n: Int, granule: Int64, bitrate: Int?) throws {
         let base = folder.appendingPathComponent(name(n))
         guard let (bytes, sha) = sha256(base.appendingPathExtension("opus")) else { throw CocoaError(.fileReadNoSuchFile) }
-        try write(Marker(n: n, bytes: bytes, sha256: sha, granule: granule), base.appendingPathExtension("json"))
+        try write(Marker(n: n, bytes: bytes, sha256: sha, granule: granule, bitrate: bitrate), base.appendingPathExtension("json"))
+    }
+
+    /// Seconds of audio in closed segments not uploaded yet, over every session under `root` (an uploaded segment's
+    /// audio file is gone, its marker stays): segment n lasts (granule n - granule n-1) / 48000, segment 1 from 0.
+    static func backlogSeconds(root: URL) -> Double {
+        let fm = FileManager.default
+        let names = (try? fm.contentsOfDirectory(atPath: root.path)) ?? []
+        var samples: Int64 = 0
+        for id in names where id.count == 32 {
+            let folder = root.appendingPathComponent(id, isDirectory: true)
+            var previous: Int64 = 0
+            for m in markers(folder) {
+                let audio = folder.appendingPathComponent(name(m.n)).appendingPathExtension("opus")
+                if fm.fileExists(atPath: audio.path) { samples += max(0, m.granule - previous) }
+                previous = m.granule
+            }
+        }
+        return Double(samples) / 48_000
     }
 
     static func markers(_ folder: URL) -> [Marker] {
@@ -263,7 +292,8 @@ enum ShareFiles {
                 try? h.truncate(atOffset: UInt64(keep))
                 try? h.close()
             }
-            try? mark(folder, n: n, granule: granule)
+            let bitrate: Int? = cap.bitrates.flatMap { (b: [Int]) -> Int? in n >= 1 && n <= b.count ? b[n - 1] : nil }
+            try? mark(folder, n: n, granule: granule, bitrate: bitrate)
         }
         marks = markers(folder)
         guard let last = marks.last else {
@@ -320,8 +350,12 @@ final class ShareCapture {
     private var writer: OggOpusWriter?
     private var segments = 0
     private var failed = false
+    /// The bitrate of each segment opened so far (the capture file keeps them for recovery).
+    private var bitrates: [Int] = []
+    private var preSkip = 0
 
-    init(outbox: ContributionOutbox, consentVersion: String?, modelRevision: String?, backend: String, weightsSHA256: String?) {
+    init(outbox: ContributionOutbox, consentVersion: String?, consentTextSHA256: String? = nil, modelRevision: String?, backend: String,
+         weightsSHA256: String?) {
         self.outbox = outbox
         id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         folder = outbox.root.appendingPathComponent(id, isDirectory: true)
@@ -332,7 +366,8 @@ final class ShareCapture {
         session = { rate, route in
             ContributionClient.session(modelRevision: modelRevision, backend: backend, weightsSHA256: weights,
                                        consentVersion: consentVersion, contributor: contributor, day: day,
-                                       inputSampleRate: rate, inputRoute: route, contributorKey: key, recoveryHash: recovery)
+                                       inputSampleRate: rate, inputRoute: route, contributorKey: key, recoveryHash: recovery,
+                                       consentTextSHA256: consentTextSHA256)
         }
         let id = self.id
         Self.active.withLock { _ = $0.insert(id) }
@@ -351,22 +386,35 @@ final class ShareCapture {
             let folder = self.folder
             let w = try OggOpusWriter(segmentURL: { n in folder.appendingPathComponent(ShareFiles.name(n)).appendingPathExtension("opus") },
                                       plan: SegmentPlan.seconds, inputRate: rate) { [unowned self] seg in self.closed(seg) }
-            try? ShareFiles.write(ShareFiles.Capture(preSkip: w.preSkip), folder.appendingPathComponent(ShareFiles.capture))
+            // 2.0.1: each segment opens at the ladder's bitrate in force then
+            let ladder = outbox.ladder
+            w.bitrateForSegment = { (_: Int) -> Int in ladder.bitrate }
+            w.onSegmentOpen = { [unowned self] (n: Int, bps: Int) in self.opened(n, bitrate: bps) }
+            preSkip = w.preSkip
+            try? ShareFiles.write(ShareFiles.Capture(preSkip: w.preSkip, bitrates: []), folder.appendingPathComponent(ShareFiles.capture))
             writer = w
         }
         guard writer?.inputRate == rate else { return }
         try writer?.append(mono)
     }
 
-    /// A segment closed: its marker is written and the outbox hears of it.
+    /// A segment opened: its bitrate goes to the capture file before any of its audio is on disk.
+    private func opened(_ n: Int, bitrate: Int) {
+        if bitrates.count == n - 1 { bitrates.append(bitrate) }
+        try? ShareFiles.write(ShareFiles.Capture(preSkip: preSkip, bitrates: bitrates), folder.appendingPathComponent(ShareFiles.capture))
+    }
+
+    /// A segment closed: its marker is written, the ladder hears of the outbox's backlog (before the next segment
+    /// opens), and the outbox of the segment.
     private func closed(_ seg: OggSegment) {
         segments = seg.n
         do {
-            try ShareFiles.mark(folder, n: seg.n, granule: seg.granule)
+            try ShareFiles.mark(folder, n: seg.n, granule: seg.granule, bitrate: seg.bitrate)
         } catch {
             failed = true
             return
         }
+        self.outbox.ladder.segmentClosed(backlogSeconds: ShareFiles.backlogSeconds(root: self.outbox.root))
         let outbox = self.outbox
         Task.detached(priority: .utility) { await outbox.poke() }
     }

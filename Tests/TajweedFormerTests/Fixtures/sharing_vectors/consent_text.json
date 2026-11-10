@@ -1,0 +1,88 @@
+{
+ "about": "SDK 2.0.1 custom consent wording (make_consent_text.py): from the deck's consent_version and the app's overrides, the canonical text, consent_text_sha256 and consent_version every SDK must derive.",
+ "refused": [
+  {
+   "overrides": {
+    "sheet.nope": "x"
+   },
+   "why": "unknown key"
+  },
+  {
+   "overrides": {
+    "sheet.what": "  "
+   },
+   "why": "blank text"
+  },
+  {
+   "overrides": {
+    "sheet.what": ""
+   },
+   "why": "empty text"
+  }
+ ],
+ "cases": [
+  {
+   "name": "no overrides: the deck's version",
+   "base": "share-2026-11-09",
+   "overrides": {},
+   "canonical_utf8_hex": null,
+   "consent_version": "share-2026-11-09",
+   "consent_text_sha256": null
+  },
+  {
+   "name": "one disclosure line reworded",
+   "base": "share-2026-11-09",
+   "overrides": {
+    "sheet.what": "Your recitation audio and the app's version. Nothing else."
+   },
+   "canonical_utf8_hex": "717572616e6c61622e636f6e73656e742d746578742f310a626173652073686172652d323032362d31312d30390a73686565742e7768617409596f75722072656369746174696f6e20617564696f20616e64207468652061707027732076657273696f6e2e204e6f7468696e6720656c73652e0a",
+   "consent_version": "custom-df8c4e50965be0005aaca5d6",
+   "consent_text_sha256": "df8c4e50965be0005aaca5d6ad8a2692efac1367c91bab97a50cf985d3c294d4"
+  },
+  {
+   "name": "several keys, given out of order",
+   "base": "share-2026-11-09",
+   "overrides": {
+    "sheet.title": "Help other learners",
+    "sheet.share": "Share",
+    "sheet.not_now": "Not now"
+   },
+   "canonical_utf8_hex": "717572616e6c61622e636f6e73656e742d746578742f310a626173652073686172652d323032362d31312d30390a73686565742e6e6f745f6e6f77094e6f74206e6f770a73686565742e73686172650953686172650a73686565742e7469746c650948656c70206f74686572206c6561726e6572730a",
+   "consent_version": "custom-a33668d3d103a75b669688e4",
+   "consent_text_sha256": "a33668d3d103a75b669688e45d3a674fc52a754ee197dd502e88e30baab0e0ab"
+  },
+  {
+   "name": "escapes: newline, tab, backslash, carriage return",
+   "base": "share-2026-11-09",
+   "overrides": {
+    "sheet.body": "Line one\nLine two\tTabbed \\ slash\r end"
+   },
+   "canonical_utf8_hex": "717572616e6c61622e636f6e73656e742d746578742f310a626173652073686172652d323032362d31312d30390a73686565742e626f6479094c696e65206f6e655c6e4c696e652074776f5c74546162626564205c5c20736c6173685c7220656e640a",
+   "consent_version": "custom-fe56202ebe4a883a5cd2524a",
+   "consent_text_sha256": "fe56202ebe4a883a5cd2524ae4c35664cbfc0044e957a4bfb45766f505fcce50"
+  },
+  {
+   "name": "non-Latin text and a plural category",
+   "base": "share-2026-11-09",
+   "overrides": {
+    "sheet.title": "شارك تلاوتك",
+    "impact.minutes.other": "{minutes} dakika paylastınız."
+   },
+   "canonical_utf8_hex": "717572616e6c61622e636f6e73656e742d746578742f310a626173652073686172652d323032362d31312d30390a696d706163742e6d696e757465732e6f74686572097b6d696e757465737d2064616b696b61207061796c617374c4b16ec4b17a2e0a73686565742e7469746c6509d8b4d8a7d8b1d98320d8aad984d8a7d988d8aad9830a",
+   "consent_version": "custom-782aee5c566bd7af6fe0e486",
+   "consent_text_sha256": "782aee5c566bd7af6fe0e4867676da5b29bcf199ae77d1d47aa7061959962384"
+  },
+  {
+   "name": "key order is by UTF-8 bytes, not insertion",
+   "base": "share-2026-11-09",
+   "overrides": {
+    "what.detail": "Detail.",
+    "delete.confirm": "Sure?",
+    "sheet.who": "Quran Lab."
+   },
+   "canonical_utf8_hex": "717572616e6c61622e636f6e73656e742d746578742f310a626173652073686172652d323032362d31312d30390a64656c6574652e636f6e6669726d09537572653f0a73686565742e77686f09517572616e204c61622e0a776861742e64657461696c0944657461696c2e0a",
+   "consent_version": "custom-11772b3ebceb187afd8315d1",
+   "consent_text_sha256": "11772b3ebceb187afd8315d145b60771be960e191c51bd801925becbcf69d04c"
+  }
+ ]
+}

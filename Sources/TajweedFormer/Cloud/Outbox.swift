@@ -39,6 +39,9 @@ public actor ContributionOutbox {
 
     nonisolated let root: URL
     nonisolated let storage: URL
+    /// 2.0.1: the bitrate shared sessions are encoded at, from how the uploads go (one per outbox, in memory: a new
+    /// process starts at the top).
+    nonisolated let ladder: BitrateLadder
     private let client: ContributionClient
     private let http: HTTPClient
     private let tokens: TokenProvider?
@@ -51,12 +54,14 @@ public actor ContributionOutbox {
     private var offline: Set<String> = []
     private var running: Task<Void, Never>?
     private var again = false
+    private var againIgnoringBackoff = false
     private var wake: Task<Void, Never>?
     private var watchers: [UUID: AsyncStream<Contribution>.Continuation] = [:]
 
     init(storage: URL, http: HTTPClient, apiURL: URL, tokens: TokenProvider?, config: ConfigStore, options: CloudOptions,
-         app: AppIdentity, clock: @escaping @Sendable () -> Date) {
+         app: AppIdentity, clock: @escaping @Sendable () -> Date, ladder: BitrateLadder = BitrateLadder()) {
         self.storage = storage
+        self.ladder = ladder
         root = storage.appendingPathComponent("outbox")
         self.http = http
         client = ContributionClient(http: http, apiURL: apiURL)
@@ -134,19 +139,23 @@ public actor ContributionOutbox {
     func drain(ignoringBackoff: Bool = false) async {
         if running != nil {
             again = true
+            // the pass that runs for this request honours it, whichever caller starts that pass
+            againIgnoringBackoff = againIgnoringBackoff || ignoringBackoff
             while let t = running { await t.value }
             if !again { return }
         }
+        let ignore = ignoringBackoff || againIgnoringBackoff
         again = false
+        againIgnoringBackoff = false
         let t = Task {
             await self.reconcile()
-            await self.pass(ignoringBackoff: ignoringBackoff)
+            await self.pass(ignoringBackoff: ignore)
             self.scheduleWake()
             self.running = nil
         }
         running = t
         await t.value
-        if again { await drain(ignoringBackoff: ignoringBackoff) }
+        if again { await drain() }
     }
 
     private func pass(ignoringBackoff: Bool) async {
@@ -156,7 +165,7 @@ public actor ContributionOutbox {
         let due = records.values.filter { $0.state == .active && (ignoringBackoff || ($0.nextAttempt ?? .distantPast) <= now) }
             .sorted { $0.seq < $1.seq }.map(\.id)
         guard !due.isEmpty else { return }
-        if config.current?.flags.contributions == false {
+        if config.current?.flags.contributions != true {
             for id in due { note(id, "sharing is turned off for this app; waiting") }
             return
         }
@@ -284,11 +293,13 @@ public actor ContributionOutbox {
         do throws(CloudError) {
             resp = try await http.send(request)
         } catch {
+            ladder.uploadFailed()
             retry(id, "\(error)")
             offline.insert(id)
             return nil
         }
         if (200..<300).contains(resp.status) { return resp }
+        if resp.status >= 500 || resp.status == 408 { ladder.uploadFailed() }
         let o = (try? JSONSerialization.jsonObject(with: resp.body)) as? [String: Any]
         let code = o?["error"] as? String ?? "http_\(resp.status)"
         let message = o?["message"] as? String ?? ""
@@ -312,16 +323,21 @@ public actor ContributionOutbox {
         guard var rec = records[id], rec.state == .active else { return true }
         switch result {
         case .failure(let e):
+            ladder.uploadFailed()
             retry(id, "PUT \(name): \(e)")
             return false
         case .success(let resp) where (200..<300).contains(resp.status):
             rec.uploaded.insert(name)
             rec.urls?.removeAll { ShareFiles.name($0.n) + ".opus" == name }
             rec.lastError = nil
+            // an upload went through: later segments need not wait for an earlier failure's backoff
+            rec.nextAttempt = nil
             save(rec)
             try? FileManager.default.removeItem(at: folder(id).appendingPathComponent(name))
+            ladder.uploadOk(backlogSeconds: ShareFiles.backlogSeconds(root: root))
             return true
         case .success(let resp):
+            if resp.status >= 500 || resp.status == 408 { ladder.uploadFailed() }
             // 403: the URL expired (R2: "Request has expired") or its signature is no longer valid
             // (the Worker's R2 key was rotated): fresh URLs from the same segment, and again
             rec.attempts += 1
@@ -436,7 +452,8 @@ public actor ContributionOutbox {
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["day"] as? String ?? ""
         return Contribution(id: r.id, segments: markers.count, bytes: markers.reduce(0) { $0 + $1.bytes },
                             durationMs: end?.durationMs ?? 0, day: day, completed: end?.completed, status: status,
-                            attempts: r.attempts, lastError: r.lastError)
+                            attempts: r.attempts, lastError: r.lastError,
+                            segmentBitrates: markers.map { (m: ShareFiles.Marker) -> Int in m.bitrate ?? OpusSettings.shared.bitrate })
     }
 
     private func save(_ rec: Record) {

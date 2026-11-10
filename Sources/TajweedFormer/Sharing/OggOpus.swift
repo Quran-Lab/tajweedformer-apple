@@ -20,6 +20,8 @@ struct OggSegment: Sendable {
     let granule: Int64
     /// It holds the end of the stream.
     let last: Bool
+    /// The bitrate (bit/s) every packet of the segment was encoded at.
+    let bitrate: Int
 }
 
 /// Writes one session's audio as Ogg Opus while the session runs: mono, coded at 48 kHz with
@@ -66,6 +68,19 @@ final class OggOpusWriter {
     private(set) var lastGranule: Int64 = 0
     /// The input with non-finite samples zeroed, reused between calls.
     private var clean: [Float] = []
+    /// 2.0.1: the bitrate (bit/s) segment `n` opens with, asked when its first packet is about to be encoded (the
+    /// sharing capture asks the `BitrateLadder`); nil keeps `settings.bitrate`. Every packet of a segment has its bitrate.
+    var bitrateForSegment: ((Int) -> Int)?
+    /// Hears each segment open, with its number and bitrate, before any of its packets is encoded.
+    var onSegmentOpen: ((Int, Int) -> Void)?
+    /// The bitrate each segment was encoded at, by segment number.
+    private(set) var segmentBitrates: [Int: Int] = [:]
+    /// Segments opened (their first packet encoded or about to be).
+    private var opened = 0
+    /// The packet that opens the next segment; nil when no further segment opens (one file).
+    private var nextOpenPacket: Int64? = 0
+    /// 48 kHz samples given to the encoder.
+    private var fed: Int64 = 0
 
     /// Segmented: `segmentURL(n)` names segment n's file, `onSegment` hears each one closed.
     /// `encoder` replaces libopus (tests); it is given 48 kHz input.
@@ -89,6 +104,7 @@ final class OggOpusWriter {
         }
         try page([Self.opusHead(preSkip: self.encoder.preSkip, inputRate: Int(inputRate))], granule: 0, flags: 0x02, audio: false)
         try page([Self.opusTags(vendor: vendor)], granule: 0, flags: 0, audio: false)
+        self.encoder.beforePacket = { [unowned self] (packet: Int64) -> Int? in self.opening(packet: packet) }
     }
 
     /// One file.
@@ -123,12 +139,54 @@ final class OggOpusWriter {
         try clean.withUnsafeBufferPointer { (c) throws(RecognizerError) in
             let input = UnsafeBufferPointer(rebasing: c[0..<n])
             if let resampler {
-                try resampler.process(input) { (x) throws(RecognizerError) in packets += try encoder.encode(x) }
+                try resampler.process(input) { (x) throws(RecognizerError) in try self.feedEncoder(x) }
             } else {
-                packets += try encoder.encode(input)
+                try self.feedEncoder(input)
             }
         }
         try writePages(final: false)
+    }
+
+    /// Encodes 48 kHz input. At a segment boundary it stops, writes the closing segment's last pages (closing it: the
+    /// capture writes its marker and the ladder hears of it) and only then encodes the next segment's first packet,
+    /// which takes the segment's bitrate (`opening(packet:)`).
+    private func feedEncoder(_ x: UnsafeBufferPointer<Float>) throws(RecognizerError) {
+        var at = 0
+        while at < x.count {
+            var n = x.count - at
+            let cut = nextCut()
+            if let cut { n = min(n, Int(cut - fed)) }
+            packets += try encoder.encode(UnsafeBufferPointer(rebasing: x[at..<(at + n)]))
+            fed += Int64(n)
+            at += n
+            if let cut, fed == cut { try writePages(final: false) }
+        }
+    }
+
+    /// The 48 kHz sample count after which the next segment boundary falls (every packet of the closing segment
+    /// complete, none of the next one begun); nil without a segment plan.
+    private func nextCut() -> Int64? {
+        guard !plan.isEmpty, var first = nextOpenPacket else { return nil }
+        var n = opened + 1
+        let frames = Int64(packetFrames)
+        while first * frames <= fed {
+            guard let limit = segmentLimit(n) else { return nil }
+            first += Int64(limit)
+            n += 1
+        }
+        return first * frames
+    }
+
+    /// The encoder is about to encode `packet`: when it opens a segment, that segment's bitrate.
+    private func opening(packet: Int64) -> Int? {
+        guard let first = nextOpenPacket, packet == first else { return nil }
+        opened += 1
+        let n = opened
+        nextOpenPacket = segmentLimit(n).map { (limit: Int) -> Int64 in packet + Int64(limit) }
+        let bps = bitrateForSegment?(n) ?? settings.bitrate
+        segmentBitrates[n] = bps
+        onSegmentOpen?(n, bps)
+        return bps
     }
 
     /// Flushes the resampler and the encoder, writes the last pages and closes the last segment.
@@ -137,7 +195,7 @@ final class OggOpusWriter {
     func finish() throws(RecognizerError) -> Int {
         if !ended {
             ended = true
-            try resampler?.flush { (x) throws(RecognizerError) in packets += try encoder.encode(x) }
+            try resampler?.flush { (x) throws(RecognizerError) in try self.feedEncoder(x) }
             packets += try encoder.flush()
             try writePages(final: true)
             close(last: true)
@@ -191,7 +249,8 @@ final class OggOpusWriter {
         guard let h = handle else { return }
         try? h.close()
         handle = nil
-        onSegment(OggSegment(n: segment, url: segmentURL(segment), granule: lastGranule, last: last))
+        onSegment(OggSegment(n: segment, url: segmentURL(segment), granule: lastGranule, last: last,
+                             bitrate: segmentBitrates[segment] ?? settings.bitrate))
     }
 
     // MARK: Ogg

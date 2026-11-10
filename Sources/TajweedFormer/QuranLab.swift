@@ -35,8 +35,8 @@ public enum QuranLab {
         public var storageDirectory: URL?
         /// Quran Lab's servers. Nil: the SDK never contacts a server (models from the bundle, a directory or the store).
         public var cloud: CloudOptions?
-        /// Recording sharing (one switch): the SDK asks learners at the right moment with its own consent sheet and,
-        /// when they agree, shares every session in full in the background. Off by default.
+        /// Ignored since 2.0.1: whether the SDK offers recording sharing (its own consent sheet, then every session in
+        /// full for a learner who said "Share") is Quran Lab's decision per app, in the signed config.
         public var contributions: Bool
         /// The app's audience: `.children` shows the parent or guardian variant of the consent sheet.
         public var audience: Audience
@@ -161,6 +161,12 @@ public enum QuranLab {
         guard c.options.analytics != .off else { return }
         c.options.analyticsSink?.record(event)
         cloud?.record(event)
+    }
+
+    /// Counts a 2.0.1 telemetry counter (launches, the sharing sheet's asks and answers).
+    static func count(_ c: AnalyticsStore.Counter) {
+        guard configuration.options.analytics != .off else { return }
+        cloud?.analytics.count(c)
     }
 
     /// Queues an issue report for a fault (never for cancellation or misuse).

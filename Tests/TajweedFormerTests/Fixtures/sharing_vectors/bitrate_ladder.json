@@ -1,0 +1,371 @@
+{
+ "about": "SDK 2.0.1 adaptive Opus bitrate ladder (make_bitrate_ladder.py). Each case: a fresh ladder (192000), the events in order, after each the bitrate the next segment is encoded at. upload_failed: a network failure of an upload request; upload_ok: a segment PUT answered 2xx (backlog_s after it); segment_closed: a capture closed a segment (backlog_s with it).",
+ "rungs": [
+  192000,
+  96000,
+  64000,
+  32000
+ ],
+ "start": 192000,
+ "up_streak": 3,
+ "up_max_backlog_s": 30,
+ "down_backlog_s": 120,
+ "cases": [
+  {
+   "name": "steady good network: stays at the top",
+   "steps": [
+    {
+     "event": "segment_closed",
+     "backlog_s": 10,
+     "expect": 192000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 20,
+     "expect": 192000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 40,
+     "expect": 192000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    }
+   ]
+  },
+  {
+   "name": "failures step down to the floor and stop there",
+   "steps": [
+    {
+     "event": "upload_failed",
+     "expect": 96000
+    },
+    {
+     "event": "upload_failed",
+     "expect": 64000
+    },
+    {
+     "event": "upload_failed",
+     "expect": 32000
+    },
+    {
+     "event": "upload_failed",
+     "expect": 32000
+    },
+    {
+     "event": "upload_failed",
+     "expect": 32000
+    }
+   ]
+  },
+  {
+   "name": "three successes with a small backlog step up one rung",
+   "steps": [
+    {
+     "event": "upload_failed",
+     "expect": 96000
+    },
+    {
+     "event": "upload_failed",
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 5,
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 5,
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 5,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 5,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 5,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 5,
+     "expect": 192000
+    }
+   ]
+  },
+  {
+   "name": "a failure resets the success streak",
+   "steps": [
+    {
+     "event": "upload_failed",
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 96000
+    },
+    {
+     "event": "upload_failed",
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 96000
+    }
+   ]
+  },
+  {
+   "name": "successes with a large backlog do not step up",
+   "steps": [
+    {
+     "event": "upload_failed",
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 31,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 60,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 90,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 30,
+     "expect": 192000
+    }
+   ]
+  },
+  {
+   "name": "boundaries: backlog 30 steps up, 120 steps down, 119 does not",
+   "steps": [
+    {
+     "event": "upload_failed",
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 30,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 30,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 30,
+     "expect": 192000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 119,
+     "expect": 192000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 120,
+     "expect": 96000
+    }
+   ]
+  },
+  {
+   "name": "the outbox backs up while offline: one rung per closed segment",
+   "steps": [
+    {
+     "event": "segment_closed",
+     "backlog_s": 10,
+     "expect": 192000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 30,
+     "expect": 192000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 70,
+     "expect": 192000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 130,
+     "expect": 96000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 190,
+     "expect": 64000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 250,
+     "expect": 32000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 310,
+     "expect": 32000
+    }
+   ]
+  },
+  {
+   "name": "the streak is capped: at the top it waits for the next step down",
+   "steps": [
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    },
+    {
+     "event": "segment_closed",
+     "backlog_s": 125,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    }
+   ]
+  },
+  {
+   "name": "recovery after an outage: down to 32k, back up to 192k",
+   "steps": [
+    {
+     "event": "upload_failed",
+     "expect": 96000
+    },
+    {
+     "event": "upload_failed",
+     "expect": 64000
+    },
+    {
+     "event": "upload_failed",
+     "expect": 32000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 32000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 32000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 64000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 96000
+    },
+    {
+     "event": "upload_ok",
+     "backlog_s": 0,
+     "expect": 192000
+    }
+   ]
+  }
+ ]
+}

@@ -16,11 +16,21 @@ public final class QuranLabCloud: Sendable {
     let config: ConfigStore
     let analytics: AnalyticsStore
     let issues: IssueQueue
+    /// Accelerator incidents: the first of each kind per revision, kept until accepted, and the daily dedupe.
+    let incidents: IncidentLedger
     let store: ModelStore
     public let updater: ModelUpdater
     /// Shared sessions waiting to upload, and the receipts of those that went.
     public let outbox: ContributionOutbox
-    private let lastFlushDay = Locked<String?>(nil)
+    let clock: @Sendable () -> Date
+    /// When the last telemetry delta was sealed (every send point resets the 15 minutes).
+    private let lastSeal: Locked<Date>
+    private let deltaTimer = Locked<Task<Void, Never>?>(nil)
+    private struct Lifecycle {
+        var background = false
+        var observing = false
+    }
+    private let lifecycle = Locked(Lifecycle())
     private let stopped = Locked(false)
     private let signatureReported = Locked<String?>(nil)
 
@@ -35,6 +45,8 @@ public final class QuranLabCloud: Sendable {
         self.storage = storage
         self.analyticsOn = options.analytics != .off
         self.updates = options.updates
+        self.clock = clock
+        lastSeal = Locked(clock())
         let app = cloud.app ?? .main
         self.app = app
         let http = HTTPClient(session: cloud.urlSession ?? HTTPClient.makeSession())
@@ -53,6 +65,7 @@ public final class QuranLabCloud: Sendable {
                                                   osMajor: DeviceContext.osMajor, ramTier: DeviceContext.ramTier),
                                    clock: clock)
         issues = IssueQueue(storage: storage)
+        incidents = IncidentLedger(storage: storage)
         let store = ModelStore(root: storage.appendingPathComponent("models"),
                                verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: options.requireSignedModels),
                                updates: options.updates)
@@ -95,26 +108,37 @@ public final class QuranLabCloud: Sendable {
 
     // MARK: launch
 
-    /// The launch sequence, at utility priority: registration, the config, the uploads due (telemetry, issues, the
-    /// sharing outbox), then the model update check. Each step is independent; whatever was not sent stays queued.
+    /// The launch sequence, at utility priority: registration (once a UTC day), the config, the uploads due (this
+    /// launch's telemetry delta and any left from earlier runs, issues, the sharing outbox), then the model update
+    /// check. Each step is independent; whatever was not sent stays queued. From here a telemetry delta goes every 15
+    /// minutes while the app is in use and when it goes to the background.
     public func launch() async {
+        analytics.count(.launch)
         _ = await register()
         let cfg = await refreshConfig() ?? config.current
         await flush()
         outbox.resume()
-        observeForeground()
+        observeLifecycle()
+        startDeltaTimer()
         guard updates != .manual else { return }
         if let r = cfg?.recommended { RecommendedModel.remember(r, storage: storage) }
         _ = await checkForUpdate(.recommended)
     }
 
     private var installedMarker: URL { storage.appendingPathComponent("cloud/installed") }
+    /// The UTC day of the last registration the server answered 200.
+    private var registeredDay: URL { storage.appendingPathComponent("cloud/registered-day") }
     private var pendingRegistration: JSONFile<[String: Bool]> { JSONFile(url: storage.appendingPathComponent("cloud/register-pending.json")) }
 
-    /// `POST /v1/register`, at most once per launch. The new-install flag comes from a first-launch marker on disk
-    /// (a flag, not an id); a registration that cannot be sent now is sent at the next launch with the flag kept.
+    /// `POST /v1/register`, once per UTC day per install (2.0.1: the first launch or return to the foreground of the
+    /// day, a day stamp written only after a 200; launches are counted in telemetry). The new-install flag comes from
+    /// a first-launch marker on disk (a flag, not an id); a registration that cannot be sent now is sent at the next
+    /// launch or foreground with the flag kept. Returns whether it was sent now (false when this install already
+    /// registered today).
     @discardableResult
     public func register() async -> Bool {
+        let today = Day.string(clock())
+        if (try? String(contentsOf: registeredDay, encoding: .utf8)) == today { return false }
         let fm = FileManager.default
         let isNew = !fm.fileExists(atPath: installedMarker.path)
         if isNew {
@@ -133,6 +157,7 @@ public final class QuranLabCloud: Sendable {
                 try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/register"), body: body, auth: token)
             }
             pendingRegistration.delete()
+            try? Data(today.utf8).write(to: registeredDay, options: .atomic)
             return true
         } catch {
             stopIfFatal(error)
@@ -177,16 +202,93 @@ public final class QuranLabCloud: Sendable {
         Task.detached(priority: .utility) { _ = await self.refreshConfig() }
     }
 
-    private func observeForeground() {
+    /// The app's return to the foreground and its going to the background (iOS: enter foreground and background; macOS:
+    /// becoming and resigning active).
+    private func observeLifecycle() {
+        let first = lifecycle.withLock { (l: inout Lifecycle) -> Bool in
+            defer { l.observing = true }
+            return !l.observing
+        }
+        guard first else { return }
         #if canImport(UIKit) && !os(watchOS)
-        let name = Notification.Name("UIApplicationWillEnterForegroundNotification")
+        let foreground = Notification.Name("UIApplicationWillEnterForegroundNotification")
+        let background = Notification.Name("UIApplicationDidEnterBackgroundNotification")
         #else
-        let name = Notification.Name("NSApplicationDidBecomeActiveNotification")
+        let foreground = Notification.Name("NSApplicationDidBecomeActiveNotification")
+        let background = Notification.Name("NSApplicationDidResignActiveNotification")
         #endif
-        NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
-            guard let self else { return }
-            self.noteActivity()
-            Task.detached(priority: .utility) { await self.flush() }
+        NotificationCenter.default.addObserver(forName: foreground, object: nil, queue: nil) { [weak self] _ in self?.cameToForeground() }
+        NotificationCenter.default.addObserver(forName: background, object: nil, queue: nil) { [weak self] _ in self?.wentToBackground() }
+    }
+
+    /// A return to the foreground: a launch for telemetry, the day's registration if not done yet, the config, the
+    /// telemetry delta and the queues, and the 15-minute timer again.
+    func cameToForeground() {
+        let returning = lifecycle.withLock { (l: inout Lifecycle) -> Bool in
+            defer { l.background = false }
+            return l.background
+        }
+        if returning { analytics.count(.launch) }
+        startDeltaTimer()
+        noteActivity()
+        Task.detached(priority: .utility) {
+            _ = await self.register()
+            await self.flush()
+        }
+    }
+
+    /// The app went to the background: a telemetry delta now (saved before it is sent, so one the system cuts short
+    /// goes at the next send point), and no timer while in the background. On the Mac, where the app resigns active at
+    /// every switch to another app, at most one a minute.
+    func wentToBackground() {
+        lifecycle.withLock { $0.background = true }
+        deltaTimer.withLock { t in
+            t?.cancel()
+            t = nil
+        }
+        #if os(macOS)
+        let recent = clock().timeIntervalSince(lastSeal.withLock { $0 }) < 60
+        if recent { return }
+        #endif
+        Task.detached(priority: .utility) { await self.flush() }
+    }
+
+    /// Telemetry deltas while the app is in use: one every 15 minutes (also at the SDK's next recorded event when the
+    /// timer was late), and retries of unsent ones after their backoff.
+    static let deltaInterval: TimeInterval = 15 * 60
+
+    /// Claims the 15-minute send point when it is due (the app in use, the last delta 15 minutes old, or an unsent one
+    /// due for a retry).
+    func claimDelta() -> Bool {
+        guard !lifecycle.withLock({ $0.background }) else { return false }
+        let now = clock()
+        let retry = analytics.retryDue(now)
+        return lastSeal.withLock { (last: inout Date) -> Bool in
+            guard now.timeIntervalSince(last) >= Self.deltaInterval || retry else { return false }
+            last = now
+            return true
+        }
+    }
+
+    /// The 15-minute send point now if it is due; true when a delta went out (or was tried).
+    @discardableResult
+    func tick() async -> Bool {
+        guard claimDelta() else { return false }
+        await flush()
+        return true
+    }
+
+    private func startDeltaTimer() {
+        let t = Task.detached(priority: .utility) { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                await self.tick()
+            }
+        }
+        deltaTimer.withLock { old in
+            old?.cancel()
+            old = t
         }
     }
 
@@ -208,23 +310,16 @@ public final class QuranLabCloud: Sendable {
 
     func record(_ event: AnalyticsEvent) {
         analytics.record(event)
-        if case .sessionFinished = event { flushIfNewDay() }
+        // the SDK's next call is a send point too, when the timer was late (a suspended app)
+        if claimDelta() { Task.detached(priority: .utility) { await self.flush() } }
     }
 
-    private func flushIfNewDay() {
-        let today = Day.string()
-        let due = lastFlushDay.withLock { d -> Bool in
-            if d == today { return false }
-            d = today
-            return true
-        }
-        if due { Task.detached(priority: .utility) { await self.flush() } }
-    }
-
-    /// Sends the complete days of telemetry and the queued issues; the config's kill switches drop the queues.
+    /// A telemetry send point: seals what was counted since the last delta (per UTC day, a fresh report id each) and
+    /// sends every unsent delta, oldest first; then the queued issues. The config's kill switches drop the queues.
+    /// `includingToday` is kept for source compatibility: since 2.0.1 every flush includes today.
     @discardableResult
     public func flush(includingToday: Bool = false) async -> (events: Int, issues: Int) {
-        lastFlushDay.withLock { $0 = Day.string() }
+        lastSeal.withLock { $0 = clock() }
         let flags = config.current?.flags ?? RemoteConfig.Flags()
         if !flags.analytics { analytics.dropAll() }
         if !flags.issues { issues.dropAll() }
@@ -232,29 +327,42 @@ public final class QuranLabCloud: Sendable {
         var events = 0, sentIssues = 0
         if analyticsOn && flags.analytics {
             events = await analytics.flush(send: { (d: Data) async throws(CloudError) -> Void in
-                _ = try await self.authed { (token: String) throws(CloudError) -> URLRequest in
-                    var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/events"), body: nil, auth: token)
-                    r.httpBody = d
-                    r.setValue("application/json", forHTTPHeaderField: "content-type")
-                    return r
+                do throws(CloudError) {
+                    _ = try await self.authed { (token: String) throws(CloudError) -> URLRequest in
+                        var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/events"), body: nil, auth: token)
+                        r.httpBody = d
+                        r.setValue("application/json", forHTTPHeaderField: "content-type")
+                        return r
+                    }
+                } catch {
+                    // a body the server refuses is the SDK's bug: dropped, and reported (kind and code only)
+                    if case .rejected(400, _, _) = error {
+                        self.report(.serverRejected(status: 400, code: "bad_request", message: ""), kind: "other", code: "bad_request:events",
+                                    backend: nil, revision: nil)
+                    }
+                    throw error
                 }
-            }, force: includingToday)
+            })
         }
-        if options.issueReports && flags.issues {
-            sentIssues = await sendIssues()
+        if options.issueReports {
+            // the first accelerator incident of each kind per revision goes whatever flags.issues says
+            sentIssues = await sendIssues(regular: flags.issues)
         }
         return (events, sentIssues)
     }
 
-    private func sendIssues() async -> Int {
-        await issues.flush(send: { (d: Data) async throws(CloudError) -> Void in
+    func sendIssues(regular: Bool = true) async -> Int {
+        let send = { (d: Data) async throws(CloudError) -> Void in
             _ = try await self.authed { (token: String) throws(CloudError) -> URLRequest in
                 var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/issues"), body: nil, auth: token)
                 r.httpBody = d
                 r.setValue("application/json", forHTTPHeaderField: "content-type")
                 return r
             }
-        })
+        }
+        var n = await incidents.flush(send: send)
+        if regular { n += await issues.flush(send: send) }
+        return n
     }
 
     static func issue(kind: String, code: String, app: AppIdentity, backend: ActiveBackend?, revision: String?) -> IssueReport {
@@ -284,6 +392,24 @@ public final class QuranLabCloud: Sendable {
                                                   modelRevision: revision) else { return nil }
         let b: ActiveBackend = rule.backend_forced == "neuralEngine" ? .neuralEngine : .exact
         return (b, "deny-listed" + (rule.reason.map { ": \($0)" } ?? ""))
+    }
+
+    /// The values `accel_deny` rules match (the same as an incident report's).
+    func deviceValues(revision: String) -> [String: String] {
+        var v = ["platform": app.platform, "os_version": DeviceContext.osVersionString, "os_build": DeviceInfo.osBuild,
+                 "device_class": DeviceContext.deviceClass, "device_model": DeviceInfo.model, "model_revision": revision,
+                 "sdk_version": SDKInfo.version]
+        if let soc = DeviceContext.soc { v["chip"] = soc }
+        return v
+    }
+
+    /// Why the signed config keeps the Neural Engine off for `revision` on this device, if it does: `denylist` with
+    /// `backend_forced: exact`, or an `accel_deny` rule for the `ane` kind. Read at every check (every verified config).
+    public func acceleratorDenied(revision: String, kind: String = "ane") -> String? {
+        if let f = forcedBackend(revision: revision), f.backend == .exact { return f.reason }
+        guard let r = config.current?.accelDenyRule(values: deviceValues(revision: revision), kind: kind) else { return nil }
+        if let reason = r.reason { SDKLatest.debugOnly("accel_deny: \(reason)") }
+        return "accel_deny" + (r.reason.map { ": \($0)" } ?? "")
     }
 
     /// The CDN revision this install should run: the local pin, else the config's (portal pin, or the channel's

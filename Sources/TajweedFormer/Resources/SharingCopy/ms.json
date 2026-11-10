@@ -1,10 +1,10 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-07.2",
+ "version": "2026-11-09.1",
  "lang": "ms",
  "dir": "ltr",
  "source_lang": "en",
- "consent_version": "share-2026-11-07b",
+ "consent_version": "share-2026-11-09",
  "delete_days": 0,
  "delete_timing": "immediate",
  "strings": {
@@ -13,7 +13,7 @@
   "sheet.hadith": "Rasulullah SAW bersabda: \"Apabila seseorang meninggal dunia, terputuslah amalannya melainkan tiga perkara: sedekah jariah, ilmu yang bermanfaat, atau anak soleh yang mendoakannya.\"",
   "sheet.hadith_ref": "Sahih Muslim 1631",
   "sheet.mistakes": "Kesilapan anda adalah bahagian yang paling bernilai. Ia mengajar model ini menegur pelajar seterusnya dengan lembut.",
-  "sheet.what": "Audio daripada sesi bacaan anda dalam aplikasi ini semasa ia mendengar, ayat yang dibaca, serta maklumat teknikal asas seperti versi model dan jenis peranti. Tiada nama, senarai kenalan mahupun lokasi.",
+  "sheet.what": "Audio daripada sesi bacaan anda dalam aplikasi ini semasa ia mendengar, serta maklumat teknikal asas seperti versi model dan jenis peranti. Tiada nama, senarai kenalan mahupun lokasi.",
   "sheet.who": "Quran Lab, sebuah inisiatif wakaf. Model yang dilatih adalah percuma untuk semua, selama-lamanya, dan tidak akan sesekali dijual.",
   "sheet.control": "Anda boleh berhenti pada bila-bila masa dan memadam apa yang telah dikongsi melalui tetapan.",
   "sheet.share": "Kongsi bacaan saya",
@@ -26,12 +26,21 @@
   "settings.toggle": "Kongsi bacaan saya",
   "settings.what": "Maklumat yang dikongsi",
   "settings.delete": "Padam apa yang dikongsi",
-  "what.detail": "Apabila perkongsian diaktifkan, audio sesi bacaan anda dalam aplikasi ini akan dihantar kepada Quran Lab bersama ayat yang dibaca, butiran teknikal umum (versi model, jenis peranti, versi sistem, hari) dan kod rawak bagi pemasangan ini. Nama, akaun, kenalan, lokasi atau pengecam peranti anda tidak akan diambil sama sekali. Data ini disimpan di EU dan hanya digunakan untuk menambah baik model bacaan al-Quran percuma. Mematikan perkongsian akan menghentikan muat naik serta-merta, dan anda boleh memadamkan semua yang telah dikongsi melalui tetapan pada bila-bila masa: ia akan dipadamkan daripada pelayan Quran Lab serta-merta.",
+  "what.detail": "Apabila perkongsian diaktifkan, audio sesi bacaan anda dalam aplikasi ini akan dihantar kepada Quran Lab bersama butiran teknikal umum (versi model, jenis peranti, versi sistem, hari) dan kod rawak bagi pemasangan ini. Nama, akaun, kenalan, lokasi atau pengecam peranti anda tidak akan diambil sama sekali. Data ini disimpan di EU dan hanya digunakan untuk menambah baik model bacaan al-Quran percuma. Mematikan perkongsian akan menghentikan muat naik serta-merta, dan anda boleh memadamkan semua yang telah dikongsi melalui tetapan pada bila-bila masa: ia akan dipadamkan daripada pelayan Quran Lab serta-merta.",
   "delete.confirm": "Rakaman bacaan yang anda kongsi akan dipadamkan daripada pelayan Quran Lab serta-merta. Tindakan ini tidak boleh dibatalkan.",
   "delete.action": "Padam",
   "delete.cancel": "Batal",
-  "delete.done": "Selesai. Apa yang telah anda kongsi telah dipadamkan daripada pelayan Quran Lab dan tidak akan disertakan dalam latihan model pada masa hadapan.",
+  "delete.done": "Selesai. Apa yang anda kongsikan telah dipadamkan daripada pelayan Quran Lab. Salinan yang sudah digunakan untuk melatih model tidak akan disertakan dalam latihan akan datang.",
+  "delete.failed.title": "Tidak dapat memadam",
+  "delete.failed.network": "Kami tidak dapat menghubungi Quran Lab. Tiada apa-apa yang dipadamkan. Semak sambungan internet anda dan cuba lagi.",
+  "delete.retry": "Cuba lagi",
   "recovery.hint": "Simpan kod sekali guna ini untuk memadamkan apa yang telah anda kongsi sekiranya anda kehilangan peranti ini: portal.quranlab.ai/delete",
+  "recovery.reveal": "Tunjukkan kod pemulihan saya",
+  "recovery.copy": "Salin",
+  "recovery.copied": "Disalin",
+  "recovery.keep": "Simpan kod ini dengan selamat. Ini satu-satunya cara untuk memadam apa yang anda kongsikan daripada peranti lain, dan ia hanya boleh digunakan sekali.",
+  "recovery.used": "Kod pemulihan ini sudah digunakan.",
+  "recovery.invalid": "Kod ini tidak sah. Semak perkataan dan cuba lagi.",
   "reask": "Bacaan anda hari ini mungkin dapat membantu pembelajar lain esok. Sudikah anda berkongsinya?",
   "impact.minutes": {
    "other": "Anda telah berkongsi {minutes} minit bacaan. Semoga Allah membalas kebaikan anda."
@@ -52,7 +61,7 @@
    "sheet.body": "When you share recitation, it helps train this app's free tajwid model so that it can listen better. Every learner that it helps after this, may it become goodness that continues to flow for you even after finishing reciting, in sha Allah: as continuous charity.",
    "sheet.hadith_ref": "Sahih Muslim 1631",
    "sheet.mistakes": "Your mistakes are the most valuable part. It teaches this model to correct the next learner gently.",
-   "sheet.what": "Audio from your recitation sessions in this app while it is listening, the verse recited, as well as basic technical information such as model version and device type. No name, contact list, nor location.",
+   "sheet.what": "Audio from your recitation sessions in this app while it is listening, as well as basic technical information such as model version and device type. No name, contact list, nor location.",
    "sheet.who": "Quran Lab, a waqf initiative. The trained model is free for everyone, forever, and will never be sold.",
    "sheet.control": "You can stop at any time and delete what has been shared through settings.",
    "sheet.share": "Share my recitation",
@@ -65,19 +74,34 @@
    "settings.toggle": "Share my recitation",
    "settings.what": "Information that is shared",
    "settings.delete": "Delete what has been shared",
-   "what.detail": "When sharing is enabled, the audio of your recitation session in this app will be sent to Quran Lab along with the recited verse, general technical details (model version, device type, system version, day), and a random code for this installation. Your name, account, contacts, location, or device identifier will not be collected at all. This data is stored in the EU and is only used to improve the free Quran recitation model. Disabling sharing will stop uploads immediately, and you can delete everything that has been shared via settings at any time: it will be deleted from the Quran Lab servers immediately.",
+   "what.detail": "When sharing is enabled, the audio of your recitation session in this app will be sent to Quran Lab along with general technical details (model version, device type, system version, day), and a random code for this installation. Your name, account, contacts, location, or device identifier will not be collected at all. This data is stored in the EU and is only used to improve the free Quran recitation model. Disabling sharing will stop uploads immediately, and you can delete everything that has been shared via settings at any time: it will be deleted from the Quran Lab servers immediately.",
    "delete.confirm": "The recitation recordings you shared will be deleted from the Quran Lab servers immediately. This action cannot be undone.",
    "delete.action": "Delete",
    "delete.cancel": "Cancel",
-   "delete.done": "Done. What you have shared has been deleted from the Quran Lab servers and will not be included in future model training.",
+   "delete.done": "Done. What you shared has been deleted from Quran Lab servers. Copies already used to train models will not be included in future training.",
    "reask": "Your recitation today might be able to help other learners tomorrow. Would you be willing to share it?",
    "impact.minutes": {
     "other": "You have shared {minutes} minutes of recitation. May Allah reward your goodness."
    },
-   "recovery.hint": "Save this one-time code to delete what you have shared in case you lose this device: portal.quranlab.ai/delete"
+   "recovery.hint": "Save this one-time code to delete what you have shared in case you lose this device: portal.quranlab.ai/delete",
+   "recovery.reveal": "Show my recovery code",
+   "recovery.copy": "Copy",
+   "recovery.copied": "Copied",
+   "recovery.keep": "Keep this code safe. This is the only way to delete what you shared from another device, and it can only be used once.",
+   "recovery.used": "This recovery code has already been used.",
+   "recovery.invalid": "This code is invalid. Check the words and try again.",
+   "delete.failed.title": "Could not delete",
+   "delete.failed.network": "We could not contact Quran Lab. Nothing was deleted. Check your internet connection and try again.",
+   "delete.retry": "Try again"
   },
   "back_translation_hadith_intro": "The Messenger of Allah SAW said:",
-  "drift": [],
+  "drift": [
+   {
+    "version": "2026-11-09.1",
+    "change": "removed the recited ayah from sheet.what and what.detail: the SDKs do not send it",
+    "method": "exact phrase removal from the reviewed 2026-11-07.3 text, no re-translation"
+   }
+  ],
   "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"
  }
 }

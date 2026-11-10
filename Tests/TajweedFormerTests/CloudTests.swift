@@ -19,8 +19,8 @@ final class RegistrationAndConfigTests: XCTestCase {
         let attest = try XCTUnwrap(StubProtocol.seen("/v1/attest").first?.json)
         XCTAssertEqual(Set(attest.keys), ["platform", "bundle_id"])
 
-        // the next launch is a returning one
-        let second = CloudFixtures.cloud(storage: storage)
+        // the next launch, the next UTC day (2.0.1 registers once a day), is a returning one
+        let second = CloudFixtures.cloud(storage: storage, clock: { Date().addingTimeInterval(86_400) })
         _ = await second.register()
         XCTAssertEqual(StubProtocol.seen("/v1/register").last?.json?["new_install"] as? Bool, false)
     }
@@ -35,7 +35,7 @@ final class RegistrationAndConfigTests: XCTestCase {
         _ = await CloudFixtures.cloud(storage: storage).register()
         XCTAssertEqual(StubProtocol.seen("/v1/register").last?.json?["new_install"] as? Bool, true,
                        "the first launch's flag must survive the offline launch")
-        _ = await CloudFixtures.cloud(storage: storage).register()
+        _ = await CloudFixtures.cloud(storage: storage, clock: { Date().addingTimeInterval(86_400) }).register()
         XCTAssertEqual(StubProtocol.seen("/v1/register").last?.json?["new_install"] as? Bool, false)
     }
 
@@ -187,7 +187,7 @@ final class RegistrationAndConfigTests: XCTestCase {
         XCTAssertNil(seen[0].headers["if-none-match"])
         XCTAssertEqual(seen[1].headers["if-none-match"], etag)
         let q = URLComponents(url: seen[0].url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        XCTAssertEqual(q.first { $0.name == "sdk" }?.value, "2.0.0")
+        XCTAssertEqual(q.first { $0.name == "sdk" }?.value, "2.0.1")
     }
 
     /// A config without a key id is refused: the kid must name a key compiled into the SDK.
@@ -275,8 +275,16 @@ final class AnalyticsAndIssueTests: XCTestCase {
         a.record(.download(revision: "rev-b", profile: "apple-coreml", bytes: 1234, success: true, resumed: true))
         let days = a.pending
         XCTAssertEqual(days.count, 1)
-        let p = a.payload(days[0])
-        XCTAssertEqual(Set(p.keys), ["v", "day", "product", "platform", "sdk_version", "app_version", "device", "cohorts", "coverage", "downloads"])
+        let p = a.payload(days[0], reportID: "0123456789abcdef0123456789abcdef")
+        XCTAssertEqual(Set(p.keys), ["v", "day", "product", "platform", "sdk_version", "app_version", "device", "cohorts", "coverage", "downloads",
+                                     "report_id", "ayahs", "surah_ayahs", "words", "rule_checks", "rule_flags"],
+                       "2.0.1: the report id, and the counters that are not zero")
+        XCTAssertEqual(p["report_id"] as? String, "0123456789abcdef0123456789abcdef")
+        XCTAssertEqual(p["ayahs"] as? Int, 1)
+        XCTAssertEqual(p["surah_ayahs"] as? [String: Int], ["112": 1])
+        XCTAssertEqual(p["words"] as? Int, 4)
+        XCTAssertEqual(p["rule_checks"] as? [String: Int], ["cons_sub": 10, "madd": 4, "word": 4])
+        XCTAssertEqual(p["rule_flags"] as? [String: Int], ["cons_sub": 1, "madd": 1, "word": 1])
         XCTAssertEqual(p["v"] as? Int, 2)
         XCTAssertEqual(p["product"] as? String, "apple")
         XCTAssertEqual(p["day"] as? String, "2026-09-21")
@@ -310,23 +318,35 @@ final class AnalyticsAndIssueTests: XCTestCase {
         XCTAssertEqual(dl["profile"] as? String, "apple-coreml")
         XCTAssertEqual(dl["resumed"] as? Int, 1)
         let text = String(decoding: try JSONSerialization.data(withJSONObject: p), as: UTF8.self)
-        for banned in ["uuid", "device_id", "install", "idfv", "\"ip\"", "time", "contributor"] { XCTAssertFalse(text.contains(banned), banned) }
+        for banned in ["uuid", "device_id", "install", "idfv", "\"ip\"", "time", "contributor", "locale"] { XCTAssertFalse(text.contains(banned), banned) }
         XCTAssertLessThan(text.utf8.count, 32 * 1024)
     }
 
-    func testTodayWaitsAndCompleteDaysAreSentOnce() async throws {
+    /// 2.0.1: each send point sends what was counted since the previous one (today included), once.
+    func testEachFlushSendsADeltaOfWhatIsNewOnce() async throws {
         let storage = CloudFixtures.storage()
         let a = store(storage, at: day1)
         a.record(Self.session(Self.cpu, 60, [0.01]))
         a.waitForSave()
-        let n0 = await a.flush(send: { (_: Data) async throws(CloudError) -> Void in })
-        XCTAssertEqual(n0, 0, "today is not complete")
-        let next = store(storage, at: day2)
-        XCTAssertEqual(next.pending.count, 1)
-        let n1 = await next.flush(send: { (_: Data) async throws(CloudError) -> Void in })
-        XCTAssertEqual(n1, 1)
-        XCTAssertTrue(next.pending.isEmpty)
-        XCTAssertTrue(store(storage, at: day2).pending.isEmpty, "sent days are gone from disk too")
+        let bodies = Locked<[[String: Any]]>([])
+        let send = { (d: Data) async throws(CloudError) -> Void in
+            let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
+            bodies.withLock { $0.append(o) }
+        }
+        let n0 = await a.flush(send: send)
+        XCTAssertEqual(n0, 1, "today is sent as a delta")
+        let n1 = await a.flush(send: send)
+        XCTAssertEqual(n1, 0, "nothing new, nothing sent")
+        a.record(Self.session(Self.cpu, 30, [0.01]))
+        let n2 = await a.flush(send: send)
+        XCTAssertEqual(n2, 1)
+        let sent = bodies.withLock { $0 }
+        XCTAssertEqual(sent.count, 2)
+        let sessions: [Int] = sent.map { (o: [String: Any]) -> Int in ((o["cohorts"] as? [[String: Any]])?.first?["sessions"] as? Int) ?? -1 }
+        XCTAssertEqual(sessions, [1, 1], "the second delta has only what was counted after the first")
+        XCTAssertNotEqual(sent[0]["report_id"] as? String, sent[1]["report_id"] as? String)
+        XCTAssertTrue(a.pending.isEmpty && a.sealed.isEmpty)
+        XCTAssertTrue(store(storage, at: day1).sealed.isEmpty, "sent deltas are gone from disk too")
     }
 
     func testOfflineKeepsRefusedDropsOldDrops() async throws {
@@ -337,12 +357,13 @@ final class AnalyticsAndIssueTests: XCTestCase {
         let b = store(storage, at: day2)
         let n = await b.flush(send: { (_: Data) async throws(CloudError) -> Void in throw CloudError.offline("down") })
         XCTAssertEqual(n, 0)
-        XCTAssertEqual(store(storage, at: day2).pending.count, 1, "an offline flush keeps the day on disk")
+        XCTAssertEqual(store(storage, at: day2).sealed.count, 1, "an offline flush keeps the sealed delta on disk")
+        XCTAssertEqual(store(storage, at: day2).sealed.first?.day, "2026-09-21", "sealed under the day it was counted in")
         let c = store(storage, at: day2)
         _ = await c.flush(send: { (_: Data) async throws(CloudError) -> Void in
             throw CloudError.rejected(status: 400, code: "invalid_body", message: "")
         })
-        XCTAssertTrue(store(storage, at: day2).pending.isEmpty, "a refused day is dropped, never retried")
+        XCTAssertTrue(store(storage, at: day2).sealed.isEmpty, "a refused delta is dropped, never retried")
         let old = store(storage, at: day1)
         old.record(Self.session(Self.cpu, 60, [0.01]))
         old.waitForSave()
@@ -350,7 +371,7 @@ final class AnalyticsAndIssueTests: XCTestCase {
         let calls = Locked(0)
         _ = await late.flush(send: { (_: Data) async throws(CloudError) -> Void in calls.withLock { $0 += 1 } })
         XCTAssertEqual(calls.withLock { $0 }, 0)
-        XCTAssertTrue(late.pending.isEmpty)
+        XCTAssertTrue(late.pending.isEmpty && late.sealed.isEmpty, "older than 7 days: deleted unsent")
     }
 
     func testOffRecordsNothing() {

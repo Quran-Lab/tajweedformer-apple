@@ -70,7 +70,8 @@ public struct RemoteConfig: Codable, Sendable, Equatable {
             let c = try d.container(keyedBy: CodingKeys.self)
             analytics = try c.decodeIfPresent(Bool.self, forKey: .analytics) ?? true
             issues = try c.decodeIfPresent(Bool.self, forKey: .issues) ?? true
-            contributions = try c.decodeIfPresent(Bool.self, forKey: .contributions) ?? true
+            // absent: not offered (only Quran Lab's literal true offers sharing, 2.0.1)
+            contributions = try c.decodeIfPresent(Bool.self, forKey: .contributions) ?? false
             upload_trust = try? c.decodeIfPresent([String: String].self, forKey: .upload_trust)
         }
     }
@@ -92,6 +93,63 @@ public struct RemoteConfig: Codable, Sendable, Equatable {
     /// Where model files are served, signed with the rest of the config. Read it with `modelBase`: any other JSON type
     /// is ignored there rather than failing the whole config.
     public let base: JSONValue?
+    /// 2.0.1: rules that keep one accelerator off on matching devices (read with `accelDenyRules`; a malformed rule is
+    /// skipped on its own, never the config).
+    public let accel_deny: JSONValue?
+
+    /// One `accel_deny` rule: patterns (`*`, `prefix*` or exact) by field; an optional field absent matches anything.
+    public struct AccelDenyRule: Sendable, Equatable {
+        public let patterns: [String: String]
+        /// Unix seconds after which the rule is ignored.
+        public let until: Double?
+        public let reason: String?
+
+        static let required = ["platform", "os_version", "device_class", "accelerator", "model_revision", "sdk_version"]
+        static let optional = ["os_build", "device_model", "chip", "delegate"]
+
+        /// Whether the rule matches `values` (the incident-report values) for an accelerator of `kind` (`ane`, `gpu`,
+        /// `npu`) at `now`. A device without a value for a field the rule names (Apple has no delegate) matches only `*`.
+        public func matches(_ values: [String: String], kind: String, now: Date = Date()) -> Bool {
+            if let until, now.timeIntervalSince1970 >= until { return false }
+            for (field, pattern) in patterns {
+                let v = field == "accelerator" ? kind : (values[field] ?? "")
+                if !RemoteConfig.match(pattern, v) { return false }
+            }
+            return true
+        }
+    }
+
+    /// The well-formed `accel_deny` rules, in order.
+    public var accelDenyRules: [AccelDenyRule] {
+        guard let list = accel_deny?.array else { return [] }
+        var out: [AccelDenyRule] = []
+        rules: for r in list {
+            guard let o = r.object else { continue }
+            var p: [String: String] = [:]
+            for f in AccelDenyRule.required {
+                guard let s = o[f]?.string, !s.isEmpty else { continue rules }
+                p[f] = s
+            }
+            for f in AccelDenyRule.optional {
+                guard let v = o[f] else { continue }
+                guard let s = v.string, !s.isEmpty else { continue rules }
+                p[f] = s
+            }
+            var until: Double?
+            if let u = o["until"] {
+                guard let n = u.number, n.isFinite else { continue rules }
+                until = n
+            }
+            if let reason = o["reason"], reason.string == nil { continue rules }
+            out.append(AccelDenyRule(patterns: p, until: until, reason: o["reason"]?.string))
+        }
+        return out
+    }
+
+    /// The first `accel_deny` rule matching this device and accelerator kind now, if any.
+    public func accelDenyRule(values: [String: String], kind: String, now: Date = Date()) -> AccelDenyRule? {
+        accelDenyRules.first { $0.matches(values, kind: kind, now: now) }
+    }
 
     /// `base` when it is an https URL, the same rule qlab-api applies when it signs it.
     public var modelBase: URL? {
@@ -177,6 +235,7 @@ final class ConfigStore: Sendable {
         verifier = ConfigVerifier(trustedKeys: trustedKeys)
         if let s = file.read(), let c = try? verifier.verify(body: s.body, signature: s.signature, keyID: s.keyID) {
             state.withLock { $0 = c }
+            SDKLatest.note(body: s.body)
         }
     }
 
@@ -225,6 +284,7 @@ final class ConfigStore: Sendable {
         }
         let sig = resp.header("x-qlab-signature"), kid = resp.header("x-qlab-key-id")
         let cfg = try verifier.verify(body: resp.body, signature: sig, keyID: kid, now: now)
+        SDKLatest.note(body: resp.body)
         file.write(Saved(body: resp.body, signature: sig ?? "", keyID: kid, etag: resp.header("etag")))
         state.withLock { $0 = cfg }
         lastFetch.withLock { $0 = now }

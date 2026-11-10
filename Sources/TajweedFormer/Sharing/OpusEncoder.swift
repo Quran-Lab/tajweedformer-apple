@@ -62,6 +62,10 @@ protocol OpusEncoding: AnyObject {
     /// The granule position of the last Ogg page: the pre-skip plus the input in 48 kHz samples,
     /// which trims the padding `flush()` adds.
     var finalGranulePosition: Int64 { get }
+    /// Asked before each packet is encoded, with the packet's index (0 for the first; `flush()`'s packets included): a
+    /// bitrate in bit/s sets `OPUS_SET_BITRATE` for that packet and the ones after it (2.0.1: a segment's bitrate is set
+    /// before its first packet); nil keeps the bitrate in force. An encoder that cannot change its bitrate ignores it.
+    var beforePacket: ((Int64) -> Int?)? { get set }
 }
 
 /// Opus from libopus 1.6.1 (the `COpus` target, float build with NEON), set up per
@@ -80,6 +84,11 @@ final class LibOpusEncoder: OpusEncoding {
     private(set) var samplesIn: Int64 = 0
     /// Non-finite input samples replaced with 0 so far.
     private(set) var nonFiniteSamples: Int64 = 0
+    /// Packets encoded so far.
+    private(set) var packetsOut: Int64 = 0
+    /// The bitrate in force (bit/s).
+    private(set) var bitrate: Int
+    var beforePacket: ((Int64) -> Int?)?
 
     var finalGranulePosition: Int64 { Int64(preSkip) + samplesIn * 48_000 / Int64(sampleRate) }
 
@@ -123,6 +132,7 @@ final class LibOpusEncoder: OpusEncoding {
             throw .storageFailed("the Opus encoder has no lookahead")
         }
         enc = e
+        bitrate = settings.bitrate
         self.sampleRate = sampleRate
         self.channels = channels
         self.settings = settings
@@ -181,7 +191,17 @@ final class LibOpusEncoder: OpusEncoding {
         return out
     }
 
+    /// A new bitrate for the packets from the next one on (`OPUS_SET_BITRATE`; nothing else of the encoder changes).
+    func setBitrate(_ bps: Int) throws(RecognizerError) {
+        guard bps != bitrate else { return }
+        guard (6_000...510_000).contains(bps), copus_encoder_set(enc, OPUS_SET_BITRATE_REQUEST, Int32(bps)) == OPUS_OK else {
+            throw .storageFailed("the Opus encoder refused the bitrate \(bps)")
+        }
+        bitrate = bps
+    }
+
     private func encodeFrame() throws(RecognizerError) -> Data {
+        if let hook = beforePacket, let bps = hook(packetsOut) { try setBitrate(bps) }
         let (enc, frameSize) = (self.enc, self.frameSize)
         let n = frame.withUnsafeBufferPointer { f in
             packet.withUnsafeMutableBufferPointer { p in
@@ -190,6 +210,7 @@ final class LibOpusEncoder: OpusEncoding {
         }
         filled = 0
         guard n > 0 else { throw .storageFailed("the Opus encoder failed (\(n))") }
+        packetsOut += 1
         return Data(packet[0..<Int(n)])
     }
 }

@@ -174,7 +174,7 @@ enum CloudFixtures {
                        deny: [[String: Any]] = [], flags: [String: Any] = [:], tajweed: [String: Any]? = nil,
                        recommended: [String: Any]? = nil, base: Any? = nil,
                        expires: Int = Int(Date().timeIntervalSince1970) + 86_400,
-                       key: Curve25519.Signing.PrivateKey = signer) -> StubProtocol.Reply {
+                       key: Curve25519.Signing.PrivateKey = signer, extra: [String: Any] = [:]) -> StubProtocol.Reply {
         let now = Int(Date().timeIntervalSince1970)
         var cfg: [String: Any] = [
             "v": 1, "app": "ios:com.example.quran", "channel": "stable", "issued_at": now, "expires_at": expires,
@@ -184,12 +184,21 @@ enum CloudFixtures {
         if let recommended { cfg["recommended"] = recommended }
         if let base { cfg["base"] = base }
         if let tajweed { cfg["tajweed"] = tajweed }
+        for (k, v) in extra { cfg[k] = v }
         let body = try! JSONSerialization.data(withJSONObject: cfg, options: [.sortedKeys])
         let sig = try! key.signature(for: body)
         let kid = ConfigVerifier.keyID(key.publicKey.rawRepresentation)
         let etag = "\"" + Data(SHA256.hash(data: body).prefix(16)).hex + "\""
         return StubProtocol.Reply(status: 200, headers: ["content-type": "application/json", "etag": etag,
                                                         "x-qlab-signature": "ed25519=" + sig.base64URL, "x-qlab-key-id": kid], body: body)
+    }
+
+    /// A verified config already on disk (as after an earlier launch), so a cloud made in `storage` has it in force
+    /// at once: since 2.0.1 sharing is offered only where the signed config says so.
+    static func seedConfig(storage: URL, flags: [String: Any] = [:]) {
+        let r = config(flags: flags)
+        let saved = ConfigStore.Saved(body: r.body, signature: r.headers["x-qlab-signature"] ?? "", keyID: r.headers["x-qlab-key-id"], etag: r.headers["etag"])
+        JSONFile<ConfigStore.Saved>(url: storage.appendingPathComponent("cloud/config.json")).write(saved)
     }
 
     static let token: StubProtocol.Reply = .json(["token": "qlt_v1.eyJ2IjoxfQ.sig", "expires_in": 86_400, "attested": false])

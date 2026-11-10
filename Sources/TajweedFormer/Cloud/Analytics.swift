@@ -24,6 +24,16 @@ enum Histogram {
     static let flagPct = (["le_1", "le_2", "le_5", "le_10", "le_20", "gt_20"], [1.0, 2, 5, 10, 20])
     static let margin = (["le_0_5", "le_1", "le_2", "le_4", "le_8", "gt_8"], [0.5, 1, 2, 4, 8])
     static let confidence = (["le_0_5", "le_0_7", "le_0_8", "le_0_9", "le_0_95", "gt_0_95"], [0.5, 0.7, 0.8, 0.9, 0.95])
+    static let compileMs = (["le_1000", "le_5000", "le_15000", "le_30000", "le_60000", "le_120000", "gt_120000"],
+                            [1000.0, 5000, 15000, 30000, 60000, 120000])
+    static let stallMs = (["le_50", "le_100", "le_200", "le_300", "le_500", "le_1000", "gt_1000"], [50.0, 100, 200, 300, 500, 1000])
+    /// Speedup (CPU median / accelerator median): below 0.5, below 1, then up to 1.5, 2, 3, 5, above 5.
+    static let speedupNames = ["lt_0_5", "lt_1", "le_1_5", "le_2", "le_3", "le_5", "gt_5"]
+    static func speedupIndex(_ v: Double) -> Int {
+        if v < 0.5 { return 0 }
+        if v < 1 { return 1 }
+        return 2 + (index(v, [1.5, 2, 3, 5]))
+    }
 
     static func index(_ v: Double, _ bounds: [Double]) -> Int { bounds.firstIndex { v <= $0 } ?? bounds.count }
 }
@@ -76,6 +86,11 @@ public struct ScoreTelemetry: Sendable, Hashable {
     public var maddFlagged = 0
     public var wordsScored = 0
     public var wordsFlagged = 0
+    /// Qalqalah and gemination verdicts whose check ran, and how many were flagged (2.0.1).
+    public var qalqalahChecked = 0
+    public var qalqalahFlagged = 0
+    public var geminationChecked = 0
+    public var geminationFlagged = 0
     public var margins: [Double] = []
     public var confidences: [Double] = []
 
@@ -95,8 +110,8 @@ public enum AnalyticsEvent: Sendable, Hashable {
     case sessionAborted(cohort: TelemetryCohort)
     case scored(ScoreTelemetry)
     case download(revision: String, profile: String, bytes: Int64, success: Bool, resumed: Bool)
-    /// The correction could not rebuild the CPU weights; they were downloaded instead (host diagnostics only).
-    case correctionFallback(reason: String)
+    /// The Neural Engine's promotion pipeline and in-session failovers (telemetry `promotions`).
+    case promotion(PromotionTelemetry)
 }
 
 /// Receives every analytics event besides the SDK's own daily aggregates. Called on the recognition path: return
@@ -105,9 +120,14 @@ public protocol AnalyticsSink: Sendable {
     func record(_ event: AnalyticsEvent)
 }
 
-/// On-device daily aggregates, telemetry v2: sums and histograms per UTC day and
-/// cohort, the surah coverage, and the downloads. Recording is a lock and a few additions; the aggregates are saved
-/// on a utility queue and sent once a day is complete, one `POST /v1/events` per day (at most 7 days kept).
+/// On-device telemetry v2 with the 2.0.1 deltas: sums and histograms per UTC day and cohort, the surah coverage, the
+/// downloads and the 2.0.1 counters. Recording is a lock and a few additions into the day's open counts (saved on a
+/// utility queue). At each send point (`flush`) the open counts of each day are sealed into a delta: the v2 body of what
+/// was counted since that day's previous delta, with a fresh random `report_id`, saved before it is sent. A retry sends
+/// the same bytes with the same id (the server counts it once). Counts go to the UTC day they happened in, so a delta
+/// never spans midnight; unsent deltas are kept 7 days and sent oldest first.
+/// Tried and rejected: one payload per completed day (2.0.0: a day's sessions reached the portal a day late);
+/// re-sending the whole day so far at each send point (the server would count every send).
 final class AnalyticsStore: Sendable {
     struct Cohort: Codable, Equatable {
         var cohort: TelemetryCohort
@@ -152,11 +172,79 @@ final class AnalyticsStore: Sendable {
         var bytes: Int64 = 0, success = 0, failed = 0, resumed = 0
     }
 
+    /// One `promotions` entry: a backend, revision and context.
+    struct Promotion: Codable, Equatable {
+        var backend: String
+        var revision: String
+        var context: String
+        var attempts = 0, promoted = 0
+        var failedAt: [String: Int] = [:]
+        var reasons: [String: Int] = [:]
+        var compileMs = [Int](repeating: 0, count: 7)
+        var speedup = [Int](repeating: 0, count: 7)
+        var failovers = 0
+        var failoverCauses: [String: Int] = [:]
+        var failoverStall = [Int](repeating: 0, count: 7)
+        /// Promoted builds taken back to the CPU after an in-session failure.
+        var demoted = 0
+
+        var activity: Int { attempts + failovers + demoted + reasons.values.reduce(0, +) }
+    }
+
+    /// One UTC day's counts not sealed yet.
     struct Day: Codable, Equatable {
         var day: String
         var cohorts: [String: Cohort] = [:]
         var coverage: [String: Int] = [:]
         var downloads: [String: Download] = [:]   // "revision|profile"
+        // 2.0.1
+        var launches = 0
+        var ayahs = 0
+        var surahAyahs: [String: Int] = [:]
+        var words = 0
+        var ruleChecks: [String: Int] = [:]
+        var ruleFlags: [String: Int] = [:]
+        var shareAsked = 0
+        var shareYes = 0
+        var shareNo = 0
+        var promotions: [String: Promotion] = [:]   // "backend|revision|context"
+
+        var isEmpty: Bool {
+            cohorts.isEmpty && coverage.isEmpty && downloads.isEmpty && launches == 0 && ayahs == 0 && surahAyahs.isEmpty && words == 0
+                && ruleChecks.isEmpty && shareAsked == 0 && shareYes == 0 && shareNo == 0 && promotions.isEmpty
+        }
+    }
+
+    /// A sealed delta: its body exactly as it is sent and resent.
+    struct Sealed: Codable, Equatable {
+        var reportID: String
+        var day: String
+        var seq: Int
+        var body: Data
+    }
+
+    struct State: Codable {
+        var open: [String: Day] = [:]
+        var sealed: [Sealed] = []
+        var seq = 0
+    }
+
+    /// The 2.0.1 counters besides sessions and scores.
+    enum Counter: Sendable {
+        /// A cold start or a return to the foreground.
+        case launch
+        /// A consent sheet was shown, or the app's own UI was handed a consent ask.
+        case shareAsked
+        /// A grant from a sheet answer (the SDK's sheet or the app's own UI).
+        case shareYes
+        /// A decline from a sheet answer.
+        case shareNo
+    }
+
+    /// Retries of unsent deltas on the timer: 1 minute, then 10 minutes, then the next launch or app switch.
+    struct Backoff {
+        var failures = 0
+        var notBefore: Date?
     }
 
     struct Context: Sendable {
@@ -176,17 +264,30 @@ final class AnalyticsStore: Sendable {
         var pid: Int32
     }
 
-    private let file: JSONFile<[String: Day]>
+    private let file: JSONFile<State>
     private let openFile: JSONFile<OpenSession>
-    private let days: Locked<[String: Day]>
+    private let state: Locked<State>
+    private let sending = Locked(false)
+    private let backoff = Locked(Backoff())
     private let enabled: Bool
     let context: Context
     private let saver = DispatchQueue(label: "ai.quranlab.analytics", qos: .utility)
     private let clock: @Sendable () -> Date
 
     init(storage: URL, enabled: Bool, context: Context, clock: @escaping @Sendable () -> Date = { Date() }) {
-        file = JSONFile(url: storage.appendingPathComponent("cloud/analytics-v2.json"))
-        days = Locked(file.read() ?? [:])
+        let f = JSONFile<State>(url: storage.appendingPathComponent("cloud/analytics-deltas.json"))
+        file = f
+        var s = f.read()
+        if s == nil {
+            // 2.0.0 kept whole days until they were complete: they are sealed under their own day at the next send point
+            let legacy = JSONFile<[String: Day]>(url: storage.appendingPathComponent("cloud/analytics-v2.json"))
+            var fresh = State()
+            fresh.open = legacy.read() ?? [:]
+            if !fresh.open.isEmpty { f.write(fresh) }
+            legacy.delete()
+            s = fresh
+        }
+        state = Locked(s ?? State())
         self.enabled = enabled
         self.clock = clock
         self.context = context
@@ -214,13 +315,13 @@ final class AnalyticsStore: Sendable {
     private func mutate(_ body: (inout Day) -> Void) {
         guard enabled else { return }
         let d = TelemetryDay.string(clock())
-        days.withLock { all in
-            var x = all[d] ?? Day(day: d)
+        state.withLock { s in
+            var x = s.open[d] ?? Day(day: d)
             body(&x)
-            all[d] = x
+            s.open[d] = x
         }
-        let file = self.file, days = self.days
-        saver.async { file.write(days.withLock { $0 }) }
+        let file = self.file, state = self.state
+        saver.async { file.write(state.withLock { $0 }) }
     }
 
     private func cohort(_ c: TelemetryCohort, _ body: (inout Cohort) -> Void) {
@@ -233,6 +334,23 @@ final class AnalyticsStore: Sendable {
     }
 
     func waitForSave() { saver.sync {} }
+
+    /// Writes the state now (sealed deltas are on disk before they are sent).
+    private func saveNow() {
+        let file = self.file, state = self.state
+        saver.sync { file.write(state.withLock { $0 }) }
+    }
+
+    func count(_ c: Counter) {
+        mutate { d in
+            switch c {
+            case .launch: d.launches += 1
+            case .shareAsked: d.shareAsked += 1
+            case .shareYes: d.shareYes += 1
+            case .shareNo: d.shareNo += 1
+            }
+        }
+    }
 
     func record(_ event: AnalyticsEvent) {
         switch event {
@@ -277,7 +395,25 @@ final class AnalyticsStore: Sendable {
                 for m in s.margins { c.margin[Histogram.index(m, Histogram.margin.1)] += 1 }
                 for v in s.confidences { c.confidence[Histogram.index(v, Histogram.confidence.1)] += 1 }
             }
-            if (1...114).contains(s.surah) { mutate { $0.coverage[String(s.surah), default: 0] += 1 } }
+            mutate { d in
+                if (1...114).contains(s.surah) {
+                    d.coverage[String(s.surah), default: 0] += 1
+                    d.surahAyahs[String(s.surah), default: 0] += 1
+                }
+                d.ayahs += 1
+                d.words += s.wordsScored
+                // what was checked and flagged, by rule: each site class, then madd, qalqalah, gemination and words
+                var rules: [(String, Int, Int)] = []
+                for (k, v) in s.classes { rules.append((k, v.sites, v.flagged)) }
+                rules.append(("madd", s.maddCounts.values.reduce(0, +), s.maddFlagged))
+                rules.append(("qalqalah", s.qalqalahChecked, s.qalqalahFlagged))
+                rules.append(("gemination", s.geminationChecked, s.geminationFlagged))
+                rules.append(("word", s.wordsScored, s.wordsFlagged))
+                for (k, checked, flagged) in rules where checked > 0 {
+                    d.ruleChecks[k, default: 0] += checked
+                    if flagged > 0 { d.ruleFlags[k, default: 0] += min(flagged, checked) }
+                }
+            }
         case .download(let rev, let profile, let bytes, let ok, let resumed):
             mutate { d in
                 var x = d.downloads["\(rev)|\(profile)"] ?? Download()
@@ -286,22 +422,61 @@ final class AnalyticsStore: Sendable {
                 if resumed { x.resumed += 1 }
                 d.downloads["\(rev)|\(profile)"] = x
             }
-        case .correctionFallback:
-            break
+        case .promotion(let t):
+            let k = "\(t.backend)|\(t.revision)|\(t.context)"
+            mutate { d in
+                var p = d.promotions[k] ?? Promotion(backend: t.backend, revision: t.revision, context: t.context)
+                switch t.kind {
+                case .attempt(let promoted, let stage, let reason, let compileMs, let speedup):
+                    p.attempts += 1
+                    if promoted { p.promoted += 1 }
+                    if !promoted, let stage, [.download, .compile, .warmup, .golden].contains(stage) { p.failedAt[stage.rawValue, default: 0] += 1 }
+                    if !promoted, let reason { p.reasons[reason.rawValue, default: 0] += 1 }
+                    if let compileMs { p.compileMs[Histogram.index(compileMs, Histogram.compileMs.1)] += 1 }
+                    if let speedup { p.speedup[Histogram.speedupIndex(speedup)] += 1 }
+                case .demoted(let reason):
+                    p.reasons[reason.rawValue, default: 0] += 1
+                    // a deny-list match is not a demotion (reasons.denylist only)
+                    if reason == .failover { p.demoted += 1 }
+                case .failover(let cause, let stallMs):
+                    p.failovers += 1
+                    p.failoverCauses[cause.rawValue, default: 0] += 1
+                    p.failoverStall[Histogram.index(stallMs, Histogram.stallMs.1)] += 1
+                }
+                d.promotions[k] = p
+            }
         }
     }
 
-    /// Everything recorded and not yet sent, for tests and for a host that shows what is sent.
-    var pending: [Day] { days.withLock { Array($0.values) }.sorted { $0.day < $1.day } }
+    /// Counted and not sealed yet, by day, for tests and for a host that shows what is sent.
+    var pending: [Day] { state.withLock { Array($0.open.values) }.sorted { $0.day < $1.day } }
+
+    /// Sealed deltas not sent yet, oldest first.
+    var sealed: [Sealed] {
+        state.withLock { $0.sealed }.sorted { (a: Sealed, b: Sealed) -> Bool in a.day != b.day ? a.day < b.day : a.seq < b.seq }
+    }
 
     static func clip(_ n: Int) -> Int { max(0, min(10_000_000, n)) }
     static func hist(_ names: [String], _ v: [Int]) -> [String: Int] {
         Dictionary(uniqueKeysWithValues: zip(names, v.map(clip)))
     }
 
-    /// The v2 body for one day (closed schema: exactly these fields). Cohorts beyond 16 are merged into the 16
-    /// largest by sessions (the extras' counts go to the largest).
-    func payload(_ d: Day) -> [String: Any] {
+    /// A rule key the server takes: `^[a-z][a-z0-9_]{0,23}$`.
+    static func ruleKey(_ k: String) -> Bool {
+        let u = Array(k.utf8)
+        guard (1...24).contains(u.count), (97...122).contains(u[0]) else { return false }
+        return u.allSatisfy { (c: UInt8) -> Bool in (97...122).contains(c) || (48...57).contains(c) || c == 95 }
+    }
+
+    /// 16 random bytes, 32 lower-case hex: drawn per delta, never per install or user.
+    static func reportID() -> String {
+        var g = SystemRandomNumberGenerator()
+        return (0..<16).map { (_: Int) -> String in String(format: "%02x", UInt8.random(in: 0...255, using: &g)) }.joined()
+    }
+
+    /// The v2 body of one delta (closed schema: exactly these fields, the 2.0.1 ones left out when zero, `report_id`
+    /// always). Cohorts beyond 16 are merged into the 16 largest by sessions (the extras' counts go to the largest).
+    func payload(_ d: Day, reportID: String) -> [String: Any] {
         var cs = d.cohorts.values.sorted { ($0.sessions, $0.cohort.key) > ($1.sessions, $1.cohort.key) }
         if cs.count > 16 {
             for extra in cs[16...] { cs[0].merge(extra) }
@@ -356,44 +531,174 @@ final class AnalyticsStore: Sendable {
             o["resumed"] = Self.clip(v.resumed)
             downloads.append(o)
         }
-        return ["v": 2, "day": d.day, "product": "apple", "platform": context.platform, "sdk_version": context.sdkVersion,
-                "app_version": context.appVersion, "device": device, "cohorts": cohorts,
-                "coverage": d.coverage.mapValues(Self.clip), "downloads": downloads]
+        var p: [String: Any] = ["v": 2, "day": d.day, "product": "apple", "platform": context.platform, "sdk_version": context.sdkVersion,
+                                "app_version": context.appVersion, "device": device, "cohorts": cohorts,
+                                "coverage": d.coverage.mapValues(Self.clip), "downloads": downloads]
+        // 2.0.1: the delta's id, and the counters (each left out when zero or empty)
+        p["report_id"] = reportID
+        if d.launches > 0 { p["launches"] = Self.clip(d.launches) }
+        if d.ayahs > 0 { p["ayahs"] = Self.clip(d.ayahs) }
+        var surahs: [String: Int] = [:]
+        for (k, v) in d.surahAyahs {
+            if let n = Int(k), (1...114).contains(n), v > 0 { surahs[String(n)] = min(1_000_000, v) }
+        }
+        if !surahs.isEmpty { p["surah_ayahs"] = surahs }
+        if d.words > 0 { p["words"] = Self.clip(d.words) }
+        // at most 32 rules, the most checked first; a flag count never above its check count
+        let rules = d.ruleChecks.filter { (e: (key: String, value: Int)) -> Bool in e.value > 0 && Self.ruleKey(e.key) }
+            .sorted { (a: (key: String, value: Int), b: (key: String, value: Int)) -> Bool in a.value != b.value ? a.value > b.value : a.key < b.key }
+            .prefix(32)
+        var ruleChecks: [String: Int] = [:], ruleFlags: [String: Int] = [:]
+        for e in rules {
+            ruleChecks[e.key] = Self.clip(e.value)
+            let f = min(d.ruleFlags[e.key] ?? 0, e.value)
+            if f > 0 { ruleFlags[e.key] = Self.clip(f) }
+        }
+        if !ruleChecks.isEmpty { p["rule_checks"] = ruleChecks }
+        if !ruleFlags.isEmpty { p["rule_flags"] = ruleFlags }
+        if d.shareAsked > 0 { p["share_asked"] = Self.clip(d.shareAsked) }
+        if d.shareYes > 0 { p["share_yes"] = Self.clip(d.shareYes) }
+        if d.shareNo > 0 { p["share_no"] = Self.clip(d.shareNo) }
+        let promotions = Self.promotions(d.promotions)
+        if !promotions.isEmpty { p["promotions"] = promotions }
+        return p
     }
 
-    /// Uploads every complete day (`force`: today too). 202 deletes the day, 400/413 drops it, anything retryable
-    /// keeps it. Days older than 7 are dropped unsent. Returns how many days the server accepted.
-    func flush(send: (Data) async throws(CloudError) -> Void, force: Bool = false) async -> Int {
-        let today = TelemetryDay.string(clock())
-        let oldest = TelemetryDay.string(clock().addingTimeInterval(-7 * 86_400))
-        let due = days.withLock { all -> [Day] in
-            for (k, d) in all where d.day < oldest { all[k] = nil }
-            return all.values.filter { force || $0.day < today }.sorted { $0.day < $1.day }
+    /// The `promotions` array: at most 8 entries (the busiest), zero counts and empty objects left out, an entry with
+    /// nothing counted left out.
+    static func promotions(_ all: [String: Promotion]) -> [[String: Any]] {
+        func counts(_ m: [String: Int]) -> [String: Int] { m.filter { $0.value > 0 }.mapValues(clip) }
+        func hist(_ names: [String], _ v: [Int]) -> [String: Int] {
+            var o: [String: Int] = [:]
+            for (n, x) in zip(names, v) where x > 0 { o[n] = clip(x) }
+            return o
         }
+        var out: [[String: Any]] = []
+        let ranked = all.values.filter { $0.activity > 0 }
+            .sorted { (a: Promotion, b: Promotion) -> Bool in a.activity != b.activity ? a.activity > b.activity : (a.revision, a.context) < (b.revision, b.context) }
+        for e in ranked.prefix(8) {
+            var o: [String: Any] = ["backend": e.backend, "revision": String(e.revision.prefix(64)), "context": e.context]
+            if e.attempts > 0 { o["attempts"] = clip(e.attempts) }
+            if e.promoted > 0 { o["promoted"] = clip(e.promoted) }
+            let fields: [(String, [String: Int])] = [
+                ("failed_at", counts(e.failedAt)), ("reasons", counts(e.reasons)),
+                ("compile_ms", hist(Histogram.compileMs.0, e.compileMs)), ("speedup", hist(Histogram.speedupNames, e.speedup)),
+                ("failover_causes", counts(e.failoverCauses)), ("failover_stall_ms", hist(Histogram.stallMs.0, e.failoverStall)),
+            ]
+            for (k, v) in fields where !v.isEmpty { o[k] = v }
+            if e.failovers > 0 { o["failovers"] = clip(e.failovers) }
+            if e.demoted > 0 { o["demoted"] = clip(e.demoted) }
+            out.append(o)
+        }
+        return out
+    }
+
+    /// Seals the open counts of every day into deltas (each its own day, a fresh report id), saved before anything is
+    /// sent; deltas and counts older than 7 days go unsent. Returns how many were sealed.
+    @discardableResult
+    func seal() -> Int {
+        let oldest = TelemetryDay.string(clock().addingTimeInterval(-7 * 86_400))
+        let made = state.withLock { s -> Int in
+            var n = 0
+            for k in s.open.keys.sorted() {
+                guard let d = s.open[k] else { continue }
+                s.open[k] = nil
+                guard d.day >= oldest, !d.isEmpty else { continue }
+                let id = Self.reportID()
+                guard let body = try? JSONSerialization.data(withJSONObject: payload(d, reportID: id), options: [.sortedKeys]) else { continue }
+                s.seq += 1
+                s.sealed.append(Sealed(reportID: id, day: d.day, seq: s.seq, body: body))
+                n += 1
+            }
+            s.sealed.removeAll { $0.day < oldest }
+            return n
+        }
+        saveNow()
+        return made
+    }
+
+    /// A send point: seals what was counted, then sends every sealed delta, oldest first. 202 deletes it; a refusal
+    /// (400, 413) drops it; a retryable failure (network, 5xx, 429, 401 after a new token) keeps it and the rest for
+    /// later, the same bytes. Returns how many the server accepted.
+    func flush(send: (Data) async throws(CloudError) -> Void) async -> Int {
+        seal()
+        let mine = sending.withLock { (busy: inout Bool) -> Bool in
+            if busy { return false }
+            busy = true
+            return true
+        }
+        guard mine else { return 0 }
         var sent = 0
-        for d in due {
-            guard let body = try? JSONSerialization.data(withJSONObject: payload(d), options: [.sortedKeys]) else { continue }
-            var drop = true
+        var tried = Set<String>()
+        var kept = false
+        while true {
+            let next: Sealed? = sealed.first { !tried.contains($0.reportID) }
+            guard let r = next else { break }
+            tried.insert(r.reportID)
+            var keep = false
             do throws(CloudError) {
-                try await send(body)
+                try await send(r.body)
                 sent += 1
             } catch {
-                if error.retryable { drop = false }
+                keep = error.retryable
             }
-            if drop { days.withLock { all in if all[d.day] == d { all[d.day] = nil } } }
-            if !drop { break }
+            if keep {
+                kept = true
+                break
+            }
+            state.withLock { s in s.sealed.removeAll { $0.reportID == r.reportID } }
         }
-        let file = self.file, days = self.days
-        saver.async { file.write(days.withLock { $0 }) }
-        waitForSave()
+        let now = clock()
+        backoff.withLock { b in
+            if kept {
+                b.failures += 1
+                b.notBefore = b.failures == 1 ? now.addingTimeInterval(60) : b.failures == 2 ? now.addingTimeInterval(600) : nil
+            } else {
+                b = Backoff()
+            }
+        }
+        saveNow()
+        sending.withLock { $0 = false }
         return sent
+    }
+
+    /// The timer may retry unsent deltas now (1 minute after a failure, then 10 minutes; after that only the next send
+    /// point of the app's life cycle does).
+    func retryDue(_ now: Date) -> Bool {
+        guard state.withLock({ !$0.sealed.isEmpty }) else { return false }
+        return backoff.withLock { b -> Bool in
+            if b.failures == 0 { return true }
+            guard let t = b.notBefore else { return false }
+            return now >= t
+        }
     }
 
     /// Drops everything queued (the signed config's `flags.analytics` is false).
     func dropAll() {
-        days.withLock { $0 = [:] }
+        state.withLock { $0 = State() }
         let file = self.file
         saver.async { file.delete() }
+    }
+}
+
+extension AnalyticsStore.Day {
+    /// Days saved by SDK 2.0.0 lack the 2.0.1 counters.
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        day = try c.decode(String.self, forKey: .day)
+        cohorts = try c.decodeIfPresent([String: AnalyticsStore.Cohort].self, forKey: .cohorts) ?? [:]
+        coverage = try c.decodeIfPresent([String: Int].self, forKey: .coverage) ?? [:]
+        downloads = try c.decodeIfPresent([String: AnalyticsStore.Download].self, forKey: .downloads) ?? [:]
+        launches = try c.decodeIfPresent(Int.self, forKey: .launches) ?? 0
+        ayahs = try c.decodeIfPresent(Int.self, forKey: .ayahs) ?? 0
+        surahAyahs = try c.decodeIfPresent([String: Int].self, forKey: .surahAyahs) ?? [:]
+        words = try c.decodeIfPresent(Int.self, forKey: .words) ?? 0
+        ruleChecks = try c.decodeIfPresent([String: Int].self, forKey: .ruleChecks) ?? [:]
+        ruleFlags = try c.decodeIfPresent([String: Int].self, forKey: .ruleFlags) ?? [:]
+        shareAsked = try c.decodeIfPresent(Int.self, forKey: .shareAsked) ?? 0
+        shareYes = try c.decodeIfPresent(Int.self, forKey: .shareYes) ?? 0
+        shareNo = try c.decodeIfPresent(Int.self, forKey: .shareNo) ?? 0
+        promotions = try c.decodeIfPresent([String: AnalyticsStore.Promotion].self, forKey: .promotions) ?? [:]
     }
 }
 
@@ -414,6 +719,10 @@ struct IssueReport: Codable, Equatable, Sendable {
     var revision: String?
     var kind: String
     var code: String
+    /// Accelerator incidents only (`accelerator_failover`, `promotion_failed`): the path-stripped error message and
+    /// the closed detail object.
+    var message: String?
+    var detail: IncidentDetail?
 }
 
 /// Error reports waiting to be sent: a capped queue on disk, at most one report per signature per day, flushed on

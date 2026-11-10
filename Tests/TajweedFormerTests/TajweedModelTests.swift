@@ -4,7 +4,7 @@ import XCTest
 @testable import TajweedFormer
 
 /// The V4 folder in manifest format 3 (folder layout v2): the signed text, the Apple download profile, the resumable
-/// gzip install with the correction's fallback, and what makes a folder (or its CoreML files) unusable. The folder is
+/// gzip install (the CPU set first, then the accelerator files), and what makes a folder (or its CoreML files) unusable. The folder is
 /// Fixtures/v4mini, written by scripts/make_test_folder_v4.py with the format 3 rules.
 final class TajweedModelTests: XCTestCase {
     func server() throws -> URL { try Fixtures.v4mini().appendingPathComponent("server") }
@@ -59,9 +59,27 @@ final class TajweedModelTests: XCTestCase {
         XCTAssertThrowsError(try old.checkCompatible())
     }
 
-    /// The Apple profile: the CPU set of the context, plus the package, the context's keep table and the correction;
-    /// never a native, NPU or other-context file. With the correction covering them, layers.zfw and frontend.zfw are
-    /// not downloaded. Without CoreML (older OS), the CPU set alone.
+    /// A manifest that marks the self-test set required (the 2.0.1 revision's folder does): the first install still
+    /// fetches the bare CPU set, and the self-test set still comes with the accelerator.
+    func testARequiredSelfTestSetIsNotPartOfTheCPUSet() throws {
+        var o = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: server().appendingPathComponent("manifest.json"))) as? [String: Any])
+        let files = try XCTUnwrap(o["files"] as? [[String: Any]])
+        o["files"] = files.map { (f: [String: Any]) -> [String: Any] in
+            var g = f
+            if (g["role"] as? String) == "selftest" { g["need"] = "required" }
+            return g
+        }
+        let m = try ModelManifest.parse(JSONSerialization.data(withJSONObject: o))
+        XCTAssertTrue(m.files.contains { $0.role == "selftest" && $0.need == .required })
+        let p = DownloadProfile(context: "c16_l64", coreML: true)
+        XCTAssertFalse(p.cpuFiles(m).contains { $0.role == "selftest" })
+        XCTAssertTrue(p.appleFiles(m).contains { $0.role == "selftest" })
+        XCTAssertFalse(DownloadProfile(context: "c16_l64", coreML: false).cpuFiles(m).contains { $0.role == "selftest" })
+    }
+
+    /// The Apple profile: the CPU set of the context first (the only thing a first install fetches), and later, from
+    /// the promotion pipeline, the package, the context's keep table and the self-test set; never a correction (not
+    /// used since 2.0.1), a native, NPU or other-context file. Without CoreML (older OS), the CPU set alone.
     func testAppleProfile() throws {
         let m = try manifest()
         let p = DownloadProfile(context: "c16_l64", coreML: true)
@@ -71,45 +89,39 @@ final class TajweedModelTests: XCTestCase {
         XCTAssertEqual(Set(p.appleFiles(m).map(\.localPath)), ["coreml/tajweedformer_v4.mlmodelc/weights/weight.bin",
                                                                "coreml/tajweedformer_v4.mlmodelc/model.mil",
                                                                "coreml/tajweedformer_v4.mlmodelc/coremldata.bin",
-                                                               "coreml/c16_l64/keeps.bin", "coreml/engine.zfs",
+                                                               "coreml/c16_l64/keeps.bin",
                                                                "selftest/selftest.json", "selftest/Husary_001001.s16",
                                                                "selftest/Husary_112001.s16", "selftest/Husary_112001_planted.s16", "selftest/expected_c16_l64.json"])
-        let rebuilt = p.rebuilt(m, correctionNames: ["layers.zfw", "frontend.zfw"])
-        XCTAssertEqual(Set(rebuilt.map(\.localPath)), ["layers.zfw", "frontend.zfw"])
-        let kept = Set(p.files(m, correctionNames: ["layers.zfw", "frontend.zfw"]).map(\.localPath))
-        XCTAssertFalse(kept.contains("layers.zfw"))
+        let kept = Set(p.files(m).map(\.localPath))
+        XCTAssertTrue(kept.contains("layers.zfw"), "the CPU weights are always downloaded")
+        XCTAssertFalse(kept.contains("coreml/engine.zfs"), "no correction")
         XCTAssertFalse(kept.contains { $0.hasPrefix("c24_l72/") || $0.hasPrefix("npu/") || $0.hasSuffix("model_engine2.onnx") })
         XCTAssertFalse(kept.contains { $0.hasPrefix("coreml-compact/") }, "never both CoreML builds")
-        // the compact build: its own package and correction, the same keep table
+        XCTAssertTrue(p.otherBuildFiles(m).contains { $0.localPath == "coreml/engine.zfs" }, "a correction left by 2.0.0 is deleted")
+        // the compact build: its own package, the same keep table
         let compact = DownloadProfile(context: "c16_l64", coreML: true, compact: true)
         XCTAssertEqual(Set(compact.appleFiles(m).map(\.localPath)), ["coreml-compact/tajweedformer_v4.mlmodelc/weights/weight.bin",
                                                                      "coreml-compact/tajweedformer_v4.mlmodelc/model.mil",
                                                                      "coreml-compact/tajweedformer_v4.mlmodelc/coremldata.bin",
-                                                                     "coreml/c16_l64/keeps.bin", "coreml-compact/engine.zfs",
+                                                                     "coreml/c16_l64/keeps.bin",
                                                                      "selftest/selftest.json", "selftest/Husary_001001.s16",
                                                                      "selftest/Husary_112001.s16", "selftest/Husary_112001_planted.s16", "selftest/expected_c16_l64.json"])
-        XCTAssertEqual(Set(compact.rebuilt(m, correctionNames: ["layers.zfw", "frontend.zfw"]).map(\.localPath)), ["layers.zfw", "frontend.zfw"])
         XCTAssertLessThan(DownloadProfile.bytes(compact.appleFiles(m)), DownloadProfile.bytes(p.appleFiles(m)) + 1_000_000)
         let cpu = DownloadProfile(context: "c16_l64", coreML: false)
         XCTAssertTrue(cpu.appleFiles(m).isEmpty)
-        XCTAssertTrue(cpu.rebuilt(m, correctionNames: ["layers.zfw"]).isEmpty)
-        // sizes for the report: the whole folder, the v1-style "everything" and this profile
-        let all = DownloadProfile.bytes(m.files)
-        let apple = DownloadProfile.bytes(p.files(m, correctionNames: ["layers.zfw", "frontend.zfw"]))
-        XCTAssertLessThan(apple, all)
+        XCTAssertLessThan(DownloadProfile.bytes(p.files(m)), DownloadProfile.bytes(m.files))
     }
 
-    /// The install: every file of the profile, gzip ones inflated and checked; the synthetic correction is not a
-    /// sidecar, so the CPU weights are downloaded (the CPU path always works). Then the folder opens, verified, with
-    /// c16_l64 usable on the CPU and its CoreML build found; c24_l72 comes later on demand.
+    /// The install: the CPU set, then the profile's accelerator files, gzip ones inflated and checked; no correction.
+    /// Then the folder opens, verified, with c16_l64 usable on the CPU and its CoreML build found; c24_l72 comes later
+    /// on demand.
     func testInstallVerifyAndAnotherContext() async throws {
         let m = try manifest()
         let dir = scratch()
         let installer = ModelInstaller(source: DirectoryFileSource(root: try server()), rangeSize: 64 << 10)
         let r = try await installer.install(m, profile: DownloadProfile(context: "c16_l64", coreML: true), into: dir)
         XCTAssertNil(r.appleUnavailable)
-        XCTAssertNotNil(r.correctionFallback)
-        XCTAssertTrue(r.rebuilt.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("coreml/engine.zfs").path), "no correction")
         XCTAssertGreaterThan(r.downloadedBytes, 0)
         let leftovers = FileManager.default.enumerator(atPath: dir.path)!.compactMap { $0 as? String }.filter { $0.hasSuffix(".part") || $0.hasSuffix(".gz") }
         XCTAssertEqual(leftovers, [], "only decoded files are kept")
@@ -251,12 +263,5 @@ final class TajweedModelTests: XCTestCase {
         let badURL = scratch().appendingPathComponent("bad.gz")
         try bad.write(to: badURL)
         XCTAssertThrowsError(try Gzip.inflate(badURL, to: out))
-    }
-
-    /// The correction's reader refuses a file that is not a sidecar (the engine's zf_zfs_file_count).
-    func testCorrectionReaderRefusesGarbage() throws {
-        let f = scratch().appendingPathComponent("engine.zfs")
-        try Data("not a ZFS1 sidecar".utf8).write(to: f)
-        XCTAssertNil(Correction.entries(f))
     }
 }

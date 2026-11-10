@@ -17,23 +17,22 @@ public struct InstallReport: Sendable, Hashable {
     public var diskBytes: Int64 = 0
     /// At least one file continued a partial download from an earlier launch.
     public var resumed = false
-    /// Files the correction rebuilt from the CoreML weights instead of downloading.
-    public var rebuilt: [String] = []
-    /// Why the Apple files (CoreML package, keeps, correction) are not usable, when they are not; the CPU set is
-    /// then complete on its own.
+    /// Why the accelerator files (CoreML package, keeps, self-test set) are not usable, when they are not; the CPU set
+    /// is complete on its own.
     public var appleUnavailable: String?
-    /// Why the correction did not rebuild the weights (they were downloaded instead), when it did not.
-    public var correctionFallback: String?
+    /// The program was rebuilt on the device from its delta and the CPU weights (QLPD1), not downloaded.
+    public var programFromDelta = false
+    /// Why the delta was not used (the full program was downloaded instead), when it was not.
+    public var programDeltaFallback: String?
 }
 
 /// Brings a profile of a model folder onto disk: every file by HTTP Range into `<stored path>.part` (resumable across
 /// launches), checked against the stored size and SHA-256, inflated when stored gzip and checked against the decoded
 /// size and SHA-256; only the decoded file is kept. Any mismatch deletes both and retries once.
 ///
-/// Apple files first (iOS 18 / macOS 15): the CoreML package, the context's keep table and the correction; then the
-/// CPU engine's weight files are rebuilt from the package's weights (`Correction`) and checked against the manifest,
-/// and only what the correction did not cover is downloaded. If anything of that fails, the CPU set is downloaded
-/// whole: the CPU path always works.
+/// CPU first: `install` brings the CPU set (the exact engine runs from it alone), then, only when the profile asks for
+/// them, the accelerator files. The SDK's own first install asks for the CPU set only; the promotion pipeline fetches
+/// the accelerator files later with `installAccelerator`, on an unmetered network, after the first session.
 public struct ModelInstaller: Sendable {
     let source: any ModelFileSource
     let rangeSize: Int64
@@ -54,101 +53,116 @@ public struct ModelInstaller: Sendable {
         return Int64(v?.volumeAvailableCapacity ?? Int.max)
     }
 
-    /// Installs `profile` of `manifest` into `folder` (which may hold files of an earlier, interrupted install), and
-    /// writes the manifest there last.
+    /// Installs `profile` of `manifest` into `folder` (which may hold files of an earlier, interrupted install): the
+    /// CPU set, then the profile's accelerator files when it has any (a failure there leaves the CPU set working and
+    /// is reported in `appleUnavailable`). Writes the manifest there last.
     public func install(_ manifest: ModelManifest, profile: DownloadProfile, into folder: URL) async throws(RecognizerError) -> InstallReport {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var report = InstallReport()
-        var apple = profile.appleFiles(manifest)
         let cpu = profile.cpuFiles(manifest)
-        let needed = (apple + cpu).filter { !Self.present($0, in: folder) }
-        let want = needed.reduce(Int64(0)) { $0 + $1.size + $1.localSize }
-        let free = freeSpace(folder)
-        guard free >= want + (64 << 20) else { throw .insufficientStorage(needed: want + (64 << 20), available: free) }
-
-        // the Apple files; any failure leaves the CPU set to do the work
-        if !apple.isEmpty {
+        try checkSpace(cpu, in: folder)
+        for f in cpu { try await ensure(f, in: folder, report: &report) }
+        try manifest.write(to: folder)
+        if !profile.appleFiles(manifest).isEmpty {
             do throws(RecognizerError) {
-                for f in apple { try await ensure(f, in: folder, report: &report) }
+                let a = try await installAccelerator(manifest, profile: profile, into: folder)
+                report.downloadedBytes += a.downloadedBytes
+                report.resumed = report.resumed || a.resumed
             } catch {
                 if case .offline = error { throw error }
                 report.appleUnavailable = "\(error)"
-                for f in apple { try? FileManager.default.removeItem(at: folder.appendingPathComponent(f.localPath)) }
-                apple = []
             }
         }
-        // the correction: rebuild what it covers, each file checked against the manifest
-        var covered = Set<String>()
-        if let zfs = apple.first(where: { $0.role == profile.correctionRole }) {
-            covered = rebuild(manifest, profile: profile, correction: zfs, apple: apple, in: folder, report: &report)
-        }
-        for f in cpu where !covered.contains(f.path) { try await ensure(f, in: folder, report: &report) }
-        let kept = apple + cpu
-        // one CoreML build on the device: the other build's files go (a profile change), once this one is in place
-        if !apple.isEmpty {
-            for f in profile.otherBuildFiles(manifest) { try? FileManager.default.removeItem(at: folder.appendingPathComponent(f.localPath)) }
-            for f in profile.otherBuildFiles(manifest) {
-                var dir = folder.appendingPathComponent(f.localPath).deletingLastPathComponent()
-                while dir.path.count > folder.path.count, (try? FileManager.default.contentsOfDirectory(atPath: dir.path))?.isEmpty == true {
-                    try? FileManager.default.removeItem(at: dir)
-                    dir.deleteLastPathComponent()
-                }
-            }
-        }
-        report.profileBytes = DownloadProfile.bytes(kept.filter { !covered.contains($0.path) })
+        let kept = cpu + (report.appleUnavailable == nil ? profile.appleFiles(manifest) : [])
+        report.profileBytes = DownloadProfile.bytes(kept)
         report.diskBytes = kept.reduce(0) { $0 + $1.localSize }
-        try manifest.write(to: folder)
         return report
     }
 
-    /// The correction's rebuild. Returns the stored paths it covered (verified on disk).
-    func rebuild(_ m: ModelManifest, profile: DownloadProfile, correction: ModelManifest.File, apple: [ModelManifest.File],
-                 in folder: URL, report: inout InstallReport) -> Set<String> {
-        let zfs = folder.appendingPathComponent(correction.localPath)
-        guard let entries = Correction.entries(zfs) else {
-            report.correctionFallback = "the correction file is not a sidecar this engine reads"
-            return []
-        }
-        let targets = profile.rebuilt(m, correctionNames: entries.map(\.name))
-        guard !targets.isEmpty else {
-            report.correctionFallback = "the correction rebuilds none of this profile's files"
-            return []
-        }
-        // the sidecar's own record must name the manifest's file, before any byte is written
-        let bySidecar = Dictionary(entries.map { ($0.name, $0.sha256) }, uniquingKeysWith: { a, _ in a })
-        for t in targets where bySidecar[t.localPath] != t.localSHA256 {
-            report.correctionFallback = "the correction rebuilds a different \(t.localPath) than the manifest lists"
-            return []
-        }
-        if targets.allSatisfy({ Self.present($0, in: folder) }) { return Set(targets.map(\.path)) }
-        guard let weights = apple.first(where: { $0.role == profile.packageRole && $0.localPath.hasSuffix(".mlmodelc/weights/weight.bin") }) else {
-            report.correctionFallback = "the CoreML package has no weights/weight.bin"
-            return []
-        }
-        // the rebuild writes into a scratch folder: only listed, checked files move into the model
-        let scratch = folder.appendingPathComponent(".rebuild", isDirectory: true)
-        try? FileManager.default.removeItem(at: scratch)
-        defer { try? FileManager.default.removeItem(at: scratch) }
-        do throws(RecognizerError) {
-            _ = try Correction.rebuild(weightBin: folder.appendingPathComponent(weights.localPath), zfs: zfs, into: scratch)
-            for t in targets {
-                let built = scratch.appendingPathComponent(t.localPath)
-                let (size, sha) = try ModelManifest.digest(built)
-                guard size == t.localSize, sha == t.localSHA256 else { throw RecognizerError.checksumMismatch(file: t.localPath + " (rebuilt)") }
-                let dst = folder.appendingPathComponent(t.localPath)
-                try? FileManager.default.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? FileManager.default.removeItem(at: dst)
-                do { try FileManager.default.moveItem(at: built, to: dst) } catch {
-                    throw RecognizerError.storageFailed("cannot place \(t.localPath): \(error.localizedDescription)")
+    /// The accelerator files of `profile` (package, keep table, self-test set) into a folder that holds the CPU set,
+    /// each verified like any download; then the other build's files and any correction left by an earlier SDK are
+    /// deleted (one build on the device). The compiled package is kept out of backups (the device makes it again).
+    /// On a failure the files fetched so far stay (the next attempt resumes); a file that does not verify is deleted.
+    public func installAccelerator(_ manifest: ModelManifest, profile: DownloadProfile,
+                                   into folder: URL) async throws(RecognizerError) -> InstallReport {
+        var report = InstallReport()
+        let apple = profile.appleFiles(manifest)
+        guard !apple.isEmpty else { throw .neuralEngineUnavailable("the folder has no \(profile.packageRole) build for \(profile.context)") }
+        let pd = profile.programDelta(manifest)
+        try checkSpace(apple + (pd.map { [$0.delta, $0.delta] } ?? []), in: folder)
+        for f in apple where f.localPath != pd?.program.localPath { try await ensure(f, in: folder, report: &report) }
+        if let pd {
+            // the delta first: the program rebuilt from the CPU weights already here, checked before CoreML sees it
+            if !Self.verified(pd.program, in: folder) {
+                do throws(RecognizerError) {
+                    try await rebuildFromDelta(manifest, pd.delta, pd.program, profile: profile, in: folder, report: &report)
+                    report.programFromDelta = true
+                } catch {
+                    if case .offline = error { throw error }
+                    report.programDeltaFallback = "\(error)"
                 }
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent(pd.delta.localPath))
+                try? FileManager.default.removeItem(at: folder.appendingPathComponent(pd.delta.path + ".part"))
             }
-        } catch {
-            report.correctionFallback = "\(error)"
-            for t in targets { try? FileManager.default.removeItem(at: folder.appendingPathComponent(t.localPath)) }
-            return []
+            // the full program: when there was no delta to use, or it did not rebuild the listed bytes
+            try await ensure(pd.program, in: folder, report: &report)
         }
-        report.rebuilt = targets.map(\.localPath)
-        return Set(targets.map(\.path))
+        let fm = FileManager.default
+        for f in profile.otherBuildFiles(manifest) { try? fm.removeItem(at: folder.appendingPathComponent(f.localPath)) }
+        for f in profile.otherBuildFiles(manifest) {
+            var dir = folder.appendingPathComponent(f.localPath).deletingLastPathComponent()
+            while dir.path.count > folder.path.count, (try? fm.contentsOfDirectory(atPath: dir.path))?.isEmpty == true {
+                try? fm.removeItem(at: dir)
+                dir.deleteLastPathComponent()
+            }
+        }
+        for top in Set(apple.compactMap { $0.localPath.split(separator: "/").first.map(String.init) }) where top != "selftest" {
+            var url = folder.appendingPathComponent(top, isDirectory: true)
+            var v = URLResourceValues()
+            v.isExcludedFromBackup = true
+            try? url.setResourceValues(v)
+        }
+        var fetched = apple
+        if report.programFromDelta, let pd { fetched = apple.filter { $0.localPath != pd.program.localPath } + [pd.delta] }
+        report.profileBytes = DownloadProfile.bytes(fetched)
+        report.diskBytes = apple.reduce(0) { $0 + $1.localSize }
+        return report
+    }
+
+    /// Whether a decoded file is on disk with the manifest's size and SHA-256.
+    static func verified(_ f: ModelManifest.File, in folder: URL) -> Bool {
+        guard present(f, in: folder), let (_, sha) = try? ModelManifest.digest(folder.appendingPathComponent(f.localPath)) else { return false }
+        return sha == f.localSHA256
+    }
+
+    /// Downloads the delta (verified like any file) and rebuilds the program from it and the context's CPU files,
+    /// into a scratch file outside the package that moves into place only once its SHA-256 is the manifest's.
+    func rebuildFromDelta(_ m: ModelManifest, _ delta: ModelManifest.File, _ program: ModelManifest.File, profile: DownloadProfile,
+                          in folder: URL, report: inout InstallReport) async throws(RecognizerError) {
+        try await ensure(delta, in: folder, report: &report)
+        let cpu = ProgramDelta.CPUFiles(folder: folder, context: profile.context,
+                                        layersSHA256: m.files(role: "weights").first?.localSHA256,
+                                        frontendSHA256: m.files(role: "frontend").first?.localSHA256)
+        let scratch = folder.appendingPathComponent(".rebuild", isDirectory: true)
+        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let built = scratch.appendingPathComponent((program.localPath as NSString).lastPathComponent)
+        try ProgramDelta.rebuild(delta: folder.appendingPathComponent(delta.localPath), cpu: cpu, to: built,
+                                 expectedSHA256: program.localSHA256, expectedSize: program.localSize)
+        let dst = folder.appendingPathComponent(program.localPath)
+        try? FileManager.default.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: dst)
+        do { try FileManager.default.moveItem(at: built, to: dst) } catch {
+            throw .storageFailed("cannot place \(program.localPath): \(error.localizedDescription)")
+        }
+    }
+
+    /// Room for `files` not on disk yet (stored and decoded bytes), with 64 MB to spare.
+    func checkSpace(_ files: [ModelManifest.File], in folder: URL) throws(RecognizerError) {
+        let needed = files.filter { !Self.present($0, in: folder) }
+        let want = needed.reduce(Int64(0)) { $0 + $1.size + $1.localSize }
+        let free = freeSpace(folder)
+        guard free >= want + (64 << 20) else { throw .insufficientStorage(needed: want + (64 << 20), available: free) }
     }
 
     /// Whether the decoded file is on disk with its size (the hash is checked when the model is opened).

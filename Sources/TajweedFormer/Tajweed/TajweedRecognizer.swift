@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import CoreML
 import Foundation
+import os
 #if canImport(UIKit) && !os(watchOS)
 import UIKit
 #endif
@@ -13,7 +14,7 @@ public protocol AudioBufferSink: Sendable {
 /// V4 TajweedFormer: stream a take, keep every head, decode it, and score it against a known ayah with the calibrated
 /// tajweed checks.
 ///
-///     let model = try await TajweedModel.load()                      // this device's download profile, verified
+///     let model = try await TajweedModel.load()                      // this device's CPU set, verified
 ///     let r = try TajweedRecognizer(model: model, options: TajweedOptions(preset: .balanced, word: .general))
 ///     try await r.startTake()
 ///     let chunks = try await r.append(samples, sampleRate: 48_000)    // each chunk's selected heads (raw layer)
@@ -23,21 +24,23 @@ public protocol AudioBufferSink: Sendable {
 ///     await r.endSession(feedback: true)                              // lets the SDK ask about sharing, at the right moment
 ///
 /// Backends, CPU first: the exact CPU engine serves from the first take, always. With `.automatic` (the default, no
-/// code needed) the CoreML package is prepared in the background and self-tested against the model folder's
-/// self-test set; once it passes (`acceleratorState == .ready`), takes from the next one on run on the Neural Engine.
-/// A fault during a take (a non-finite head, a chunk over budget, all-blank chunks with audio in them, an exception)
-/// re-runs that take on the CPU engine from its start, hands out only the chunks not handed out yet, and keeps the CPU
-/// engine for the rest of the launch; `fallbackReason` says why and telemetry counts it.
+/// code needed) the Neural Engine is promoted in the background (`AcceleratorController`: its files downloaded after
+/// the first session, compiled, warmed, golden-tested against the model folder's self-test set); once it is ready
+/// (`acceleratorState == .ready`), takes from the next one on run on it. A chunk that fails on the Neural Engine
+/// (an exception, a NaN or inf, a head out of range, chunks that hear nothing in audio with energy, a missed
+/// deadline) switches the take to the CPU engine at that chunk: the take's recent audio is replayed through it, the
+/// chunks already handed out stay, the take continues, and the app gets no error (`activeBackend` and
+/// `fallbackReason` say what happened). The build is demoted for this model revision and OS build.
 ///
 /// Settings precedence: the app's `options` > the portal's tajweed block (signed remote config) > calibration.json.
 /// `debugBuild` is the APP's build: only a debug build may turn on a check calibration marks `off`, or force the
 /// Neural Engine.
 public actor TajweedRecognizer: AudioBufferSink {
     public enum Backend: String, Sendable {
-        /// The exact CPU engine first; the Neural Engine once it is prepared and passed its self-test.
+        /// The exact CPU engine first; the Neural Engine once it is promoted (downloaded, compiled, golden-tested).
         case automatic
-        /// Debug builds only: the Neural Engine at once, without the self-test; throws where it cannot load. A CPU-only
-        /// context (`ModelContexts`) stays on the exact CPU engine, without an error.
+        /// Debug builds only: the Neural Engine at once, without the pipeline; throws where it cannot load (the build
+        /// must be in the folder). A CPU-only context (`ModelContexts`) stays on the exact CPU engine, without an error.
         case neuralEngine
         /// The exact CPU engine only.
         case exact
@@ -59,27 +62,32 @@ public actor TajweedRecognizer: AudioBufferSink {
     /// The settings the current (or last) take is scored with: `settings` on the CPU engine, `acceleratorSettings`
     /// on the Neural Engine.
     public private(set) var settingsInForce: EffectiveTajweed
+    /// The switch to the CPU engine in the current (or last) take, when there was one.
+    var lastFailover: TakeRunner.Failover?
 
     private let requested: Backend
     private let scorer: any TajweedScoring
     private let options: TajweedOptions
     private let remote: JSONValue?
     private let debugBuild: Bool
-    private var exact: TajweedExactEngine?
-    private var accel: (any AcceleratorBackend)?
+    private var runner: TakeRunner?
     private nonisolated let controllerBox = Locked<AcceleratorController?>(nil)
+    /// The model as the pipeline sees it (the accelerator's files counted once its download verified them).
+    private nonisolated let acceleratorModel: Locked<TajweedModel>
+    private var forced: AcceleratorExecutor?
+    private var leased = false
     private var fixedState: AcceleratorState = .cpu
-    private var preparationScheduled = false
+    private var pipelineStarted = false
     private let registryID = UUID()
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
-    private var blankRun = 0
     private var converter: SampleRateConverter?
-    private var take16k: [Float] = []
     private var delivered = 0
     private var take = TajweedHeads()
-    private var chunkSeconds: [Double] = []
+    private var takeChunkFrames: [Int] = []
     private var takeAudioSeconds = 0.0
     private var takeOpen = false
+    /// Counts takes: the golden test stops when a take ran between two of its steps.
+    private var takeGeneration = 0
     private var share: ShareCapture?
     private var activity: SessionActivity?
     private var stream: AsyncStream<TajweedChunk>.Continuation?
@@ -92,7 +100,7 @@ public actor TajweedRecognizer: AudioBufferSink {
     /// - Parameters:
     ///   - remote: the portal's tajweed block; nil reads it from the signed remote config.
     ///   - heads: the heads handed out per chunk (`.default`, `.all`, or a set).
-    ///   - backend: `.automatic` (CPU first, then the Neural Engine once verified), `.exact`, or in a debug build
+    ///   - backend: `.automatic` (CPU first, then the Neural Engine once promoted), `.exact`, or in a debug build
     ///     `.neuralEngine`.
     public init(model: TajweedModel, options: TajweedOptions = .init(), remote: JSONValue? = nil, debugBuild: Bool = false,
                 backend: Backend = .automatic, heads: HeadSelection = .default, scorer: (any TajweedScoring)? = nil) throws(RecognizerError) {
@@ -101,6 +109,7 @@ public actor TajweedRecognizer: AudioBufferSink {
         }
         self.model = model
         self.requested = backend
+        acceleratorModel = Locked(model)
         let block = remote ?? QuranLab.cloud?.currentConfig?.tajweed
         settings = try TajweedSettings.resolve(calibration: model.calibration, remote: block, app: options,
                                                debugBuild: debugBuild, backend: .int8)
@@ -121,9 +130,35 @@ public actor TajweedRecognizer: AudioBufferSink {
                 self.scorer = UnavailableTajweedScorer("\(error)")
             }
         }
+        // a build promoted in an earlier launch is loaded and warmed now, in the background, so the first session
+        // normally starts on it (it never waits for it); nothing else starts before a session
+        if Self.promotedEarlier(model: model, context: settings.context, requested: backend) {
+            Task.detached(priority: .utility) { [weak self] in await self?.warmPromoted() }
+        }
+    }
+
+    /// Whether this model, context and device have a build promoted in an earlier launch (the persisted verdict).
+    static func promotedEarlier(model: TajweedModel, context: String, requested: Backend) -> Bool {
+        guard requested == .automatic, mayUseAccelerator(requested: requested, context: context), DownloadProfile.osRunsCoreML,
+              let b = model.coreML(context: context) else { return false }
+        let key = AcceleratorController.key(revision: model.identity, context: context, build: b.compact ? "coreml-compact" : "coreml")
+        let store = PromotionStore(dir: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"))
+        return store.record(key)?.status == .ready
+    }
+
+    /// The take runner and the promotion, without opening the CPU engine (a take that runs on the CPU opens it).
+    private func warmPromoted() {
+        makeRunner()
+        try? setUpAccelerator()
     }
 
     deinit { AcceleratorRegistry.remove(registryID) }
+
+    /// Tests only: a CPU engine in place of the exact engine (given the context), and the promotion's stages in place
+    /// of the CoreML ones, so the recognizer's order and failover run without the model.
+    // (untyped throws: a typed-throws function type as a generic argument needs iOS 18 / macOS 15 at run time)
+    static let cpuEngineOverride = Locked<(@Sendable (String) throws -> any CPUStreamEngine)?>(nil)
+    static let stagesOverride = Locked<(@Sendable (TajweedRecognizer) -> AcceleratorController.Stages)?>(nil)
 
     // MARK: backends
 
@@ -138,6 +173,9 @@ public actor TajweedRecognizer: AudioBufferSink {
                                siteOverrides: settings.siteOverrides)
     }
 
+    /// The exact CPU engine when it is open (it is closed while the Neural Engine serves a take).
+    var exact: TajweedExactEngine? { runner?.cpu as? TajweedExactEngine }
+
     /// Where the Neural Engine stands.
     public var acceleratorState: AcceleratorState { controllerBox.withLock { $0 }?.state ?? fixedState }
 
@@ -151,28 +189,73 @@ public actor TajweedRecognizer: AudioBufferSink {
         return s
     }
 
-    /// Waits until the Neural Engine is ready or will not be (up to `timeout`); true when the next take will run on it.
-    /// Starts the preparation now if it has not started.
+    /// Starts the promotion now if it has not started, and waits until the Neural Engine is ready or will not be (up to
+    /// `timeout`); true when the next take will run on it.
     public func awaitReady(timeout: TimeInterval) async -> Bool {
-        guard let c = controllerBox.withLock({ $0 }) else { return false }
-        if c.state == .cpu { schedulePreparation(now: true) }
+        guard let c = controllerBox.withLock({ $0 }) else { return forced != nil }
+        if c.state != .ready { startPipeline(priority: .utility) }
+        // give the run a moment to leave .cpu
+        for _ in 0..<50 where c.state == .cpu && c.record?.status != .failed {
+            if c.isRunning { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
         return await c.awaitReady(timeout: timeout)
     }
 
-    /// What the accelerator's self-test found, once it ran in this launch.
+    /// What the golden test found for this model revision, OS build and device, once it ran.
     public var acceleratorSelfTest: AcceleratorSelfTest? { controllerBox.withLock { $0 }?.lastSelfTest }
 
-    /// Builds the CPU engine now (otherwise the first `startTake` does), and sets up the Neural Engine's background
-    /// preparation where it applies.
+    /// The controller of the Neural Engine's promotion (nil where it does not apply).
+    var acceleratorController: AcceleratorController? { controllerBox.withLock { $0 } }
+
+    /// Builds the CPU engine now (otherwise the first `startTake` does), and sets up the Neural Engine's promotion where
+    /// it applies.
     public func prepare() throws(RecognizerError) {
-        guard exact == nil else { return }
         let t0 = Date()
+        let opened = runner?.cpu == nil
+        try makeRunner().ensureCPU()
+        if opened {
+            QuranLab.record(.modelLoaded(revision: model.revision, milliseconds: Date().timeIntervalSince(t0) * 1000, cohort: cohort))
+        }
+        try setUpAccelerator()
+    }
+
+    /// The chunk of a context, ms (`c<frames>_l<left>`, frames of 20 ms): 320 at c16_l64.
+    static func chunkMs(context: String) -> Int {
+        let parts = String(context.dropFirst()).components(separatedBy: "_l")
+        return (parts.first.flatMap { Int($0) } ?? 16) * 20
+    }
+
+    /// The take runner; the CPU engine is opened by the first take that needs it.
+    @discardableResult
+    private func makeRunner() -> TakeRunner {
+        if let runner { return runner }
         let ctx = settings.context
-        exact = try TajweedExactEngine(directory: model.directory, context: ctx)
+        let dir = model.directory
         // only the heads this recognizer hands out or keeps (the scorer's, conf for the decoded layer)
-        exact?.setHeads(HeadSelection(selection.heads.union([.conf])).engineMask)
+        let mask = HeadSelection(selection.heads.union([.conf])).engineMask
+        let override = Self.cpuEngineOverride.withLock { $0 }
+        let open = { () throws(RecognizerError) -> any CPUStreamEngine in
+            if let override {
+                do { return try override(ctx) } catch { throw (error as? RecognizerError) ?? .engineFailed(code: -1, message: "\(error)") }
+            }
+            let e = try TajweedExactEngine(directory: dir, context: ctx)
+            e.setHeads(mask)
+            return e
+        }
+        let r = TakeRunner(chunkMs: Self.chunkMs(context: ctx), openCPU: open)
+        runner = r
         activeBackend = .exact
-        QuranLab.record(.modelLoaded(revision: model.revision, milliseconds: Date().timeIntervalSince(t0) * 1000, cohort: cohort))
+        return r
+    }
+
+    private var acceleratorSetUp = false
+
+    /// Sets up the Neural Engine's promotion where it applies (once).
+    private func setUpAccelerator() throws(RecognizerError) {
+        guard !acceleratorSetUp else { return }
+        acceleratorSetUp = true
+        let ctx = settings.context
         guard Self.mayUseAccelerator(requested: requested, context: ctx) else { return }
         guard DownloadProfile.osRunsCoreML else {
             if requested == .neuralEngine { throw .neuralEngineUnavailable("the V4 CoreML package needs iOS 18 or macOS 15") }
@@ -182,34 +265,39 @@ public actor TajweedRecognizer: AudioBufferSink {
             }
             return
         }
-        guard let build = model.coreML(context: ctx) else {
-            if requested == .neuralEngine { throw .neuralEngineUnavailable(model.coreMLProblem ?? "the folder has no CoreML package for \(ctx)") }
+        let wantCompact = QuranLab.configuration.options.compactCoreML
+        let downloadable = QuranLab.cloud.map { $0.updater.coreML } ?? false
+        // the build on disk, unless the app asks for the other one and it can be downloaded (it then replaces it)
+        let onDisk = model.coreML(context: ctx)
+        let present = onDisk.flatMap { $0.compact == wantCompact || !downloadable ? $0 : nil }
+        if requested == .neuralEngine {
+            // debug builds: the build in the folder at once, without the pipeline
+            guard let build = onDisk else { throw .neuralEngineUnavailable(model.coreMLProblem ?? "the folder has no CoreML package for \(ctx)") }
+            guard #available(iOS 18.0, macOS 15.0, *) else { return }
+            forced = AcceleratorExecutor(try TajweedNeuralEngine(build))
+            fixedState = .ready
+            return
+        }
+        // the promotion applies when the folder has the build, or lists one this install may download
+        let compact = present?.compact ?? wantCompact
+        let listed = !DownloadProfile(context: ctx, coreML: true, compact: compact).appleFiles(model.manifest).isEmpty
+        guard present != nil || (downloadable && listed) else {
             if let p = model.coreMLProblem {
                 fixedState = .disabled(p)
                 noteFallback(.modelLoad, p)
             }
             return
         }
-        guard #available(iOS 18.0, macOS 15.0, *) else { return }
-        if requested == .neuralEngine {
-            // debug builds: the package at once, without the self-test
-            accel = try TajweedNeuralEngine(build)
-            fixedState = .ready
-            activeBackend = .neuralEngine
-            return
-        }
         let identity = model.identity
         let cohortNow = cohort
         let env = AcceleratorController.Environment(
-            revision: identity, context: ctx, compact: build.compact,
+            revision: identity, context: ctx, build: compact ? "coreml-compact" : "coreml",
             storage: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"),
-            denied: {
-                guard let f = QuranLab.cloud?.forcedBackend(revision: identity), f.backend == .exact else { return nil }
-                return f.reason
-            },
+            denied: { QuranLab.cloud?.acceleratorDenied(revision: identity) },
             record: { QuranLab.record($0) },
+            incident: { QuranLab.cloud?.reportIncident($0) },
             cohort: { cohortNow })
-        let controller = AcceleratorController(env)
+        let controller = AcceleratorController.shared(env)
         controllerBox.withLock { $0 = controller }
         if case .disabled(let why) = controller.state { fallbackReason = .modelLoad; fallbackDetail = why }
         #if canImport(UIKit) && !os(watchOS)
@@ -217,10 +305,21 @@ public actor TajweedRecognizer: AudioBufferSink {
             controller?.memoryWarning()
         }
         #endif
-        AcceleratorRegistry.add(registryID) { [weak self] in await self?.prepareAccelerator() }
-        #if os(macOS)
-        schedulePreparation(now: true)
-        #endif
+        AcceleratorRegistry.add(registryID) { [weak self] in await self?.runPipeline() }
+        if controller.record?.status == .ready {
+            // promoted in an earlier launch: load and warm it now, so the first session normally starts on it
+            startPipeline(priority: .utility)
+        } else if controller.record != nil {
+            // a key seen in an earlier launch: at launch, at low priority (the CPU engine serves until it is warm)
+            startPipeline(priority: .background)
+        } else {
+            // a first run: after the first session ends, or after a short idle delay, whichever comes first
+            let delay = PromotionPolicy.idleStartDelay
+            Task.detached(priority: .background) { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))
+                await self?.idleDelayPassed()
+            }
+        }
     }
 
     /// Whether the Neural Engine is considered at all. Never for a CPU-only context, even when it is asked for.
@@ -228,34 +327,22 @@ public actor TajweedRecognizer: AudioBufferSink {
         requested != .exact && !ModelContexts.isCPUOnly(context)
     }
 
-    /// Starts the background preparation once: now (macOS, `awaitReady`), or after the first finished take (iOS).
-    private func schedulePreparation(now: Bool) {
-        guard !preparationScheduled, controllerBox.withLock({ $0 }) != nil else { return }
-        preparationScheduled = true
-        #if os(macOS)
-        let priority = TaskPriority.utility
-        #else
-        let priority = now ? TaskPriority.utility : TaskPriority.background
-        #endif
-        Task.detached(priority: priority) { [weak self] in await self?.prepareAccelerator() }
+    private func idleDelayPassed() {
+        // a session running now starts the pipeline when it ends
+        guard !pipelineStarted, !takeOpen else { return }
+        startPipeline(priority: .background)
     }
 
-    /// The load (off the actor) and the self-test (on the actor, between takes).
-    func prepareAccelerator() async {
-        guard let controller = controllerBox.withLock({ $0 }), let build = model.coreML(context: settings.context) else { return }
-        AcceleratorRegistry.remove(registryID)
-        await controller.prepare(load: {
-            guard #available(iOS 18.0, macOS 15.0, *) else { throw RecognizerError.neuralEngineUnavailable("the OS is too old") }
-            let ne = try TajweedNeuralEngine(build)
-            // the first prediction, so the on-device compile happens here and not in a take
-            let warm = [Float](repeating: 0, count: 16_000)
-            _ = try warm.withUnsafeBufferPointer { (p) throws(RecognizerError) in try ne.push(p) }
-            ne.reset()
-            return UncheckedBox(ne as any AcceleratorBackend)
-        }, selfTest: { [weak self] box in
-            guard let self else { return AcceleratorSelfTest(passed: false, reason: "the recognizer is gone") }
-            return await self.runSelfTestSet(box)
-        })
+    /// Runs the pipeline in the background (it returns at once when it is running, ready, failed or waiting).
+    private func startPipeline(priority: TaskPriority) {
+        guard controllerBox.withLock({ $0 }) != nil else { return }
+        pipelineStarted = true
+        Task.detached(priority: priority) { [weak self] in await self?.runPipeline() }
+    }
+
+    func runPipeline() async {
+        guard let c = controllerBox.withLock({ $0 }) else { return }
+        await c.run(Self.stagesOverride.withLock { $0 }.map { $0(self) } ?? makeStages())
     }
 
     private func noteFallback(_ r: FallbackReason, _ detail: String) {
@@ -264,102 +351,287 @@ public actor TajweedRecognizer: AudioBufferSink {
         QuranLab.record(.fallback(r, cohort: cohort))
     }
 
-    /// Waits until no take is open (the self-test uses the CPU engine, which a take also uses).
+    /// Waits until no take is open.
     private func idle() async {
         while takeOpen { await withCheckedContinuation { idleWaiters.append($0) } }
     }
 
-    /// The self-test: the model folder's self-test set through the accelerator, compared with its expected outputs
-    /// (the exact CPU engine's) at the default settings, and timed against the CPU engine on the same clips. Without a
-    /// self-test set in the folder, the SDK's three bundled clips with the CPU engine's tokens as the reference.
-    func runSelfTestSet(_ box: UncheckedBox<any AcceleratorBackend>) async -> AcceleratorSelfTest {
-        let candidate = box.value
-        await idle()
-        guard let exact else { return AcceleratorSelfTest(passed: false, reason: "no CPU engine") }
+    private func isTakeOpen() -> Bool { takeOpen }
+
+    // MARK: the pipeline's stages
+
+    /// The work of each stage for this recognizer's model and context.
+    nonisolated func makeStages() -> AcceleratorController.Stages {
         let ctx = settings.context
-        let chunkMs = exact.chunkMs
-        var accTimes: [Double] = [], cpuTimes: [Double] = []
-        var mismatch: String?
-        defer { exact.reset(); candidate.reset() }
-        func run(_ b: any AcceleratorBackend, _ s: [Float]) throws(RecognizerError) -> TajweedHeads {
-            b.reset()
-            var h = TajweedHeads()
-            for c in try s.withUnsafeBufferPointer({ (p) throws(RecognizerError) in try b.push(p) }) { h.append(c) }
-            for c in try b.finish() { h.append(c) }
-            return h
+        let box = acceleratorModel
+        let compact = QuranLab.configuration.options.compactCoreML
+        return AcceleratorController.Stages(
+            download: { () async throws(PromotionFailure) -> Void in
+                let m = box.withLock { $0 }
+                if let b = m.coreML(context: ctx), b.compact == compact || QuranLab.cloud == nil { return }
+                guard let cloud = QuranLab.cloud else { throw PromotionFailure(.network, "no Quran Lab cloud to download the CoreML build from") }
+                do throws(RecognizerError) {
+                    _ = try await cloud.updater.installAccelerator(m, context: ctx)
+                } catch {
+                    throw Self.downloadFailure(error)
+                }
+                let profile = DownloadProfile(context: ctx, coreML: true, compact: compact)
+                let updated = m.adding(verified: profile.appleFiles(m.manifest).map(\.localPath),
+                                       removing: profile.otherBuildFiles(m.manifest).map(\.localPath))
+                guard updated.coreML(context: ctx) != nil else {
+                    throw PromotionFailure(.verify, updated.coreMLProblem ?? "the downloaded CoreML build is not usable")
+                }
+                box.withLock { $0 = updated }
+            },
+            compile: { () async throws(PromotionFailure) -> UncheckedBox<any AcceleratorBackend> in
+                let m = box.withLock { $0 }
+                guard let build = m.coreML(context: ctx) else { throw PromotionFailure(.compileError, "no CoreML build for \(ctx)") }
+                guard #available(iOS 18.0, macOS 15.0, *) else { throw PromotionFailure(.compileError, "the OS is too old") }
+                do throws(RecognizerError) {
+                    return UncheckedBox(try TajweedNeuralEngine(build) as any AcceleratorBackend)
+                } catch {
+                    throw PromotionFailure(.compileError, "\(error)")
+                }
+            },
+            warmup: { (b: UncheckedBox<any AcceleratorBackend>) async throws(PromotionFailure) -> Void in
+                let m = box.withLock { $0 }
+                try Self.warmUp(b.value, model: m, context: ctx)
+            },
+            golden: { [weak self] (b: UncheckedBox<any AcceleratorBackend>) async -> AcceleratorController.GoldenOutcome in
+                guard let self else { return .aborted }
+                return await self.golden(b)
+            },
+            sessionActive: { [weak self] () async -> Bool in await self?.isTakeOpen() ?? false },
+            waitIdle: { [weak self] () async -> Void in
+                await self?.idle()
+                // let a session that is about to start get the CPU engine first
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            },
+            fingerprint: { () -> String? in Self.programFingerprint(box.withLock { $0 }, context: ctx) })
+    }
+
+    /// The SHA-256 of the build's program on disk (the manifest's, checked when the folder was opened or the install
+    /// verified it), or "gone".
+    static func programFingerprint(_ m: TajweedModel, context: String) -> String {
+        guard let b = m.coreML(context: context) else { return "gone" }
+        let role = b.compact ? "coreml-compact" : "coreml"
+        return m.manifest.files(role: role).first { $0.localPath.hasSuffix("/weights/weight.bin") }?.localSHA256 ?? "gone"
+    }
+
+    /// Debug builds only: a line for the developer (os.Logger, notice).
+    static func debugLog(_ line: String) {
+        #if DEBUG
+        Logger(subsystem: "ai.quranlab.sdk", category: "accelerator").notice("\(line, privacy: .public)")
+        #endif
+    }
+
+    static func downloadFailure(_ e: RecognizerError) -> PromotionFailure {
+        switch e {
+        case .offline: return PromotionFailure(.network, "\(e)")
+        case .insufficientStorage, .storageFailed: return PromotionFailure(.storage, "\(e)")
+        case .checksumMismatch, .signatureInvalid, .manifestInvalid: return PromotionFailure(.verify, "\(e)")
+        default: return PromotionFailure(.other, "\(e)")
         }
-        func cpu(_ s: [Float]) throws(RecognizerError) -> [Int] {
-            exact.reset()
-            let t0 = CFAbsoluteTimeGetCurrent()
-            let n = try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try exact.push(p) }.count + (try exact.finish()).count
-            if n > 0 { cpuTimes += Array(repeating: (CFAbsoluteTimeGetCurrent() - t0) / Double(n), count: n) }
-            return exact.take.greedy
+    }
+
+    /// The warm-up: one second of silence and the first self-test clip through the build, every chunk checked.
+    static func warmUp(_ b: any AcceleratorBackend, model: TajweedModel, context: String) throws(PromotionFailure) {
+        var clip: [Float] = []
+        if model.verifiedFiles.contains("selftest/selftest.json"), let set = SelfTestSet.load(model.directory, context: context) {
+            clip = set.clips.first?.samples ?? []
+        } else if let c = try? SelfTestClips.load().clips.first {
+            clip = c.samples
         }
+        b.reset()
+        defer { b.reset() }
+        var out: [TajweedHeads] = []
         do throws(RecognizerError) {
-            if model.verifiedFiles.contains("selftest/selftest.json"), model.verifiedFiles.contains("selftest/expected_" + ctx + ".json"),
-               let set = SelfTestSet.load(model.directory, context: ctx) {
-                let defaults = try TajweedSettings.resolve(calibration: model.calibration, remote: nil, app: TajweedOptions(context: ctx),
-                                                           debugBuild: false, backend: .fp32)
-                for c in set.clips {
-                    _ = try cpu(c.samples)
-                    let h = try run(candidate, c.samples)
-                    accTimes += candidate.chunkSeconds
-                    let want = set.expected[c.id]!
-                    if !h.isFinite { mismatch = mismatch ?? "\(c.id): a NaN or inf head"; continue }
-                    if !c.planted && h.greedy != want.tokens {
-                        mismatch = mismatch ?? SelfTestSet.compare(clip: c.id, expected: want, tokens: h.greedy, flaggedSites: [], flaggedWords: [])
-                        continue
-                    }
-                    let r = try scorer.score(heads: h, TajweedScoreRequest(surah: c.surah, ayah: c.ayah, settings: defaults,
-                                                                           options: TajweedOptions(context: ctx)))
-                    let sites = Set(r.sites.filter(\.flagged).map { "\($0.position)|\($0.cls.rawValue)" })
-                    let words = Set(r.words.filter { $0.flagged == true }.map(\.index))
-                    mismatch = mismatch ?? SelfTestSet.compare(clip: c.id, planted: c.planted, expected: want, tokens: h.greedy, flaggedSites: sites,
-                                                               flaggedWords: words)
-                }
-            } else {
-                for c in try SelfTestClips.load().clips {
-                    let ref = try cpu(c.samples)
-                    let h = try run(candidate, c.samples)
-                    accTimes += candidate.chunkSeconds
-                    if !h.isFinite { mismatch = mismatch ?? "\(c.name): a NaN or inf head"; continue }
-                    if h.greedy != ref { mismatch = mismatch ?? "\(c.name): tokens differ from the CPU engine" }
-                }
-            }
+            out += try [Float](repeating: 0, count: 16_000).withUnsafeBufferPointer { (p) throws(RecognizerError) in try b.push(p) }
+            b.reset()
+            out += try clip.withUnsafeBufferPointer { (p) throws(RecognizerError) in try b.push(p) }
+            out += try b.finish()
         } catch {
-            mismatch = mismatch ?? "\(error)"
+            let ns = b.lastError
+            throw PromotionFailure(.loadError, "\(error)", errorDomain: ns?.domain, errorCode: ns.map { String($0.code) })
         }
-        return SelfTestSet.judge(mismatch: mismatch, accelerator: accTimes, cpu: cpuTimes, chunkMs: chunkMs)
+        for c in out {
+            if let bad = HeadsCheck.check(c) { throw PromotionFailure(.nonFinite, "warm-up: \(bad.1)") }
+        }
+    }
+
+    /// The golden test: every self-test clip through the build and through the CPU engine, the same streaming code a
+    /// session uses (pieces of one chunk, then the flush), scored at the default settings. The CPU's decisions must
+    /// equal the shipped expected file (else `cpu_mismatch`); the build's must equal it by the pass rule (tokens on
+    /// clean clips, flagged sites and words on every clip; else `golden_mismatch`); any NaN, inf or head out of range
+    /// is `non_finite`. Between pieces the actor is free: a take that starts stops the test (`aborted`, no failure).
+    func golden(_ b: UncheckedBox<any AcceleratorBackend>) async -> AcceleratorController.GoldenOutcome {
+        guard !takeOpen, let runner else { return .aborted }
+        let generation = takeGeneration
+        let m = acceleratorModel.withLock { $0 }
+        let ctx = settings.context
+        let piece = runner.chunkSamples
+        let exec = AcceleratorExecutor(b.value, label: "ai.quranlab.accelerator.golden")
+        let acc = TakeRunner(chunkMs: runner.chunkMs, openCPU: { () throws(RecognizerError) -> any CPUStreamEngine in
+            throw RecognizerError.neuralEngineUnavailable("no CPU engine in the golden test's accelerator run")
+        })
+        acc.failoverEnabled = false
+        var accTimes: [Double] = [], cpuTimes: [Double] = []
+        let set: SelfTestSet? = m.verifiedFiles.contains("selftest/selftest.json") && m.verifiedFiles.contains("selftest/expected_\(ctx).json")
+            ? SelfTestSet.load(m.directory, context: ctx) : nil
+        struct Clip { let id: String; let surah: Int; let ayah: Int; let samples: [Float]; let planted: Bool; let plantedSite: String? }
+        var clips: [Clip] = []
+        if let set {
+            clips = set.clips.map { Clip(id: $0.id, surah: $0.surah, ayah: $0.ayah, samples: $0.samples, planted: $0.planted, plantedSite: $0.plantedSite) }
+        } else if let bundled = try? SelfTestClips.load() {
+            clips = bundled.clips.map { Clip(id: $0.name, surah: 0, ayah: 0, samples: $0.samples, planted: false, plantedSite: nil) }
+        }
+        var results: [GoldenJudge.Clip] = []
+        let build = (m.coreML(context: ctx)?.compact ?? false) ? "coreml-compact" : "coreml"
+        let tolerance = m.manifest.tolerance(build: build)
+        guard !clips.isEmpty else { return .failed(PromotionFailure(.other, "no self-test clips")) }
+        let defaultsCPU = try? TajweedSettings.resolve(calibration: model.calibration, remote: nil, app: TajweedOptions(context: ctx),
+                                                       debugBuild: false, backend: .int8)
+        let defaultsAcc = try? TajweedSettings.resolve(calibration: model.calibration, remote: nil, app: TajweedOptions(context: ctx),
+                                                       debugBuild: false, backend: .fp32)
+        func decisions(_ h: TajweedHeads, _ c: Clip, _ s: EffectiveTajweed?) -> (Set<String>, Set<Int>)? {
+            guard set != nil, let s,
+                  let r = try? scorer.score(heads: h, TajweedScoreRequest(surah: c.surah, ayah: c.ayah, settings: s, options: TajweedOptions(context: ctx)))
+            else { return nil }
+            return (Set(r.sites.filter(\.flagged).map { "\($0.position)|\($0.cls.rawValue)" }), Set(r.words.filter { $0.flagged == true }.map(\.index)))
+        }
+        for c in clips {
+            // the CPU engine
+            let cpu: any CPUStreamEngine
+            do throws(RecognizerError) { cpu = try runner.ensureCPU() } catch { return .failed(PromotionFailure(.other, "the CPU engine: \(error)")) }
+            cpu.reset()
+            var cpuHeads = TajweedHeads()
+            var at = 0
+            repeat {
+                await Task.yield()
+                if takeOpen || takeGeneration != generation { cpu.reset(); return .aborted }
+                let s = Array(c.samples[at..<min(c.samples.count, at + piece)])
+                let t0 = CFAbsoluteTimeGetCurrent()
+                let out: [TajweedHeads]
+                do throws(RecognizerError) {
+                    out = try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try cpu.push(p) }
+                } catch { return .failed(PromotionFailure(.cpuMismatch, "\(c.id): the CPU engine failed: \(error)", clip: c.id)) }
+                if !out.isEmpty { cpuTimes += Array(repeating: (CFAbsoluteTimeGetCurrent() - t0) / Double(out.count), count: out.count) }
+                for h in out { cpuHeads.append(h) }
+                at += piece
+            } while at < c.samples.count
+            do throws(RecognizerError) { for h in try cpu.finish() { cpuHeads.append(h) } } catch {
+                return .failed(PromotionFailure(.cpuMismatch, "\(c.id): the CPU engine failed: \(error)", clip: c.id))
+            }
+            cpu.reset()
+            // the accelerator
+            do throws(RecognizerError) { try acc.start(accelerator: exec) } catch { return .failed(PromotionFailure(.hang, "\(error)")) }
+            guard acc.onAccelerator else { return .failed(PromotionFailure(.hang, "the accelerator was abandoned after a missed deadline")) }
+            var accHeads = TajweedHeads()
+            at = 0
+            do throws(RecognizerError) {
+                repeat {
+                    await Task.yield()
+                    if takeOpen || takeGeneration != generation { return .aborted }
+                    let s = Array(c.samples[at..<min(c.samples.count, at + piece)])
+                    for h in try acc.push(s).chunks { accHeads.append(h) }
+                    at += piece
+                } while at < c.samples.count
+                for h in try acc.finish().chunks { accHeads.append(h) }
+            } catch {
+                let cause = acc.detected?.cause
+                let reason: PromotionReason = cause == .deadline ? .hang : (cause == .nonFinite || cause == .outOfRange) ? .nonFinite
+                    : cause == .blank ? .goldenMismatch : .other
+                let ns = b.value.lastError
+                return .failed(PromotionFailure(reason, "\(c.id): \(acc.detected?.detail ?? "\(error)")", errorDomain: ns?.domain,
+                                                errorCode: ns.map { String($0.code) }, clip: c.id))
+            }
+            accTimes += acc.chunkSeconds
+            // the decisions of both engines (the judge compares them below, in both directions)
+            var r = GoldenJudge.Clip(id: c.id, planted: c.planted, plantedSite: c.plantedSite, expected: set?.expected[c.id],
+                                     cpuTokens: cpuHeads.greedy, accTokens: accHeads.greedy)
+            if r.expected != nil {
+                guard let cpuD = decisions(cpuHeads, c, defaultsCPU), let accD = decisions(accHeads, c, defaultsAcc) else {
+                    return .failed(PromotionFailure(.other, "\(c.id): the scorer did not score the clip", clip: c.id))
+                }
+                (r.cpuSites, r.cpuWords) = cpuD
+                (r.accSites, r.accWords) = accD
+            }
+            results.append(r)
+        }
+        _ = exec.reset()
+        let verdict = GoldenJudge.evaluate(results, tolerance: tolerance)
+        if let f = verdict.failure { return .failed(f) }
+        if !verdict.totals.isZero {
+            let t = verdict.totals
+            Self.debugLog("golden test passed within its tolerance: \(t.tokensDiffer) token edits, \(t.sitesDiffer) site flags, "
+                          + "\(t.wordsDiffer) word flags differ from the CPU engine")
+        }
+        return .passed(accelerator: accTimes, cpu: cpuTimes)
     }
 
     // MARK: takes
 
-    /// A new take (one recitation session): builds the backends on first use, resets every cache and the kept heads,
-    /// and starts sharing the session's audio when the learner agreed to share.
+    /// A new take (one recitation session): builds the CPU engine on first use, picks the backend (the Neural Engine
+    /// when it is promoted and warm, else the CPU engine; never decided during a take), resets every cache and the
+    /// kept heads, and starts sharing the session's audio when the learner agreed to share.
     public func startTake() throws(RecognizerError) {
         if takeOpen { endTake(completed: false) }
-        try prepare()
+        let runner = makeRunner()
+        try setUpAccelerator()
+        takeGeneration += 1
         converter = nil
-        take16k.removeAll(keepingCapacity: true)
         take = TajweedHeads()
+        takeChunkFrames = []
         delivered = 0
-        takeChunks = 0
-        chunkSeconds.removeAll()
         takeAudioSeconds = 0
         feedError = nil
-        exact?.reset()
-        // promotion happens here only, at a take boundary, never during one
-        if requested == .automatic, let c = controllerBox.withLock({ $0 }) { accel = c.backendForTake() }
-        accel?.reset()
-        activeBackend = accel == nil ? .exact : .neuralEngine
-        settingsInForce = accel == nil ? settings : acceleratorSettings
-        blankRun = 0
+        lastFailover = nil
+        var exec: AcceleratorExecutor?
+        if let f = forced, !f.abandoned {
+            exec = f
+        } else if requested == .automatic, let c = controllerBox.withLock({ $0 }), let e = c.leaseForSession() {
+            exec = e
+            leased = true
+        }
+        runner.policy = failoverPolicy()
+        do throws(RecognizerError) { try runner.start(accelerator: exec) } catch {
+            endLease()
+            throw error
+        }
+        if exec != nil && !runner.onAccelerator { endLease() }
+        activeBackend = runner.onAccelerator ? .neuralEngine : .exact
+        settingsInForce = runner.onAccelerator ? acceleratorSettings : settings
         takeOpen = true
         activity = SessionActivity()
         share = Contributions.capture(revision: model.identity, backend: activeBackend ?? .exact,
                                       weightsSHA256: model.manifest.files(role: "weights").first?.localSHA256)
         QuranLab.cloud?.analytics.markSessionOpen(cohort)
         QuranLab.cloud?.noteActivity()
+    }
+
+    /// The failover's numbers for this device: the deadline from the measure stage, the CPU engine's chunk time and
+    /// cold open (for the replay window), the caches' span of the context.
+    private func failoverPolicy() -> TakeRunner.Policy {
+        var p = TakeRunner.Policy()
+        let c = controllerBox.withLock { $0 }
+        p.deadlineMs = c?.deadlineMs ?? PromotionPolicy.deadlineMs(p90Ms: nil, medianMs: nil)
+        if let m = c?.record?.cpuMedianMs, m > 0 { p.cpuChunkMs = m }
+        if let o = runner?.lastOpenMs, o > 0 { p.cpuOpenMs = o }
+        p.minReplayChunks = Self.cacheSpanChunks(context: settings.context) + 1
+        return p
+    }
+
+    /// Chunks that cover the streaming encoder's left context (`c<chunk>_l<left>`, frames of 20 ms): 4 at c16_l64
+    /// (1.28 s of 320 ms chunks), 11 at c24_l256.
+    static func cacheSpanChunks(context: String) -> Int {
+        let parts = String(context.dropFirst()).components(separatedBy: "_l")
+        guard parts.count == 2, let chunk = Int(parts[0]), let left = Int(parts[1]), chunk > 0 else { return 4 }
+        return (left + chunk - 1) / chunk
+    }
+
+    private func endLease() {
+        if leased { controllerBox.withLock { $0 }?.endLease() }
+        leased = false
     }
 
     /// The chunks of the current take as they complete (from `append` or the microphone), each with the selected
@@ -443,88 +715,52 @@ public actor TajweedRecognizer: AudioBufferSink {
         }
     }
 
-    /// The CPU engine's chunks for `s` (timed).
-    private func raw(_ s: [Float]) throws(RecognizerError) -> [TajweedHeads] {
-        guard let exact else { throw .sessionClosed }
-        let t0 = CFAbsoluteTimeGetCurrent()
-        let out = try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try exact.push(p) }
-        if !out.isEmpty {
-            let dt = (CFAbsoluteTimeGetCurrent() - t0) / Double(out.count)
-            chunkSeconds += Array(repeating: dt, count: out.count)
-        }
-        return out
+    /// 16 kHz samples through the take's backend; a failover inside is handled here and invisible to the caller.
+    private func push(_ s: [Float]) throws(RecognizerError) -> [TajweedChunk] {
+        guard let runner else { throw .sessionClosed }
+        let out = try runner.push(s)
+        let chunks = apply(out)
+        noteFailover()
+        return chunks
     }
 
-    /// A Neural Engine fault mid-take: the take restarts on the CPU engine from its first sample (the CPU engine is the
-    /// standby, already built), only the chunks not handed out yet are returned, and the CPU engine serves for the rest
-    /// of the launch.
-    private func handOver(_ reason: FallbackReason, _ detail: String, pending: [Float]) throws(RecognizerError) -> [TajweedHeads] {
-        accel = nil
+    /// Applies what the runner added to the take: a truncation (a failover replaced chunks from there on), then the new
+    /// chunks, handing out only those not handed out yet.
+    private func apply(_ o: TakeRunner.Output) -> [TajweedChunk] {
+        if let t = o.truncateTo, t < takeChunkFrames.count {
+            take.truncate(n40: takeChunkFrames.prefix(t).reduce(0, +))
+            takeChunkFrames.removeLast(takeChunkFrames.count - t)
+        }
+        return deliver(o.chunks)
+    }
+
+    /// After a failover in this take: the CPU engine from here on, the build demoted for this key, the counters, the
+    /// incident report. The app gets no error.
+    private func noteFailover() {
+        guard let runner, let f = runner.failover, lastFailover == nil else { return }
+        lastFailover = f
         activeBackend = .exact
         settingsInForce = settings
-        if let c = controllerBox.withLock({ $0 }) { c.runtimeFault(reason, detail) } else { fixedState = .disabled(detail) }
-        noteFallback(reason, detail)
-        QuranLab.report(.neuralEngineUnavailable(detail), backend: .neuralEngine, revision: model.identity, kind: "fallback",
-                        code: "fallback:" + reason.rawValue)
-        guard let exact else { throw .sessionClosed }
-        exact.reset()
-        take = TajweedHeads()
-        takeChunks = 0
-        let all = take16k + pending
-        return try all.withUnsafeBufferPointer { (p) throws(RecognizerError) in try exact.push(p) }
-    }
-
-    private func push(_ s: [Float]) throws(RecognizerError) -> [TajweedChunk] {
-        let chunks = accel != nil ? try rawChecked(s) : try raw(s)
-        take16k += s
-        return deliver(chunks)
-    }
-
-    /// Chunks that are blank on every frame while the audio pushed with them has energy, in a row, before the take
-    /// goes back to the CPU engine (about a second of speech the accelerator did not hear at all).
-    static let blankChunksLimit = 3
-    /// The RMS above which pushed audio counts as having energy (about -40 dBFS).
-    static let energyRMS: Float = 0.01
-
-    /// The accelerator's chunks, watched: an exception, a NaN or inf, a chunk over three times its audio, or
-    /// `blankChunksLimit` all-blank chunks in a row with audio energy hand the take over to the CPU engine.
-    private func rawChecked(_ s: [Float]) throws(RecognizerError) -> [TajweedHeads] {
-        guard let ne = accel else { return try raw(s) }
-        let before = ne.chunkSeconds.count
-        let out: [TajweedHeads]
-        do {
-            out = try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try ne.push(p) }
-        } catch {
-            return try handOver(.other, "prediction failed: \(error)", pending: s)
+        fallbackReason = f.cause == .nonFinite ? .nonFinite : f.cause == .deadline ? .deadline : .other
+        fallbackDetail = f.detail
+        if let c = controllerBox.withLock({ $0 }), leased {
+            c.failedOver(f)
+        } else if forced != nil {
+            forced = nil
+            fixedState = .disabled("failover: \(f.detail)")
+            QuranLab.record(.fallback(fallbackReason!, cohort: cohort))
         }
-        let times = Array(ne.chunkSeconds.dropFirst(before))
-        let budget = Double(exact?.chunkMs ?? 320) / 1000
-        if out.contains(where: { !$0.isFinite }) { return try handOver(.nonFinite, "a head was NaN or infinite", pending: s) }
-        if times.contains(where: { $0 > 3 * budget }) { return try handOver(.deadline, "a chunk took over three times its audio", pending: s) }
-        if !out.isEmpty {
-            let energy = s.isEmpty ? 0 : (s.reduce(Float(0)) { $0 + $1 * $1 } / Float(s.count)).squareRoot()
-            for c in out {
-                let blank = c.greedy.isEmpty
-                blankRun = blank && energy > Self.energyRMS ? blankRun + 1 : 0
-            }
-            if blankRun >= Self.blankChunksLimit {
-                return try handOver(.other, "\(blankRun) chunks in a row heard nothing in audio with energy", pending: s)
-            }
-        }
-        chunkSeconds += times
-        return out
     }
 
-    /// Chunks past the ones already handed out: kept in the take, the selected heads handed out. After a handover the
-    /// CPU engine re-runs the take from its start, so its first chunks are kept but not handed out again.
+    /// Chunks past the ones already handed out: kept in the take, the selected heads handed out.
     private func deliver(_ chunks: [TajweedHeads]) -> [TajweedChunk] {
         var out: [TajweedChunk] = []
         let keep = selection.heads.union(TajweedHead.scorer).union([.conf])
-        let ms = exact?.chunkMs ?? 320
+        let ms = runner?.chunkMs ?? 320
         for c in chunks {
             take.append(c.keeping(keep))
-            let index = takeChunks
-            takeChunks += 1
+            let index = takeChunkFrames.count
+            takeChunkFrames.append(c.n40)
             if index >= delivered {
                 let chunk = TajweedChunk(index: index, startMs: index * ms, heads: c.keeping(selection.heads))
                 out.append(chunk)
@@ -536,7 +772,6 @@ public actor TajweedRecognizer: AudioBufferSink {
         return out
     }
 
-    private var takeChunks = 0
     private var coldStart: Double?
 
     /// The end of the take (the resampler's tail, the 1.05 s flush): every head of the take. The chunks the flush
@@ -549,17 +784,9 @@ public actor TajweedRecognizer: AudioBufferSink {
         var out: [TajweedChunk] = []
         do throws(RecognizerError) {
             if let tail = converter?.flush(), !tail.isEmpty { out += try push(tail) }
-            var flushed: [TajweedHeads]
-            if let ne = accel {
-                do throws(RecognizerError) { flushed = try ne.finish() } catch { flushed = try handOver(.other, "\(error)", pending: []) + (try exact!.finish()) }
-                if flushed.contains(where: { !$0.isFinite }) {
-                    flushed = try handOver(.nonFinite, "a head was NaN or infinite", pending: []) + (try exact!.finish())
-                }
-            } else {
-                guard let exact else { throw RecognizerError.sessionClosed }
-                flushed = try exact.finish()
-            }
-            out += deliver(flushed)
+            guard let runner else { throw RecognizerError.sessionClosed }
+            out += apply(try runner.finish())
+            noteFailover()
         } catch {
             endTake(completed: false)
             throw error
@@ -575,6 +802,7 @@ public actor TajweedRecognizer: AudioBufferSink {
     private func endTake(completed: Bool) {
         guard takeOpen else { return }
         takeOpen = false
+        endLease()
         stream?.finish()
         stream = nil
         share?.finish(completed: completed)
@@ -585,8 +813,10 @@ public actor TajweedRecognizer: AudioBufferSink {
         let waiting = idleWaiters
         idleWaiters = []
         for w in waiting { w.resume() }
-        // iOS: the Neural Engine is prepared after the first finished take, in the background
-        if completed { schedulePreparation(now: false) }
+        // the promotion: a first run starts after the first finished session; later, a waiting run resumes
+        if completed, let c = controllerBox.withLock({ $0 }), c.state != .ready, !c.isRunning {
+            startPipeline(priority: .background)
+        }
         let first = Self.firstSessionOfLaunch.withLock { v -> Bool in defer { v = false }; return v }
         let checks = TajweedCheck.allCases.filter { c in
             switch c {
@@ -597,8 +827,8 @@ public actor TajweedRecognizer: AudioBufferSink {
             default: return settings.sites.contains { TajweedClass(rawValue: $0.key)?.check == c && $0.value.enabled }
             }
         }.map(\.rawValue)
-        QuranLab.record(.sessionFinished(SessionTelemetry(cohort: cohort, audioSeconds: takeAudioSeconds, chunkSeconds: chunkSeconds,
-                                                          chunkAudioSeconds: Double(exact?.chunkMs ?? 320) / 1000, checksOn: checks,
+        QuranLab.record(.sessionFinished(SessionTelemetry(cohort: cohort, audioSeconds: takeAudioSeconds, chunkSeconds: runner?.chunkSeconds ?? [],
+                                                          chunkAudioSeconds: Double(runner?.chunkMs ?? 320) / 1000, checksOn: checks,
                                                           throttled: false, thermalTransitions: 0,
                                                           coldStartMs: first ? coldStart : nil)))
     }
@@ -611,14 +841,18 @@ public actor TajweedRecognizer: AudioBufferSink {
 
     // MARK: layers
 
+    /// Whether the CPU stream holds exactly this take's heads (it ran it all, or replayed all of it).
+    private var cpuHoldsTake: Bool { activeBackend == .exact && (runner?.cpuHasWholeTake ?? false) }
+
     /// The heads of the take so far (the scorer's heads, `conf`, and the selected ones).
     public func heads() -> TajweedHeads { take }
 
     /// The decoded layer of the take so far: per frame top-1 and runner-up, the greedy tokens with confidence and
     /// margin, words and times.
     public func decoded() -> DecodedTake {
-        // the CPU engine keeps the top-2 of the take as it runs; heads from the Neural Engine go through zf_tajweed_top2
-        let frames = activeBackend == .exact ? exact?.top2() : nil
+        // the CPU engine keeps the top-2 of the take as it runs (when it ran the whole take); other heads go through
+        // zf_tajweed_top2
+        let frames = cpuHoldsTake ? exact?.top2() : nil
         var d = DecodedTake(heads: take, vocabulary: model.vocabulary, frames: frames)
         d.ranked = try? ranking(.logProbs, k: 2)
         return d
@@ -639,7 +873,7 @@ public actor TajweedRecognizer: AudioBufferSink {
     public func ranking(_ head: TajweedHead, k: Int) throws(RecognizerError) -> TajweedRanking {
         let names = head.classNames(vocabulary: model.vocabulary)
         let frames = head.frameMs == 40 ? take.n40 : take.n20
-        if activeBackend == .exact, let exact, let r = try exact.ranking(head, k: k, frames: frames, names: names) { return r }
+        if cpuHoldsTake, let exact, let r = try exact.ranking(head, k: k, frames: frames, names: names) { return r }
         return try TajweedRanking.rank(take[head], head: head, k: k, names: names)
     }
 
@@ -661,6 +895,15 @@ public actor TajweedRecognizer: AudioBufferSink {
         }
         t.wordsScored = r.words.filter { $0.flagged != nil }.count
         t.wordsFlagged = r.words.filter { $0.flagged == true }.count
+        // a verdict counts only where its check ran
+        for q in r.qalqalah where q.status != .off {
+            t.qalqalahChecked += 1
+            if q.flagged { t.qalqalahFlagged += 1 }
+        }
+        for g in r.gemination where g.status != .off {
+            t.geminationChecked += 1
+            if g.flagged { t.geminationFlagged += 1 }
+        }
         let d = decoded()
         t.margins = d.tokens.map(\.margin)
         t.confidences = d.tokens.compactMap(\.confidence)
@@ -669,8 +912,9 @@ public actor TajweedRecognizer: AudioBufferSink {
     }
 
     /// Tells the SDK the learner finished a session; `feedback` is true when they were shown the model's feedback
-    /// for it. This is the moment the SDK may ask about sharing recitations (never on first launch, at most twice
-    /// more after "Not now", 7 sessions apart). Returns what the app should show, if anything (the SDK's own sheet
+    /// for it. This is the moment the SDK may ask about sharing recitations (never on first launch, never after a yes
+    /// or after sharing was turned off; at most twice more after "Not now", 7 sessions apart: three sheets per install
+    /// in all). Returns what the app should show, if anything (the SDK's own sheet
     /// does this on a view with `.quranLabSharing()`).
     @discardableResult
     public func endSession(feedback: Bool) -> SharingMoment? {

@@ -4,12 +4,11 @@ import XCTest
 @testable import TajweedFormer
 
 /// The real Apple profiles (TAJWEED_V4_APPLE: a decoded layout v2 folder with the default fp16 build
-/// `coreml/tajweedformer_v4.mlmodelc` + `coreml/engine.zfs`, the compact int8 build
-/// `coreml-compact/tajweedformer_v4.mlmodelc` + `coreml-compact/engine.zfs`, the keep tables `coreml/<ctx>/keeps.bin`,
-/// and the CPU files including `layers.zfw` / `frontend.zfw` as the reference). For each build the folder ships: the
-/// install rebuilds the CPU weights from the package instead of downloading them, byte for byte; the CPU engine runs
-/// from them; the recognizer loads the package's functions for the context, passes or fails its self-test, and falls
-/// back to the CPU engine when it fails.
+/// `coreml/tajweedformer_v4.mlmodelc`, the compact int8 build `coreml-compact/tajweedformer_v4.mlmodelc`, the keep
+/// tables `coreml/<ctx>/keeps.bin`, and the CPU files). For each build the folder ships: the install fetches the CPU set
+/// first, then the build's files (never a correction); the CPU engine runs; the recognizer starts on the CPU engine,
+/// runs the promotion pipeline (compile, warm-up, golden test, measure) and is promoted at the next take, or stays on
+/// the CPU engine with the reason.
 final class AppleProfileTests: XCTestCase {
     func source() throws -> URL {
         guard let p = ProcessInfo.processInfo.environment["TAJWEED_V4_APPLE"] else { throw XCTSkip("set TAJWEED_V4_APPLE") }
@@ -36,13 +35,13 @@ final class AppleProfileTests: XCTestCase {
         let name = profile.compact ? "compact" : "default"
         let ctx = profile.context
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tf-apple-\(UUID().uuidString)")
-        let r = try await ModelInstaller(source: DirectoryFileSource(root: src)).install(m, profile: profile, into: dir)
-        print("v4-apple \(name) install: downloaded \(r.downloadedBytes) bytes, rebuilt \(r.rebuilt), fallback \(r.correctionFallback ?? "none")")
-        XCTAssertNil(r.correctionFallback, name)
-        XCTAssertEqual(Set(r.rebuilt), ["layers.zfw", "frontend.zfw"], name)
+        let installer = ModelInstaller(source: DirectoryFileSource(root: src))
+        let cpuInstall = try await installer.install(m, profile: DownloadProfile(context: ctx, coreML: false), into: dir)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("coreml").path), "\(name): the first install is the CPU set")
+        let r = try await installer.installAccelerator(m, profile: profile, into: dir)
+        print("v4-apple \(name) install: CPU set \(cpuInstall.downloadedBytes) bytes first, then the build \(r.downloadedBytes) bytes")
         XCTAssertEqual(r.downloadedBytes, r.profileBytes, "\(name): nothing outside the profile")
-        let skipped = m.files.filter { ["layers.zfw", "frontend.zfw"].contains($0.localPath) }.reduce(Int64(0)) { $0 + $1.size }
-        print("v4-apple \(name) profile: \(r.profileBytes) bytes stored, \(skipped) bytes of CPU weights not downloaded, \(r.diskBytes) on disk")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("coreml/engine.zfs").path), "\(name): no correction")
         for f in ["layers.zfw", "frontend.zfw"] {
             XCTAssertEqual(try ModelManifest.digest(dir.appendingPathComponent(f)).1, try ModelManifest.digest(src.appendingPathComponent(f)).1, "\(name) \(f)")
         }
@@ -55,7 +54,7 @@ final class AppleProfileTests: XCTestCase {
         XCTAssertEqual(build.compact, profile.compact)
         XCTAssertEqual(build.frontFunction, "front_\(ctx)")
 
-        // the CPU engine from the rebuilt files
+        // the CPU engine
         let exact = try TajweedRecognizer(model: model, backend: .exact)
         let clip = try Fixtures.samples("Husary_001001")
         try await exact.startTake()
@@ -73,7 +72,8 @@ final class AppleProfileTests: XCTestCase {
         let state = await auto.acceleratorState
         let st = await auto.acceleratorSelfTest
         print("v4-apple \(name) accelerator: \(state), self-test \(st.map { $0.passed ? "passed" : "failed: " + ($0.reason ?? "") } ?? "none")"
-              + String(format: ", p90 %.2f ms, median %.2f ms, cpu median %.2f ms", st?.p90Ms ?? 0, st?.medianMs ?? 0, st?.cpuMedianMs ?? 0))
+              + String(format: ", p90 %.2f ms, median %.2f ms, cpu median %.2f ms, speedup %.2f", st?.p90Ms ?? 0, st?.medianMs ?? 0,
+                       st?.cpuMedianMs ?? 0, st?.speedup ?? 0))
         try await auto.startTake()
         let active = await auto.activeBackend
         XCTAssertEqual(active, ready ? .neuralEngine : .exact, "promoted at the take boundary when ready")

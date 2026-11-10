@@ -87,6 +87,18 @@ public struct TajweedHeads: Sendable, Hashable {
         n20 += c.n20
     }
 
+    /// Keeps the first `k` frames at 40 ms (and 2k at 20 ms) of every head: the take before chunk n is the frames of
+    /// its first n chunks.
+    mutating func truncate(n40 k: Int) {
+        guard k >= 0, k < n40 else { return }
+        for (name, width, ms) in Self.layout {
+            let v = self[name]
+            if !v.isEmpty { set(name, Array(v.prefix((ms == 40 ? k : 2 * k) * width))) }
+        }
+        n40 = k
+        n20 = 2 * k
+    }
+
     /// One chunk from per-head arrays (each already [frames, width]); the frame counts come from log_probs.
     init(chunk: [String: [Float]]) {
         for (name, _, _) in Self.layout { set(name, chunk[name] ?? []) }

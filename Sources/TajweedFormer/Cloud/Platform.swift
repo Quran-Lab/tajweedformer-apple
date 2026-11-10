@@ -2,7 +2,7 @@ import Foundation
 
 /// The SDK's own version, sent in registration, events and issue reports.
 public enum SDKInfo {
-    public static let version = "2.0.0"
+    public static let version = "2.0.1"
 }
 
 /// Which app the SDK runs in: what registration sends. Read from the main bundle; a host (or a

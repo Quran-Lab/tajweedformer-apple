@@ -76,6 +76,14 @@ public struct TajweedModel: Sendable {
         return nil
     }
 
+    /// The same model with `paths` counted as verified: files an install has just downloaded and checked against the
+    /// manifest (the promotion pipeline's download stage), without hashing the folder again.
+    /// `removing`: files the install deleted (the other CoreML build).
+    func adding(verified paths: [String], removing gone: [String] = []) -> TajweedModel {
+        TajweedModel(id: id, directory: directory, manifest: manifest, calibration: calibration, vocabulary: vocabulary,
+                     verifiedFiles: verifiedFiles.subtracting(gone).union(paths), coreMLProblem: coreMLProblem)
+    }
+
     static func packages(_ files: [ModelManifest.File]) -> [String] {
         Array(Set(files.compactMap { f -> String? in
             guard let r = f.localPath.range(of: ".mlmodelc/") else { return nil }
@@ -106,9 +114,9 @@ public struct TajweedModel: Sendable {
     /// format, tokens hash), then every listed file that is on disk. A CPU file that does not match refuses the folder;
     /// a CoreML file that does not match, or a file in the package the manifest does not list, only turns CoreML off.
     static func open(directory: URL, verifier: ManifestVerifier, expecting id: ModelID? = nil) throws(RecognizerError) -> TajweedModel {
-        let m = try ModelManifest.read(directory)
-        if let id, m.modelID != id.name { throw .modelMissing("\(directory.lastPathComponent) holds \(m.modelID), not \(id.name)") }
-        try verifier.verifySignature(m)
+        let read = try ModelManifest.read(directory)
+        if let id, read.modelID != id.name { throw .modelMissing("\(directory.lastPathComponent) holds \(read.modelID), not \(id.name)") }
+        let m = try verifier.verifySignature(read)
         try m.checkCompatible()
         guard let tok = m.file(local: m.tokens), tok.localSHA256 == m.tokensSHA256 else {
             throw .manifestInvalid("tokens_sha256 does not match \(m.tokens)")

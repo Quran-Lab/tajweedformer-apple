@@ -1,0 +1,5 @@
+init /w/MatMul_quant_packed 3 1 1536 0 1536
+init onnx::MatMul_1_scale 1 1 1 1536 4
+node quranlab.zf ZfLinearS8 /w/MatMul_quant_zf 5 /x_output_0 /w/MatMul_quant_packed /w/MatMul_quant_rowsums onnx::MatMul_1_scale w.bias 1 /y_output_0 2
+a i k 64
+a i n 24

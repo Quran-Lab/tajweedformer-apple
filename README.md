@@ -76,7 +76,7 @@ Copy the setup prompt from [portal.quranlab.ai](https://portal.quranlab.ai) and 
 ```swift
 import TajweedFormer
 
-QuranLab.configure(key: "qlk_v1_...", options: .init(contributions: true))   // once, at launch
+QuranLab.configure(key: "qlk_v1_...")             // once, at launch
 
 let model = try await TajweedModel.load()          // this device's download profile, verified
 let r = try TajweedRecognizer(model: model, options: TajweedOptions(preset: .balanced, word: .general))

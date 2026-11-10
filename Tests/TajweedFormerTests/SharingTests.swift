@@ -332,10 +332,11 @@ final class SharingTests: XCTestCase {
 
     // MARK: sharing
 
-    func testOffByDefaultNothingIsCaptured() async throws {
+    func testNothingIsCapturedBeforeTheLearnerSaysShare() async throws {
+        // 2.0.1: the config offers sharing (the app's option is ignored); the learner has not answered
         let server = Server()
         StubProtocol.reset(server.handler)
-        let cloud = await configure(server, sharing: false)
+        let cloud = await configure(server, sharing: false, consent: false)
         try await session(seconds: 12)
         try await Task.sleep(nanoseconds: 200_000_000)
         let n = await cloud.outbox.items.count
@@ -673,7 +674,7 @@ final class SharingTests: XCTestCase {
         let decode = try XCTUnwrap(try XCTUnwrap(Self.starts.first?.json)["decode"] as? [String: Any])
         XCTAssertEqual(decode["model_revision"] as? String, "test-rev")
         XCTAssertEqual(decode["backend"] as? String, "exact")
-        XCTAssertEqual(decode["sdk_version"] as? String, "2.0.0")
+        XCTAssertEqual(decode["sdk_version"] as? String, "2.0.1")
     }
 
     /// Without the learner's consent nothing is captured, even with the developer's option on.

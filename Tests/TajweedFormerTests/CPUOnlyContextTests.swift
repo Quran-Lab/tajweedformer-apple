@@ -84,7 +84,7 @@ final class CPUOnlyContextTests: XCTestCase {
         let before = try Data(contentsOf: keep)
         let report = try await ModelInstaller(source: DirectoryFileSource(root: src))
             .install(m, profile: DownloadProfile(context: Self.c8, coreML: true), into: dst)
-        XCTAssertNil(report.correctionFallback)
+        XCTAssertNil(report.appleUnavailable)
         XCTAssertTrue(fm.fileExists(atPath: dst.appendingPathComponent("c8_l64/model_engine2.onnx.zfg").path))
         XCTAssertEqual(try Data(contentsOf: keep), before)
         XCTAssertTrue(fm.fileExists(atPath: dst.appendingPathComponent("coreml/tajweedformer_v4.mlmodelc/model.mil").path))

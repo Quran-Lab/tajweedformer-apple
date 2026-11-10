@@ -1,10 +1,10 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-07.2",
+ "version": "2026-11-09.1",
  "lang": "ar",
  "dir": "rtl",
  "source_lang": "en",
- "consent_version": "share-2026-11-07b",
+ "consent_version": "share-2026-11-09",
  "delete_days": 0,
  "delete_timing": "immediate",
  "strings": {
@@ -13,7 +13,7 @@
   "sheet.hadith": "قال النبي صلى الله عليه وسلم: «إِذَا مَاتَ الإِنْسَانُ انْقَطَعَ عَنْهُ عَمَلُهُ إِلاَّ مِنْ ثَلاَثَةٍ إِلاَّ مِنْ صَدَقَةٍ جَارِيَةٍ أَوْ عِلْمٍ يُنْتَفَعُ بِهِ أَوْ وَلَدٍ صَالِحٍ يَدْعُو لَهُ»",
   "sheet.hadith_ref": "صحيح مسلم 1631",
   "sheet.mistakes": "أخطاؤك هي الجزء الأثمن، فهي تُعلّم النموذج كيف يصوّب للمتعلم التالي برفق.",
-  "sheet.what": "التسجيل الصوتي لجلسات تلاوتك في هذا التطبيق أثناء استماعه، والآيات التي تلوتها، وتفاصيل تقنية أساسية مثل إصدار النموذج ونوع الجهاز. دون اسم، أو جهات اتصال، أو موقع جغرافي.",
+  "sheet.what": "التسجيل الصوتي لجلسات تلاوتك في هذا التطبيق أثناء استماعه، وتفاصيل تقنية أساسية مثل إصدار النموذج ونوع الجهاز. دون اسم، أو جهات اتصال، أو موقع جغرافي.",
   "sheet.who": "Quran Lab، وهو وقف. النماذج التي يدرّبها مجانية للجميع دائماً، ولا تُباع أبداً.",
   "sheet.control": "يمكنك التوقف في أي وقت وحذف ما شاركته من الإعدادات.",
   "sheet.share": "مشاركة تلاواتي",
@@ -26,12 +26,21 @@
   "settings.toggle": "مشاركة تلاواتي",
   "settings.what": "ما الذي تتم مشاركته",
   "settings.delete": "حذف ما شاركته",
-  "what.detail": "عند تفعيل المشاركة، يُرسل التسجيل الصوتي لجلسات تلاوتك في هذا التطبيق إلى Quran Lab، مع الآية التي تلوتها، وتفاصيل تقنية عامة (إصدار النموذج، نوع الجهاز، إصدار النظام، واليوم)، ورمز عشوائي خاص بهذا التثبيت. ولا نجمع أبداً اسمك أو حسابك أو جهات اتصالك أو موقعك أو معرّفات جهازك. تُحفظ التسجيلات في الاتحاد الأوروبي وتُستخدم فقط لتحسين نماذج تلاوة القرآن الكريم المجانية. إيقاف المشاركة يوقف الإرسال فوراً، ويمكنك حذف كل ما شاركته من الإعدادات في أي وقت: حيث يُحذف من خوادم Quran Lab في الحال.",
+  "what.detail": "عند تفعيل المشاركة، يُرسل التسجيل الصوتي لجلسات تلاوتك في هذا التطبيق إلى Quran Lab، مع تفاصيل تقنية عامة (إصدار النموذج، نوع الجهاز، إصدار النظام، واليوم)، ورمز عشوائي خاص بهذا التثبيت. ولا نجمع أبداً اسمك أو حسابك أو جهات اتصالك أو موقعك أو معرّفات جهازك. تُحفظ التسجيلات في الاتحاد الأوروبي وتُستخدم فقط لتحسين نماذج تلاوة القرآن الكريم المجانية. إيقاف المشاركة يوقف الإرسال فوراً، ويمكنك حذف كل ما شاركته من الإعدادات في أي وقت: حيث يُحذف من خوادم Quran Lab في الحال.",
   "delete.confirm": "ستُحذف تلاواتك التي شاركتها من خوادم Quran Lab فوراً. لا يمكن التراجع عن هذا الإجراء.",
   "delete.action": "حذف",
   "delete.cancel": "إلغاء",
-  "delete.done": "تم بنجاح. حُذف ما شاركته من خوادم Quran Lab، ولن يُدرج في أي تدريب مستقبلي.",
+  "delete.done": "تم. حُذف ما شاركته من خوادم Quran Lab. أما النسخ التي استُخدمت بالفعل في تدريب النموذج، فلن تُدرج في أي تدريب مستقبلي.",
+  "delete.failed.title": "تعذّر الحذف",
+  "delete.failed.network": "تعذّر الاتصال بـ Quran Lab، ولم يُحذف أي شيء. يُرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.",
+  "delete.retry": "إعادة المحاولة",
   "recovery.hint": "احتفظ بهذا الرمز، الذي يُستخدم لمرة واحدة، لحذف ما شاركته في حال فقدت هذا الجهاز: portal.quranlab.ai/delete",
+  "recovery.reveal": "إظهار رمز الاسترداد",
+  "recovery.copy": "نسخ",
+  "recovery.copied": "تم النسخ",
+  "recovery.keep": "احتفظ بهذا الرمز في مكان آمن. فهو وسيلتك الوحيدة لحذف ما شاركته من جهاز آخر، ويُستخدم لمرة واحدة فقط.",
+  "recovery.used": "تم استخدام رمز الاسترداد هذا من قبل.",
+  "recovery.invalid": "هذا الرمز غير صالح. يُرجى التحقق من صحة الكلمات والمحاولة مجدداً.",
   "reask": "قد تساعد تلاوتك اليوم متعلماً آخر غداً. هل ترغب في مشاركتها؟",
   "impact.minutes": {
    "zero": "شاركت {minutes} دقيقة من التلاوة. جزاك الله خيراً.",
@@ -57,7 +66,7 @@
    "sheet.body": "When you share your recitations, they help train the free Tajweed model in this app to listen better. And every learner it assists after you is a good deed that may continue long after you finish reciting, in sha Allah: an ongoing charity.",
    "sheet.hadith_ref": "Sahih Muslim 1631",
    "sheet.mistakes": "Your mistakes are the most valuable part, for they teach the model how to correct the next learner gently.",
-   "sheet.what": "The audio recording of your recitation sessions in this app while it listens, the verses you recited, and basic technical details such as the model version and device type. Without name, contacts, or geographic location.",
+   "sheet.what": "The audio recording of your recitation sessions in this app while it listens, and basic technical details such as the model version and device type. Without name, contacts, or geographic location.",
    "sheet.who": "Quran Lab, which is an endowment. The models it trains are always free for everyone, and are never sold.",
    "sheet.control": "You can stop at any time and delete what you shared from settings.",
    "sheet.share": "Share my recitations",
@@ -70,11 +79,11 @@
    "settings.toggle": "Share my recitations",
    "settings.what": "What is shared",
    "settings.delete": "Delete what I shared",
-   "what.detail": "When sharing is enabled, the audio recording of your recitation sessions in this app is sent to Quran Lab, along with the verse you recited, general technical details (model version, device type, OS version, and the day), and a random token specific to this installation. We never collect your name, account, contacts, location, or device identifiers. Recordings are stored in the European Union and are used only to improve free Quran recitation models. Disabling sharing stops transmission immediately, and you can delete everything you shared from the settings at any time: it is deleted from Quran Lab servers immediately.",
+   "what.detail": "When sharing is enabled, the audio recording of your recitation sessions in this app is sent to Quran Lab, along with general technical details (model version, device type, OS version, and the day), and a random token specific to this installation. We never collect your name, account, contacts, location, or device identifiers. Recordings are stored in the European Union and are used only to improve free Quran recitation models. Disabling sharing stops transmission immediately, and you can delete everything you shared from the settings at any time: it is deleted from Quran Lab servers immediately.",
    "delete.confirm": "Your shared recitations will be deleted from Quran Lab servers immediately. This action cannot be undone.",
    "delete.action": "Delete",
    "delete.cancel": "Cancel",
-   "delete.done": "Done successfully. What you shared has been deleted from Quran Lab servers, and will not be included in any future training.",
+   "delete.done": "Done. What you shared has been deleted from Quran Lab's servers. As for copies already used in training the model, they will not be included in any future training.",
    "reask": "Your recitation today may help another learner tomorrow. Would you like to share it?",
    "impact.minutes": {
     "zero": "You shared {minutes} minutes of recitation. May Allah reward you with good.",
@@ -84,10 +93,25 @@
     "many": "You shared {minutes} minutes of recitation. May Allah reward you with good.",
     "other": "You shared {minutes} minutes of recitation. May Allah reward you with good."
    },
-   "recovery.hint": "Keep this one-time code to delete what you shared in case you lose this device: portal.quranlab.ai/delete"
+   "recovery.hint": "Keep this one-time code to delete what you shared in case you lose this device: portal.quranlab.ai/delete",
+   "recovery.reveal": "Show recovery code",
+   "recovery.copy": "Copy",
+   "recovery.copied": "Copied",
+   "recovery.keep": "Keep this code in a safe place. It is your only way to delete what you shared from another device, and it is used only once.",
+   "recovery.used": "This recovery code has already been used.",
+   "recovery.invalid": "This code is invalid. Please check the correctness of the words and try again.",
+   "delete.failed.title": "Deletion failed",
+   "delete.failed.network": "Could not connect to Quran Lab, and nothing was deleted. Please check your internet connection and try again.",
+   "delete.retry": "Retry"
   },
   "back_translation_hadith_intro": "The Prophet, may Allah bless him and grant him peace, said:",
-  "drift": [],
+  "drift": [
+   {
+    "version": "2026-11-09.1",
+    "change": "removed the recited ayah from sheet.what and what.detail: the SDKs do not send it",
+    "method": "exact phrase removal from the reviewed 2026-11-07.3 text, no re-translation"
+   }
+  ],
   "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"
  }
 }
