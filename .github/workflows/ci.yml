@@ -104,6 +104,37 @@ jobs:
         if: always()
         run: grep -E "^(v4-coreml|v4-scorer|v4-exact)|Executed [0-9]+ tests|skipped" "$RUNNER_TEMP/test.log" | sort | uniq -c | tail -40 || true
 
+  consumer:
+    # The README's install line and quick start as a developer has them: a package that depends on this
+    # repository at this commit (SwiftPM fetches it from GitHub, with the committed xcframework) and holds the
+    # quick start's code (the marked region of Tests/TajweedFormerTests/QuickStartTests.swift) in its own target.
+    name: A consumer package builds (install line and quick start)
+    if: github.event_name != 'pull_request'
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && swift --version
+      - name: Build
+        run: |
+          mkdir -p "$RUNNER_TEMP/consumer/Sources/App"
+          cd "$RUNNER_TEMP/consumer"
+          {
+            echo '// swift-tools-version:6.0'
+            echo 'import PackageDescription'
+            echo 'let package = Package('
+            echo '    name: "App",'
+            echo '    platforms: [.iOS(.v15), .macOS(.v12)],'
+            echo "    dependencies: [.package(url: \"https://github.com/$GITHUB_REPOSITORY\", revision: \"$GITHUB_SHA\")],"
+            echo '    targets: [.target(name: "App", dependencies: [.product(name: "TajweedFormer", package: "tajweedformer-apple")])]'
+            echo ')'
+          } > Package.swift
+          sed -n '/README:begin/,/README:end/p' "$GITHUB_WORKSPACE/Tests/TajweedFormerTests/QuickStartTests.swift" | sed '1d;$d' > Sources/App/QuickStart.swift
+          test -s Sources/App/QuickStart.swift
+          cat Package.swift Sources/App/QuickStart.swift
+          swift build
+
   builds:
     name: iOS and macOS builds
     needs: xcframework
