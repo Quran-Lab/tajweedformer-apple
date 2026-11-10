@@ -116,6 +116,17 @@ public struct TajweedChunk: Sendable, Hashable {
     /// Milliseconds of audio from the start of the take to the start of this chunk's frames.
     public let startMs: Int
     public let heads: TajweedHeads
+    /// True when a chunk with this `index` was handed out before in this take (2.0.2): the CPU engine confirmed that
+    /// the Neural Engine missed speech there, and the take continues on the CPU from the first such chunk. Replace what
+    /// you kept or drew for this index, and drop what you kept for later indexes (they come again in order).
+    public let replaces: Bool
+
+    init(index: Int, startMs: Int, heads: TajweedHeads, replaces: Bool = false) {
+        self.index = index
+        self.startMs = startMs
+        self.heads = heads
+        self.replaces = replaces
+    }
 }
 
 /// The decoded layer: what the model heard, from `log_probs` (and `conf` for confidences), without a known text.

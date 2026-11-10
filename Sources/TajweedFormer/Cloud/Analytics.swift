@@ -187,8 +187,10 @@ final class AnalyticsStore: Sendable {
         var failoverStall = [Int](repeating: 0, count: 7)
         /// Promoted builds taken back to the CPU after an in-session failure.
         var demoted = 0
+        /// Blank suspicions the CPU engine confirmed as correct (2.0.2; optional so days saved by 2.0.1 decode).
+        var blankConfirmedOK: Int?
 
-        var activity: Int { attempts + failovers + demoted + reasons.values.reduce(0, +) }
+        var activity: Int { attempts + failovers + demoted + reasons.values.reduce(0, +) + (blankConfirmedOK ?? 0) }
     }
 
     /// One UTC day's counts not sealed yet.
@@ -442,6 +444,8 @@ final class AnalyticsStore: Sendable {
                     p.failovers += 1
                     p.failoverCauses[cause.rawValue, default: 0] += 1
                     p.failoverStall[Histogram.index(stallMs, Histogram.stallMs.1)] += 1
+                case .blankConfirmedOK:
+                    p.blankConfirmedOK = (p.blankConfirmedOK ?? 0) + 1
                 }
                 d.promotions[k] = p
             }
@@ -588,6 +592,7 @@ final class AnalyticsStore: Sendable {
             for (k, v) in fields where !v.isEmpty { o[k] = v }
             if e.failovers > 0 { o["failovers"] = clip(e.failovers) }
             if e.demoted > 0 { o["demoted"] = clip(e.demoted) }
+            if let n = e.blankConfirmedOK, n > 0 { o["blank_confirmed_ok"] = clip(n) }
             out.append(o)
         }
         return out
@@ -734,14 +739,16 @@ final class IssueQueue: Sendable {
 
     init(storage: URL, cap: Int = 50) {
         file = JSONFile(url: storage.appendingPathComponent("cloud/issues.json"))
-        items = Locked(file.read() ?? [])
+        items = Locked((file.read() ?? []).filter(IssueReport.fresh))
         self.cap = cap
     }
 
-    var pending: [IssueReport] { items.withLock { $0 } }
+    /// The reports waiting (none older than 7 days).
+    var pending: [IssueReport] { items.withLock { $0.filter(IssueReport.fresh) } }
 
     func add(_ r: IssueReport) {
         let snapshot = items.withLock { q -> [IssueReport] in
+            q = q.filter(IssueReport.fresh)
             if q.contains(r) { return q }
             q.append(r)
             if q.count > cap { q.removeFirst(q.count - cap) }

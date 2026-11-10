@@ -25,8 +25,13 @@ import BackgroundTasks
 // 4. The swap happens at a session boundary only, to a build that is loaded and warm; a session that started before
 //    stays on the CPU engine.
 // 5. Failures keep the CPU engine: retried for the same key after 1 h, 6 h, 24 h, then never; deterministic ones
-//    (golden_mismatch, cpu_mismatch, non_finite, crash) never. A failover in a session (Failover.swift) demotes the
-//    build and retests it no sooner than 24 h later, within the same budget.
+//    (golden_mismatch, cpu_mismatch, non_finite, crash) never.
+// 6. A failure in a session (Failover.swift) is handled by its cause (2.0.2, `failedOver`): a deadline miss switches
+//    that session to the CPU and demotes only after misses in 3 sessions within 24 h; a confirmed blank disagreement
+//    demotes; both are transient (6 h, the build stays verified, no golden test again, never off for good). NaN, inf,
+//    a head out of range, or a second confirmed disagreement turn the build off for good for the key. An exception
+//    demotes as in 2.0.1 (golden-tested again no sooner than 24 h later, within the retry budget).
+// 7. The first launch of 2.0.2 clears 2.0.1's blank and deadline demotions (`PromotionStore.migrate`).
 
 /// Where the Neural Engine stands for a recognizer.
 public enum AcceleratorState: Sendable, Hashable, CustomStringConvertible {
@@ -58,10 +63,14 @@ protocol AcceleratorBackend: AnyObject {
     var chunkSeconds: [Double] { get }
     /// The error behind the last failed call, when the runtime gave one.
     var lastError: NSError? { get }
+    /// One prediction on silence that leaves no state behind (the backend is reset after it): wakes the accelerator
+    /// before a take's first real chunk.
+    func warmUp() throws(RecognizerError)
 }
 
 extension AcceleratorBackend {
     var lastError: NSError? { nil }
+    func warmUp() throws(RecognizerError) {}
 }
 
 @available(iOS 18.0, macOS 15.0, *)
@@ -187,6 +196,8 @@ final class AcceleratorController: @unchecked Sendable {
     init(_ env: Environment) {
         self.env = env
         store = PromotionStore(dir: env.storage)
+        // the first launch of 2.0.2: 2.0.1's blank and deadline demotions are cleared (once per store)
+        store.migrate(now: env.clock())
         // the process died during a compile, load or first inference: that key's attempt ends with reason crash
         if let s = store.sentinel() {
             store.clearSentinel()
@@ -200,7 +211,28 @@ final class AcceleratorController: @unchecked Sendable {
             _state = .disabled(why)
         } else if let r, r.status == .failed {
             _state = .disabled(r.lastDetail ?? "failed")
+        } else if let r, r.status == .ready, let until = r.backoffUntil, env.clock() < until {
+            _state = .disabled(Self.backoffDetail(r, until))
         }
+        let name = Self.activeNotification
+        activation = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in self?.becameActive() }
+    }
+
+    deinit {
+        if let activation { NotificationCenter.default.removeObserver(activation) }
+    }
+
+    private var activation: (any NSObjectProtocol)?
+
+    /// The app became active (iOS: didBecomeActive; macOS: NSApplication didBecomeActive).
+    #if canImport(UIKit) && !os(watchOS)
+    static let activeNotification = Notification.Name("UIApplicationDidBecomeActiveNotification")
+    #else
+    static let activeNotification = Notification.Name("NSApplicationDidBecomeActiveNotification")
+    #endif
+
+    static func backoffDetail(_ r: PromotionRecord, _ until: Date) -> String {
+        "\(r.lastDetail ?? "demoted"); used again after \(iso(until))"
     }
 
     /// The persisted record of this key.
@@ -328,6 +360,8 @@ final class AcceleratorController: @unchecked Sendable {
                 return set(.disabled("\(rec.lastDetail ?? "failed"); tried again after \(Self.iso(nb))"))
             }
         case .ready:
+            // a transient demotion: still verified, used again (loaded and warmed, no golden test) after the backoff
+            if let until = rec.backoffUntil, env.clock() < until { return set(.disabled(Self.backoffDetail(rec, until))) }
             return await reload(&rec, stages)
         case .pending:
             break
@@ -381,9 +415,11 @@ final class AcceleratorController: @unchecked Sendable {
                 switch await golden(backend!, stages) {
                 case .failure(let f): return fail(&rec, .golden, f)
                 case .success(let t):
+                    // warm chunks only (the golden test leaves out each clip's first chunk): the session limits
                     rec.acceleratorMedianMs = Self.percentile(t.accelerator, 0.5) * 1000
                     rec.acceleratorP90Ms = Self.percentile(t.accelerator, 0.9) * 1000
                     rec.cpuMedianMs = Self.percentile(t.cpu, 0.5) * 1000
+                    rec.warmChunkMs = Array(t.accelerator.map { $0 * 1000 }.suffix(PromotionPolicy.warmSamplesKept))
                     env.record(.selfTest(passed: true, cohort: env.cohort()))
                 }
             case .measure:
@@ -395,6 +431,7 @@ final class AcceleratorController: @unchecked Sendable {
                 rec.programSHA256 = stages.fingerprint()
                 rec.attemptStarted = nil
                 rec.failures = 0
+                rec.backoffUntil = nil
                 store.save(rec)
                 hold(backend)
                 promotion(.attempt(promoted: true, stage: nil, reason: nil, compileMs: rec.compileMs, speedup: rec.speedup))
@@ -558,6 +595,16 @@ final class AcceleratorController: @unchecked Sendable {
     /// The caller gives it back with `endLease()` at the end of the session.
     func leaseForSession() -> AcceleratorExecutor? {
         guard state == .ready else { return nil }
+        if let r = store.record(key), let until = r.backoffUntil, env.clock() < until {
+            hold(nil)
+            set(.disabled(Self.backoffDetail(r, until)))
+            return nil
+        }
+        if dropAbandoned() {
+            // a call hung in an earlier session of this launch: the build is loaded again (no golden test) for later ones
+            set(.cpu)
+            return nil
+        }
         if let why = env.denied() {
             var rec = store.record(key) ?? PromotionRecord(key: key)
             noteDenied(&rec, why)
@@ -581,35 +628,127 @@ final class AcceleratorController: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// A session left the accelerator (Failover.swift): the build is demoted for this key (later sessions start on the
-    /// CPU engine) and retested by the pipeline no sooner than 24 h later, within the key's retry budget.
-    func failedOver(_ f: TakeRunner.Failover) {
-        hold(nil)
+    /// A session left the accelerator (Failover.swift) for the CPU engine. Every switch is counted (`failovers`,
+    /// `failover_causes`) and reported (`accelerator_failover`); what happens to the build depends on the cause:
+    /// - deadline: the session goes on on the CPU; the build is demoted (transient) only once misses happened in 3
+    ///   different sessions of the key within 24 h;
+    /// - blank (a disagreement the CPU engine confirmed): the first demotes (transient), the second for the key turns
+    ///   the build off for good;
+    /// - NaN or inf, a head out of range: off for good for the key;
+    /// - exception: demoted and golden-tested again by the pipeline no sooner than 24 h later, within the key's retry
+    ///   budget (2.0.1's rule).
+    /// `session` identifies the take (deadline misses are counted per session).
+    func failedOver(_ f: TakeRunner.Failover, session: String = UUID().uuidString) {
         var rec = store.record(key) ?? PromotionRecord(key: key)
-        rec.failures += 1
-        rec.lastStage = nil
-        rec.lastReason = .failover
-        rec.lastDetail = "failover: \(f.detail)"
-        rec.completed = nil
-        rec.attemptStarted = nil
-        if rec.failures > PromotionPolicy.backoff.count {
-            rec.status = .failed
-            rec.notBefore = nil
-        } else {
-            rec.status = .retry
-            rec.notBefore = env.clock().addingTimeInterval(max(PromotionPolicy.backoff[rec.failures - 1], PromotionPolicy.failoverRetest))
-        }
-        store.save(rec)
+        let now = env.clock()
         promotion(.failover(cause: f.cause, stallMs: f.stallMs))
-        promotion(.demoted(.failover))
         let reason: FallbackReason = f.cause == .nonFinite ? .nonFinite : f.cause == .deadline ? .deadline : .other
         env.record(.fallback(reason, cohort: env.cohort()))
         let c = AcceleratorController.conditionsNow()
         env.incident(AcceleratorIncident(kind: .failover, stage: "session", cause: f.cause.incidentCause, message: f.detail,
                                          errorDomain: f.errorDomain, errorCode: f.errorCode, chunk: f.chunk, elapsedMs: f.elapsedMs,
-                                         deadlineMs: f.deadlineMs, stallMs: f.stallMs, revision: env.revision, context: env.context,
-                                         thermal: c.thermal, lowPower: c.lowPower))
+                                         deadlineMs: f.deadlineMs, divergence: f.divergence, stallMs: f.stallMs, revision: env.revision,
+                                         context: env.context, thermal: c.thermal, lowPower: c.lowPower))
+        switch f.cause {
+        case .deadline:
+            var misses = (rec.missSessions ?? []).filter { now.timeIntervalSince($0.at) < PromotionPolicy.missWindow }
+            if !misses.contains(where: { $0.session == session }) { misses.append(.init(session: session, at: now)) }
+            if Set(misses.map(\.session)).count >= PromotionPolicy.missSessions {
+                rec.missSessions = nil
+                demoteTransient(&rec, f, now)
+            } else {
+                // one miss: this session is on the CPU, the build stays promoted for the next one
+                rec.missSessions = misses
+                store.save(rec)
+            }
+        case .blank:
+            let n = (rec.disagreements ?? 0) + 1
+            rec.disagreements = n
+            if n >= PromotionPolicy.disagreementsOffForGood { offForGood(&rec, f, .failover) } else { demoteTransient(&rec, f, now) }
+        case .nonFinite, .outOfRange:
+            offForGood(&rec, f, .nonFinite)
+        case .exception:
+            hold(nil)
+            rec.failures += 1
+            rec.lastStage = nil
+            rec.lastReason = .failover
+            rec.lastCause = f.cause
+            rec.lastDetail = "failover: \(f.detail)"
+            rec.completed = nil
+            rec.attemptStarted = nil
+            if rec.failures > PromotionPolicy.backoff.count {
+                rec.status = .failed
+                rec.notBefore = nil
+            } else {
+                rec.status = .retry
+                rec.notBefore = now.addingTimeInterval(max(PromotionPolicy.backoff[rec.failures - 1], PromotionPolicy.failoverRetest))
+            }
+            store.save(rec)
+            promotion(.demoted(.failover))
+            set(.disabled(rec.lastDetail!))
+        }
+    }
+
+    /// A transient demotion: the build stays promoted and verified, unused for `PromotionPolicy.transientBackoff`
+    /// (then loaded and warmed again, no golden test); never off for good.
+    private func demoteTransient(_ rec: inout PromotionRecord, _ f: TakeRunner.Failover, _ now: Date) {
+        hold(nil)
+        let until = now.addingTimeInterval(PromotionPolicy.transientBackoff)
+        rec.backoffUntil = until
+        rec.lastCause = f.cause
+        rec.lastReason = .failover
+        rec.lastDetail = "failover: \(f.detail)"
+        store.save(rec)
+        promotion(.demoted(.failover))
+        set(.disabled(Self.backoffDetail(rec, until)))
+    }
+
+    /// A confirmed numeric fault: never again for the key (a new model revision or OS build tries again).
+    private func offForGood(_ rec: inout PromotionRecord, _ f: TakeRunner.Failover, _ reason: PromotionReason) {
+        hold(nil)
+        rec.status = .failed
+        rec.notBefore = nil
+        rec.backoffUntil = nil
+        rec.completed = nil
+        rec.attemptStarted = nil
+        rec.lastStage = nil
+        rec.lastReason = reason
+        rec.lastCause = f.cause
+        rec.lastDetail = "failover: \(f.detail)"
+        store.save(rec)
+        promotion(.demoted(.failover))
         set(.disabled(rec.lastDetail!))
+    }
+
+    /// The end of a session that ran on the accelerator: its warm chunk times join the key's (the limits of later
+    /// sessions), and the blank suspicions the CPU engine confirmed as correct are counted (`blank_confirmed_ok`).
+    func sessionEnded(warmMs: [Double], blankConfirmedOK: Int) {
+        for _ in 0..<max(0, blankConfirmedOK) { promotion(.blankConfirmedOK) }
+        guard !warmMs.isEmpty, var rec = store.record(key), rec.status == .ready else { return }
+        rec.warmChunkMs = Array(((rec.warmChunkMs ?? []) + warmMs).suffix(PromotionPolicy.warmSamplesKept))
+        store.save(rec)
+    }
+
+    /// The app became active: the next accelerator chunk is a cold one (its own limit), and with no session on the
+    /// build, one prediction on silence wakes the Neural Engine now, off any audio path. (A session in progress is not
+    /// interrupted: a warm-up would reset its stream.)
+    func becameActive() {
+        lock.lock()
+        let e = executor
+        let busy = leased
+        lock.unlock()
+        guard let e, !e.abandoned else { return }
+        e.markCold()
+        if !busy { e.warmUp() }
+    }
+
+    /// Drops the held executor when a call on it hung (true then).
+    private func dropAbandoned() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let e = executor, e.abandoned, !leased else { return false }
+        executor = nil
+        return true
     }
 
     /// A memory warning: the CPU engine for the rest of this launch, and the package released.
@@ -625,10 +764,13 @@ final class AcceleratorController: @unchecked Sendable {
         }
     }
 
-    /// The failover deadline from the measure stage (300 ms before a measurement).
-    var deadlineMs: Double {
+    /// The session limits from this key's warm chunk times (the measure stage's p90 and median for a record without
+    /// them; 1000 ms and 300 ms before any measurement), and those times.
+    var limits: (firstMs: Double, laterMs: Double, warmMs: [Double]) {
         let r = record
-        return PromotionPolicy.deadlineMs(p90Ms: r?.acceleratorP90Ms, medianMs: r?.acceleratorMedianMs)
+        let warm = r?.warmChunkMs ?? []
+        let l = PromotionPolicy.limits(warmMs: warm, p90Ms: r?.acceleratorP90Ms, medianMs: r?.acceleratorMedianMs)
+        return (l.firstMs, l.laterMs, warm)
     }
 
     /// The golden test's numbers, for `TajweedRecognizer.acceleratorSelfTest`.

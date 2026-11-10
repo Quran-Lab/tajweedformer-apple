@@ -187,7 +187,7 @@ final class RegistrationAndConfigTests: XCTestCase {
         XCTAssertNil(seen[0].headers["if-none-match"])
         XCTAssertEqual(seen[1].headers["if-none-match"], etag)
         let q = URLComponents(url: seen[0].url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        XCTAssertEqual(q.first { $0.name == "sdk" }?.value, "2.0.1")
+        XCTAssertEqual(q.first { $0.name == "sdk" }?.value, SDKInfo.version)
     }
 
     /// A config without a key id is refused: the kid must name a key compiled into the SDK.

@@ -1,4 +1,4 @@
-# How the SDK talks to Quran Lab (2.0.1)
+# How the SDK talks to Quran Lab (2.0.2)
 
 This page is the same in every TajweedFormer SDK (Android, iOS and macOS, web, Windows and Linux). It describes
 what the SDK sends to Quran Lab, when, and what an app can change. Names of the API differ per platform; the
@@ -129,13 +129,14 @@ Each `promotions` entry (at most 8; zero counts left out):
  "failovers": 0,
  "failover_causes": {"exception": 0, "non_finite": 0, "out_of_range": 0, "blank": 0, "deadline": 0},
  "failover_stall_ms": {"le_50": 0, "le_100": 0, "le_200": 0, "le_300": 0, "le_500": 0, "le_1000": 0, "gt_1000": 0},
- "demoted": 0}
+ "demoted": 0, "blank_confirmed_ok": 0}
 ```
 
 `backend` is `ane`, `gpu` or `npu:<soc>`. An attempt is counted once, when it ends. `speedup` is the CPU's
 median chunk time over the accelerator's on the self-test clips (`lt_0_5` and `lt_1`: the accelerator was
 slower, and was promoted anyway). `failover_stall_ms` runs from the failed chunk being detected to its CPU
 result. `demoted` counts promoted builds taken back to the CPU after a failure in a session.
+`blank_confirmed_ok` counts silent stretches the CPU confirmed (no switch).
 
 Never included: audio, text, phonemes, verdict lists, timestamps, ids, locale, account, network type,
 location, app user data.
@@ -167,13 +168,25 @@ the day; a day stamp on the device), not at every launch, so the server counts d
    stays, the reason is recorded, and the step is retried later (after 1, 6 and 24 hours at most; never for a
    wrong result, a NaN or a crash, until a new model or OS version). Only in good conditions: not in low power mode,
    battery at 20 % or charging, the device not hot.
-5. **If the accelerator fails during a session** (an error, NaN or out-of-range output, blank output while the
-   audio has speech, or a chunk past its deadline), the session switches to the CPU at that chunk: the CPU
-   engine rebuilds its state from the last few seconds of audio and redoes the chunk, so no audio is lost and
-   the learner sees at most a short stall. On phones and Macs the CPU engine rewrites its weights into the
-   processor's fast layout when it loads, which would hold about 64 MB for the whole session, so it is closed
-   while the accelerator serves and opened again at the switch: a short cold start instead of that memory.
-   The accelerator is then set aside for that model and OS version, and later sessions start on the CPU.
+5. **If the accelerator fails during a session** (an error, NaN or out-of-range output, or a chunk past its
+   deadline), the session switches to the CPU at that chunk: the CPU engine rebuilds its state from the last
+   few seconds of audio and redoes the chunk, so no audio is lost and the learner sees at most a short stall.
+   On phones and Macs the CPU engine rewrites its weights into the processor's fast layout when it loads, which
+   would hold about 64 MB for the whole session, so it is closed while the accelerator serves and opened again
+   at the switch: a short cold start instead of that memory.
+   - **Silence is not a fault.** The model writes nothing during a held vowel or a long madd. When an accelerator
+     writes nothing for a stretch of audio with sound, the SDK checks the same audio on the CPU in the
+     background while the accelerator keeps serving: if the CPU also writes nothing, nothing happens (counted as
+     `blank_confirmed_ok`); only if the CPU writes something does the session switch.
+   - **A cold start is not a fault.** The accelerator is warmed up when a take starts and when the app becomes
+     active, the first chunk of a take has a generous limit (at least 1 s), and the limit of later chunks comes
+     from warm chunks only. A single late chunk is served by the CPU and costs nothing more.
+   - **What sets an accelerator aside.** Late chunks in three sessions within 24 hours, or one disagreement with
+     the CPU: a few hours' pause, then it serves again (no new test). For good, for that model and OS version:
+     NaN or out-of-range output, a second disagreement with the CPU, a self-test mismatch, or a crash. An error
+     from the accelerator itself sets it aside for a day, then it is tested again (at most three times for that
+     model and OS version). Each switch to the CPU is still reported to Quran Lab, also when it sets nothing aside. An install
+     that 2.0.1 had set aside for silence or a late chunk is tested again and promoted again.
 6. **Quran Lab can keep an accelerator off** on matching devices (by device, chip, OS build, delegate or model
    revision) through the signed config; a promoted device then goes back to the CPU at its next session.
 7. **Quran Lab hears about every incident.** A failed promotion and an in-session switch are each also sent
@@ -181,6 +194,9 @@ the day; a day stamp on the device), not at every launch, so the server counts d
    stage and cause, the error's domain, code and message (paths removed), the chunk and its deadline, the
    self-test clip that differed, the device model, OS build, chip, compute units, model revision and context,
    the thermal and low-power state, and the stall. Never audio, text or identifiers.
+   Reports made offline, or before the app configured Quran Lab, are kept on the device for up to 7 days and sent
+   once the app has configured Quran Lab with its key and the network is there; an app that never configures
+   Quran Lab sends none.
 
 ## Tajweed settings
 

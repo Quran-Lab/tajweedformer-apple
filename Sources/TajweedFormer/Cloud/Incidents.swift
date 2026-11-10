@@ -10,6 +10,10 @@ import Foundation
 // `flags.issues` allows, except the FIRST report of each kind per install per model revision, which is always sent:
 // it is kept on the device until the server accepts it (a 400 from a server that does not know the kinds yet drops it,
 // and the next incident of that kind is again a first).
+//
+// Offline (2.0.2): reports are kept on the device whether or not the app configured Quran Lab (`OfflineIncidents`
+// writes the same queues when there is no client), for at most 7 days, and sent once a client is configured with a key
+// and the network is there. 2.0.1 dropped them when the app had not called `QuranLab.configure`.
 
 /// The closed `detail` object of an incident report.
 struct IncidentDetail: Codable, Equatable, Sendable {
@@ -79,10 +83,13 @@ final class IncidentLedger: Sendable {
 
     init(storage: URL) {
         file = JSONFile(url: storage.appendingPathComponent("cloud/incidents.json"))
-        state = Locked(file.read() ?? State())
+        var s = file.read() ?? State()
+        s.pending = s.pending.filter(IssueReport.fresh)
+        state = Locked(s)
     }
 
-    var pending: [IssueReport] { state.withLock { $0.pending } }
+    /// The first reports waiting (none older than 7 days).
+    var pending: [IssueReport] { state.withLock { $0.pending.filter(IssueReport.fresh) } }
 
     /// Whether a report of `kind` for `revision` would be the first (none accepted, none waiting).
     func isFirst(kind: String, revision: String) -> Bool {
@@ -93,6 +100,7 @@ final class IncidentLedger: Sendable {
     /// Keeps a first report until the server accepts it.
     func addFirst(_ r: IssueReport) {
         let snapshot = state.withLock { s -> State in
+            s.pending = s.pending.filter(IssueReport.fresh)
             s.pending.append(r)
             if s.pending.count > 16 { s.pending.removeFirst(s.pending.count - 16) }
             return s
@@ -138,6 +146,31 @@ final class IncidentLedger: Sendable {
         }
         return sent
     }
+}
+
+/// Incident reports when the app has no Quran Lab client (it never called `QuranLab.configure`, or configured
+/// `cloud: nil`): the same queues on disk a client uses (first reports in the ledger, later ones once a day per
+/// signature in the issue queue), read and sent by the client the app configures later with a key.
+enum OfflineIncidents {
+    private static let lock = NSLock()
+
+    static func queue(_ i: AcceleratorIncident, storage: URL, app: AppIdentity = .main) {
+        lock.lock()
+        defer { lock.unlock() }
+        let r = QuranLabCloud.incidentReport(i, app: app)
+        let ledger = IncidentLedger(storage: storage)
+        if ledger.isFirst(kind: r.kind, revision: r.revision ?? "") {
+            ledger.addFirst(r)
+            return
+        }
+        guard ledger.allowToday("\(r.kind)|\(r.code)|\(r.revision ?? "")", day: r.day) else { return }
+        IssueQueue(storage: storage).add(r)
+    }
+}
+
+extension IssueReport {
+    /// Kept at most 7 days on the device (the UTC day it was made).
+    static func fresh(_ r: IssueReport) -> Bool { r.day >= Day.string(Date().addingTimeInterval(-7 * 86_400)) }
 }
 
 extension QuranLabCloud {

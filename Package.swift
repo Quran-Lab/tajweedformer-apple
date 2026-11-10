@@ -1,7 +1,7 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// TajweedFormer SDK 2.0.1: TajweedFormer V4 on iPhone and Mac (sdk/v4.0: every head of the network, the decoded
+// TajweedFormer SDK 2.0.2: TajweedFormer V4 on iPhone and Mac (sdk/v4.0: every head of the network, the decoded
 // layer and the calibrated tajweed checks). Two backends behind one API: the CoreML package on the Neural Engine
 // (iOS 18, macOS 15), and tajweedformer-sdk's exact CPU engine (the same bits on every device, always available as
 // the fallback), both from one signed model folder.

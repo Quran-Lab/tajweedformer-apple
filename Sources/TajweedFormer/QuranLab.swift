@@ -169,6 +169,17 @@ public enum QuranLab {
         cloud?.analytics.count(c)
     }
 
+    /// Queues an accelerator incident report: through the Quran Lab client when the app configured one, else on the
+    /// device (bounded, 7 days), sent once a client is configured with a key and the network is there. An app that
+    /// never configures Quran Lab with a key never sends them (there is no key or token to send with).
+    static func reportIncident(_ i: AcceleratorIncident) {
+        if let cloud {
+            cloud.reportIncident(i)
+        } else {
+            OfflineIncidents.queue(i, storage: configuration.storageDirectory)
+        }
+    }
+
     /// Queues an issue report for a fault (never for cancellation or misuse).
     static func report(_ error: RecognizerError, backend: ActiveBackend?, revision: String?, kind: String? = nil, code: String? = nil) {
         cloud?.report(error, kind: kind, code: code, backend: backend, revision: revision)

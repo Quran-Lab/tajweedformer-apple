@@ -58,7 +58,7 @@ Copy the setup prompt from [portal.quranlab.ai](https://portal.quranlab.ai) and 
 
 ## At a glance
 
-- **What it is:** the Swift package `TajweedFormer` (SDK 2.0.1) for the Quran Lab TajweedFormer V4 model
+- **What it is:** the Swift package `TajweedFormer` (SDK 2.0.2) for the Quran Lab TajweedFormer V4 model
   (`Quran-Lab/tajweedformer-v4`, folder `sdk/v4.0`). It hosts only V4; the earlier phoneme models stay with the 1.x
   SDKs.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon. The Neural Engine backend needs iOS 18 or macOS 15; on older
@@ -168,20 +168,47 @@ With `.automatic` (the default, no code needed):
    on the device model, chip, OS build and version, model revision and SDK version) keeps the Neural Engine off; a
    promoted build goes back to the CPU at the next session boundary.
 6. **During a session**, every Neural Engine chunk is checked: an exception, a NaN or infinite value, a value outside
-   the heads' range, chunks that hear nothing while the audio has sound, or a chunk that misses its deadline (from
-   this device's measured chunk times, at most 300 ms; a call that does not return is abandoned). The session then
-   switches to the CPU engine at that chunk: the take's recent audio is replayed through it, the chunks already
-   handed out stay, and the session continues with no error. For a take the CPU can replay within about a quarter of a
-   second (a few seconds of audio on a phone, longer on a Mac) the result is exactly the CPU engine's; for a longer
-   take the CPU replays its last seconds and continues from the failed chunk. The build is then demoted for that model
-   revision and OS build and retested no sooner than a day later. The CPU engine is not kept loaded behind the Neural
-   Engine: its weights are rewritten into the CPU's fast layout when it loads, so a standby would hold about 64 MB of
-   memory for the whole session; it is opened again at the switch instead.
+   the heads' range, or a chunk that misses its deadline. The session then switches to the CPU engine at that chunk:
+   the take's recent audio is replayed through it, the chunks already handed out stay, and the session continues
+   with no error. For a take the CPU can replay within about a quarter of a second (a few seconds of audio on a
+   phone, longer on a Mac) the result is exactly the CPU engine's; for a longer take the CPU replays its last seconds
+   and continues from the failed chunk. The CPU engine is not kept loaded behind the Neural Engine: its weights are
+   rewritten into the CPU's fast layout when it loads, so a standby would hold about 64 MB of memory for the whole
+   session; it is opened again at the switch instead.
+   - **Silence is not a fault.** The model writes nothing during a long madd or a held vowel, so a few chunks with
+     no token in audio with sound are only a suspicion. The SDK replays the same audio (the last 30 seconds at most)
+     through the CPU engine in the background while the Neural Engine keeps serving, with no stall, at most one check
+     at a time and one per 10 seconds of audio. If the CPU engine writes nothing there either (within the build's
+     golden-test tolerance), nothing changes and the CPU engine is closed again (counted as `blank_confirmed_ok`). If
+     it writes tokens there, the session switches to it (its state is already rebuilt by the check), the take's chunks
+     from the first one in question are the CPU's, and the chunk stream hands them out again with the same `index`
+     and `replaces == true` (new in 2.0.2: 2.0.1 never handed an index out twice): replace what you have for that
+     index and drop what you have for later ones, they come again in order. `finish()`, `heads()` and `score()` give
+     the corrected take (for a take of up to 30 s, exactly the CPU engine's). The decisions are compared by greedy tokens (the scoring runs after
+     the take, so there are no flags to compare during it).
+   - **A cold start is not a fault.** The Neural Engine is warmed up (one prediction on silence, off the audio path)
+     when a take starts and when the app becomes active. The first chunk of a take, and the first chunk after the app
+     became active, may take up to max(1000 ms, 10 x the warm p90); later chunks get min(300 ms, max(4 x p90,
+     2 x median, 50 ms)) from warm chunks only (300 ms before any warm measurement). A late chunk is served by the CPU
+     engine, for the rest of that session, and costs nothing more; a call that does not answer at all is abandoned.
+   - **What happens to the build.** Late chunks in 3 different sessions within 24 hours, or one disagreement the CPU
+     engine confirmed: a pause of 6 hours, then the build serves again, still verified (no new golden test); never
+     off for good for these. Off for good for that model revision and OS build: a NaN or infinite value, a value out
+     of range, a second confirmed disagreement, a golden-test or CPU mismatch, a crash. An exception keeps the 2.0.1
+     rule: the build is demoted and golden-tested again no sooner than a day later, within the retry budget.
+   - **From 2.0.1.** At the first launch of 2.0.2, a build that 2.0.1 had demoted or turned off for blank output or a
+     missed deadline is cleared: the golden test runs again in the background and the build is promoted as usual.
+     Other causes stay.
 7. **Telemetry** counts, per backend, model revision and context, the attempts, promotions, the stage and reason of
-   each failure, the compile time and the speedup, and the in-session switches with their cause and how long they
-   stalled (`promotions`, see [docs/platform-client.md](docs/platform-client.md)); every failure and switch is also
-   an issue report (`promotion_failed`, `accelerator_failover`), with the stage, the cause, the device model, OS build
-   and chip, and no audio, text or identifier.
+   each failure, the compile time and the speedup, the in-session switches with their cause and how long they
+   stalled (a late chunk is a switch, counted under `failover_causes.deadline`, whether or not it demoted), the
+   demotions (`demoted`), and the silent stretches the CPU confirmed (`blank_confirmed_ok`): the `promotions` entries
+   of [docs/platform-client.md](docs/platform-client.md). Every failure and switch is also an issue report
+   (`promotion_failed`, `accelerator_failover`), with the stage, the cause, the device model, OS build and chip, and
+   no audio, text or identifier. Reports are kept on the device for up to 7 days, also when the app has not
+   configured Quran Lab or is offline, and sent once the app has configured Quran Lab with its key and the network
+   is there. An app that never configures Quran Lab with a key sends none: there is no key or token to send them
+   with.
 
 The app can watch it (`acceleratorState`: `.cpu`, `.preparing`, `.ready`, `.disabled(reason)`;
 `acceleratorStates()` streams changes), start it and wait for it (`awaitReady(timeout:)`), read the golden test's

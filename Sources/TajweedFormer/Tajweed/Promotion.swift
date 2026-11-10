@@ -16,6 +16,13 @@ import UIKit
 // the stage and the reason. Retries for the same key: 1 h, 6 h, 24 h after the failures, then none (3 retries after the
 // first attempt). Deterministic failures (golden_mismatch, cpu_mismatch, non_finite, crash) are never retried for the
 // key. Speed is never a failure: a build that downloads, compiles and passes the golden test is promoted.
+//
+// Since 2.0.2 a promoted build is demoted by the cause of a session's failure (Failover.swift): deadline misses in 3
+// sessions within 24 h, or a single confirmed blank disagreement with the CPU engine, are transient (a 6 h backoff,
+// the build stays verified, never off for good); NaN, inf, a head out of range and a repeated confirmed disagreement
+// turn the build off for good for the key; an exception keeps 2.0.1's rule (demoted, golden-tested again no sooner
+// than 24 h later, within the retry budget). The first launch of 2.0.2 clears 2.0.1's blank and deadline demotions
+// (`PromotionStore.migrate`).
 
 /// A stage of the promotion pipeline.
 public enum PromotionStage: String, Sendable, Codable, CaseIterable, Comparable {
@@ -144,13 +151,51 @@ enum PromotionPolicy {
     /// The least battery charge the pipeline runs on when not charging.
     static let minimumBattery: Float = 0.2
 
-    /// The per-chunk deadline of the accelerator: min(300 ms, max(4 x p90, 2 x median, 50 ms)) from the measure
-    /// stage's chunk times; 300 ms before a measurement exists. The 50 ms floor keeps a scheduling hiccup on a very fast
-    /// build (a 4 ms ANE chunk would give 16 ms) from demoting a healthy accelerator for a day.
+    /// The per-chunk deadline of the accelerator's warm chunks: min(300 ms, max(4 x p90, 2 x median, 50 ms)) from warm
+    /// chunk times only (never the first chunk of a take, a warm-up or the first chunk after the app became active);
+    /// 300 ms before a warm measurement exists. The 50 ms floor keeps a scheduling hiccup on a very fast build (a 4 ms
+    /// ANE chunk would give 16 ms) from switching a healthy accelerator.
     static func deadlineMs(p90Ms: Double?, medianMs: Double?) -> Double {
         guard let p90Ms, let medianMs, p90Ms > 0, medianMs > 0 else { return 300 }
         return min(300, max(4 * p90Ms, 2 * medianMs, 50))
     }
+
+    /// The limit of a cold chunk (the first of a take, the first after the app became active: the Neural Engine may be
+    /// powering up): max(1000 ms, 10 x the warm p90).
+    static func firstChunkLimitMs(p90Ms: Double?) -> Double { max(1000, 10 * max(0, p90Ms ?? 0)) }
+
+    /// The fewest warm chunk times the limits are computed from; with fewer, the measure stage's p90 and median.
+    static let minWarmSamples = 8
+    /// Warm chunk times kept per key (the most recent).
+    static let warmSamplesKept = 64
+
+    /// Both limits from warm chunk times (ms), or from the measure stage's p90 and median when there are too few.
+    static func limits(warmMs: [Double], p90Ms: Double?, medianMs: Double?) -> (firstMs: Double, laterMs: Double) {
+        var p90 = p90Ms, med = medianMs
+        if warmMs.count >= minWarmSamples {
+            p90 = AcceleratorController.percentile(warmMs, 0.9)
+            med = AcceleratorController.percentile(warmMs, 0.5)
+        }
+        return (firstChunkLimitMs(p90Ms: p90), deadlineMs(p90Ms: p90, medianMs: med))
+    }
+
+    /// A call that has not answered this long after its deadline is a hang: it is abandoned and the accelerator is not
+    /// used again in this process (a late answer before it is only a deadline miss).
+    static let hangGraceMs: Double = 2000
+
+    /// Deadline misses demote (transiently) only when they happen in this many different sessions of a key ...
+    static let missSessions = 3
+    /// ... within this window.
+    static let missWindow: TimeInterval = 24 * 3600
+    /// The backoff of a transient demotion (deadline misses, a single confirmed blank disagreement): the build stays
+    /// verified and is used again after it, without a new golden test. Not the pipeline's retry budget.
+    static let transientBackoff: TimeInterval = 6 * 3600
+    /// Confirmed blank disagreements with the CPU engine (any sessions) that turn the build off for good for the key.
+    static let disagreementsOffForGood = 2
+    /// At most one blank verification per this much audio of a session.
+    static let verifyEverySeconds: Double = 10
+    /// How long the end of a take waits for a blank verification still running.
+    static let verifyWaitAtFinish: TimeInterval = 30
 
     /// The failover's target: from the failure detected to the failed chunk's CPU result. The replay window is sized so
     /// the expected stall stays under it.
@@ -201,8 +246,27 @@ struct PromotionRecord: Codable, Sendable, Equatable {
     /// The SHA-256 of the program the promoted build runs (its `weights/weight.bin`): a different or missing program
     /// at a later launch runs the golden test again.
     var programSHA256: String?
+    // 2.0.2 (optional, so 2.0.1 records decode)
+    /// The cause of the last session failure that demoted the build.
+    var lastCause: FailoverCause?
+    /// A transient demotion: the promoted build (still `ready`, still verified) is not used before this time.
+    var backoffUntil: Date?
+    /// The sessions with a deadline miss in the last 24 h.
+    var missSessions: [DeadlineMiss]?
+    /// Confirmed blank disagreements with the CPU engine, any sessions.
+    var disagreements: Int?
+    /// The most recent warm chunk times of the accelerator, ms (the golden test's, then the sessions'): the limits.
+    var warmChunkMs: [Double]?
+
+    struct DeadlineMiss: Codable, Sendable, Equatable {
+        var session: String
+        var at: Date
+    }
 
     init(key: String) { self.key = key }
+
+    /// Whether a transient demotion keeps the build off now.
+    func backedOff(_ now: Date) -> Bool { backoffUntil.map { now < $0 } ?? false }
 
     var speedup: Double? {
         guard let a = acceleratorMedianMs, let c = cpuMedianMs, a > 0 else { return nil }
@@ -268,6 +332,56 @@ struct PromotionStore: Sendable {
     func clearSentinel() { try? FileManager.default.removeItem(at: sentinelURL) }
 
     func sentinel() -> Sentinel? { (try? Data(contentsOf: sentinelURL)).flatMap { try? JSONDecoder().decode(Sentinel.self, from: $0) } }
+
+    // MARK: the upgrade from 2.0.1
+
+    var migratedURL: URL { dir.appendingPathComponent("migrated-2.0.2") }
+
+    /// Once per store (a marker file written after it): every 2.0.1 record demoted or turned off by a blank or deadline
+    /// failover (2.0.1 recorded reason `failover`, the cause only in its detail text) is cleared and goes back to the
+    /// golden stage: the next run loads and warms the build, runs the golden test again in the background and promotes
+    /// as usual. Records with any other cause (NaN, a golden or CPU mismatch, a crash, an exception, ...) stay as they
+    /// are. Returns the keys cleared.
+    @discardableResult
+    func migrate(now: Date) -> [String] {
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        guard !FileManager.default.fileExists(atPath: migratedURL.path) else { return [] }
+        var all = read()
+        var cleared: [String] = []
+        for (k, r0) in all where Self.isBlankOrDeadline201(r0) {
+            var r = r0
+            r.status = .pending
+            // the attempt resumes after the warm-up: the build is loaded and warmed again, then the golden test
+            r.completed = .warmup
+            r.attemptStarted = now
+            r.launch = nil
+            r.failures = 0
+            r.notBefore = nil
+            r.lastStage = nil
+            r.lastReason = nil
+            r.lastDetail = nil
+            r.lastCause = nil
+            r.backoffUntil = nil
+            r.missSessions = nil
+            r.disagreements = nil
+            all[k] = r
+            cleared.append(k)
+        }
+        if !cleared.isEmpty { write(all) }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? Data("2.0.2\n".utf8).write(to: migratedURL, options: .atomic)
+        return cleared.sorted()
+    }
+
+    /// A 2.0.1 record (not promoted now) whose demotion or off-for-good came from a blank or deadline failover.
+    static func isBlankOrDeadline201(_ r: PromotionRecord) -> Bool {
+        guard r.status != .ready, r.lastReason == .failover, let d = r.lastDetail else { return false }
+        if r.lastCause == .blank || r.lastCause == .deadline { return true }
+        // 2.0.1's detail texts: "failover: 3 chunks in a row heard nothing in audio with energy", "failover: no answer
+        // within 55 ms", "failover: a chunk took 61.2 ms (deadline 50 ms)"
+        return d.contains("heard nothing") || d.contains("no answer within") || d.contains("(deadline ")
+    }
 }
 
 extension PromotionRecord {
@@ -356,6 +470,9 @@ public struct PromotionTelemetry: Sendable, Hashable {
         case demoted(PromotionReason)
         /// A session switched from the accelerator to the CPU engine.
         case failover(cause: FailoverCause, stallMs: Double)
+        /// The blank rule fired and the CPU engine, replaying the same audio, agreed (it heard nothing either): no
+        /// failover, no demotion (`blank_confirmed_ok`).
+        case blankConfirmedOK
     }
 
     /// "ane" (as cohort backends).
@@ -380,7 +497,8 @@ public enum FailoverCause: String, Sendable, Codable, CaseIterable {
     case nonFinite = "non_finite"
     /// A head left its known range (a log-probability above 0, below the floor, a probability outside 0...1).
     case outOfRange = "out_of_range"
-    /// Chunks heard nothing while the audio had energy in it.
+    /// Chunks heard nothing while the audio had energy in it, and the CPU engine, replaying the same audio, heard
+    /// something there (since 2.0.2 only a confirmed disagreement is a failover).
     case blank
     /// A chunk missed its deadline (a hung call is abandoned).
     case deadline

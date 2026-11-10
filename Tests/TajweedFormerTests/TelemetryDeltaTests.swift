@@ -195,7 +195,7 @@ final class TelemetryDeltaTests: XCTestCase {
         XCTAssertEqual(StubProtocol.seen("/v1/register").count, 1)
         let body = try XCTUnwrap(StubProtocol.seen("/v1/events").last?.json)
         XCTAssertEqual(body["launches"] as? Int, 1)
-        XCTAssertEqual(body["sdk_version"] as? String, "2.0.1")
+        XCTAssertEqual(body["sdk_version"] as? String, SDKInfo.version)
         XCTAssertEqual((body["report_id"] as? String)?.count, 32)
         XCTAssertEqual(body["cohorts"] as? [[String: AnyHashable]], [], "a delta with no session has no cohorts")
     }

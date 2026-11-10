@@ -1,0 +1,1445 @@
+{
+ "contexts": [
+  "c16_l64",
+  "c24_l72",
+  "c24_l256",
+  "c8_l64"
+ ],
+ "coreml_format": 9,
+ "default_context": "c16_l64",
+ "engine_format": 3,
+ "family": "tajweedformer",
+ "files": [
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "c16_l64/frames.zfw",
+    "sha256": "f1bd78789309a15c92504f59f2161b163abe81485c6a10ec0f11b2e65e8900b8",
+    "size": 309376
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c16_l64/frames.zfw.gz",
+   "platforms": "*",
+   "role": "frames",
+   "sha256": "5b8c017dbd0c1bbcac2a08545f6a26451cab522aa451a8149095d602eba52c38",
+   "size": 206326,
+   "soc": "*"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "c16_l64/model_engine2.onnx",
+    "sha256": "fae0fe01dafe40ce5da52c7f5041bae269c40c1a4ce9c3dba077b83bc7da367d",
+    "size": 1271675
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "c16_l64/model_engine2.onnx.gz",
+   "platforms": [
+    "native"
+   ],
+   "role": "ort-graph",
+   "sha256": "f2ca1badeb32374eeef29ce440e25a69904c49e929498fd221e6c97c7c7984f7",
+   "size": 587143,
+   "soc": "*"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "c16_l64/model_engine2.onnx.zfg.bin",
+    "sha256": "b4ad1fb8b6af79cc7b97678e2943fea6c07c0c83f9d3506413b79a1bd7d930b4",
+    "size": 734992
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c16_l64/model_engine2.onnx.zfg.bin.gz",
+   "platforms": "*",
+   "role": "graph-data",
+   "sha256": "53a33d6c8337077279671fe663a69fc934857e7ea5dd436e1678b241b38b7121",
+   "size": 536759,
+   "soc": "*"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "c16_l64/model_engine2.onnx.zfg",
+    "sha256": "cc596e3019b722c5d18a07afb87094acb8125e5832efdfe0e6a33ece46bf5b3e",
+    "size": 20379
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c16_l64/model_engine2.onnx.zfg.gz",
+   "platforms": "*",
+   "role": "graph",
+   "sha256": "c730f948e9211bd54c63845796c7c1c019c7b31858a4579c39705e860bfda3c4",
+   "size": 3525,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l256",
+   "decoded": {
+    "path": "c24_l256/frames.zfw",
+    "sha256": "d2d6e17579254211cab0390a88c4c2a9e0c5b40894e3d48493a6b959766215a4",
+    "size": 723200
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c24_l256/frames.zfw.gz",
+   "platforms": "*",
+   "role": "frames",
+   "sha256": "f8d664cbe28522b91c974eadce4b5ddaae316cc4791e7070b26f126c8653d4d5",
+   "size": 318581,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l256",
+   "decoded": {
+    "path": "c24_l256/model_engine2.onnx",
+    "sha256": "85556e65b970548b9fba5eb3c94b33b1d54ba76963649b7f1ce351657e54ccf0",
+    "size": 1282305
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "c24_l256/model_engine2.onnx.gz",
+   "platforms": [
+    "native"
+   ],
+   "role": "ort-graph",
+   "sha256": "c8f51e472e41cc27c3368f3098725884b1694b70463e322c4615122321105e07",
+   "size": 587783,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l256",
+   "decoded": {
+    "path": "c24_l256/model_engine2.onnx.zfg.bin",
+    "sha256": "ec2f2ef1818802cd7f0740d79b5a9889611800dde0c0480e63fa7321be01f6ba",
+    "size": 745232
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c24_l256/model_engine2.onnx.zfg.bin.gz",
+   "platforms": "*",
+   "role": "graph-data",
+   "sha256": "e65a283be451ab4bf45e82145fc409feb24c2ea8bf2ec3b2166dd4ba03359ecf",
+   "size": 536794,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l256",
+   "decoded": {
+    "path": "c24_l256/model_engine2.onnx.zfg",
+    "sha256": "d41a54d497fb997affd3c7d62de8d85cf4d5c831a4e306e9bde3298ef557a2b6",
+    "size": 20406
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c24_l256/model_engine2.onnx.zfg.gz",
+   "platforms": "*",
+   "role": "graph",
+   "sha256": "20965093041127128e033b994f68e104af99e8211281c4af9fed45361dfa2ac2",
+   "size": 3525,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l72",
+   "decoded": {
+    "path": "c24_l72/frames.zfw",
+    "sha256": "cd963491a126820e0b138b3763ebe4e65f1c3a2d438f334397662831bfadb045",
+    "size": 479872
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c24_l72/frames.zfw.gz",
+   "platforms": "*",
+   "role": "frames",
+   "sha256": "3d8061df32f543e9d14ab2bcc4ff25ecb5feaf16b7aa637a7e80a59c17faa052",
+   "size": 305485,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l72",
+   "decoded": {
+    "path": "c24_l72/model_engine2.onnx",
+    "sha256": "bf8a153c50ae012a4427a190446e933b30796360c6bdf34c154dc3daa041c1db",
+    "size": 1282023
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "c24_l72/model_engine2.onnx.gz",
+   "platforms": [
+    "native"
+   ],
+   "role": "ort-graph",
+   "sha256": "ca87b92c1000b4959d795c62763b7c00fafec79bc6ff3229ca775a19493e2ef4",
+   "size": 587327,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l72",
+   "decoded": {
+    "path": "c24_l72/model_engine2.onnx.zfg.bin",
+    "sha256": "ec2f2ef1818802cd7f0740d79b5a9889611800dde0c0480e63fa7321be01f6ba",
+    "size": 745232
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c24_l72/model_engine2.onnx.zfg.bin.gz",
+   "platforms": "*",
+   "role": "graph-data",
+   "sha256": "e65a283be451ab4bf45e82145fc409feb24c2ea8bf2ec3b2166dd4ba03359ecf",
+   "size": 536794,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l72",
+   "decoded": {
+    "path": "c24_l72/model_engine2.onnx.zfg",
+    "sha256": "183e5b87bfc27af533cfa804838c06a382054c3a816e79d2df0ad2de3cdb811c",
+    "size": 20390
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c24_l72/model_engine2.onnx.zfg.gz",
+   "platforms": "*",
+   "role": "graph",
+   "sha256": "9bed965a443ac7650271056906643a49bdf70f4bd67c68e94eab818a6ab90af7",
+   "size": 3518,
+   "soc": "*"
+  },
+  {
+   "context": "c8_l64",
+   "decoded": {
+    "path": "c8_l64/frames.zfw",
+    "sha256": "c6b23815a23e354504f0e6d79da3e8853f8af921ef1c4ec17a05603bb277d3fa",
+    "size": 157824
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c8_l64/frames.zfw.gz",
+   "platforms": "*",
+   "role": "frames",
+   "sha256": "181557b249b1ac7ea276f5b9f3da57cda6d2ec220cf8e7d2f0c85e0136abddaf",
+   "size": 107523,
+   "soc": "*"
+  },
+  {
+   "context": "c8_l64",
+   "decoded": {
+    "path": "c8_l64/model_engine2.onnx",
+    "sha256": "49d19ac82dd6767e8df23adb2b3f17580c156860448506a75c86f613702b1014",
+    "size": 1259994
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "c8_l64/model_engine2.onnx.gz",
+   "platforms": [
+    "native"
+   ],
+   "role": "ort-graph",
+   "sha256": "71c9d03394faabb85eec2af8fa886251be3b0ad3db77014151233729f6def6fd",
+   "size": 587054,
+   "soc": "*"
+  },
+  {
+   "context": "c8_l64",
+   "decoded": {
+    "path": "c8_l64/model_engine2.onnx.zfg.bin",
+    "sha256": "236adc73bebcbb96270c3260ef3fe2aae0b3a1465533bc2d50beb953620edd99",
+    "size": 724752
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c8_l64/model_engine2.onnx.zfg.bin.gz",
+   "platforms": "*",
+   "role": "graph-data",
+   "sha256": "ac3f91e5009c7a242139b4e4b95a5c87aa8dc91e85f8019c7b7e2eb7c072a1e1",
+   "size": 536738,
+   "soc": "*"
+  },
+  {
+   "context": "c8_l64",
+   "decoded": {
+    "path": "c8_l64/model_engine2.onnx.zfg",
+    "sha256": "c3926eaf2e25b934bda79a83696790051fa09574e5def2f0db92d89f8f17b80d",
+    "size": 20355
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "c8_l64/model_engine2.onnx.zfg.gz",
+   "platforms": "*",
+   "role": "graph",
+   "sha256": "706f4d2da87a956b462c0498be2b0167285746c98be0312cee0f7f76754e91c9",
+   "size": 3516,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "calibration.json",
+    "sha256": "747b7b4cff040efbd46b2ef709f9344c35771b109a4ca1bee1e52b65a5bd991c",
+    "size": 81634
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "calibration.json.gz",
+   "platforms": "*",
+   "role": "calibration",
+   "sha256": "372598ca14388d5bd56d3120e43275a9602b1f5fea40d0c476dd79b22a48cbcd",
+   "size": 8839,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "encoding": "identity",
+   "need": "optional",
+   "path": "coreml-compact/tajweedformer_v4.mlmodelc/analytics/coremldata.bin",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-compact",
+   "sha256": "01600f8e40b3da8d4a106df828fcc67296a4cbebc333f43ca936c7960ce1ae33",
+   "size": 243,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "encoding": "identity",
+   "need": "optional",
+   "path": "coreml-compact/tajweedformer_v4.mlmodelc/coremldata.bin",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-compact",
+   "sha256": "be8e1f3e5ef2d68569059cd4347af9f3e067e38ee93f36ce4d24f1c419f5eb09",
+   "size": 2020,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "encoding": "identity",
+   "need": "optional",
+   "path": "coreml-compact/tajweedformer_v4.mlmodelc/metadata.json",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-compact",
+   "sha256": "28fec5ae616f27b40b1ef071ca84d062e5daf0d2a351756a34ccd3ea5f1dba5e",
+   "size": 32151,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "coreml-compact/tajweedformer_v4.mlmodelc/model.mil",
+    "sha256": "eee02014709ab59d032de9efa002925f4f41d5cac1beb3209966c60a3eda8889",
+    "size": 4744522
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml-compact/tajweedformer_v4.mlmodelc/model.mil.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-compact",
+   "sha256": "7d3f968d2e2a2e55b97d78bbf4aa8d65003ed8f4144229c8c99de175bc2e7357",
+   "size": 423576,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "coreml-compact/tajweedformer_v4.mlmodelc/weights/weight.bin",
+    "sha256": "83972f8153b08dc804be3edd6d267f0d2ccff12713dd411aebbc0d47ab645998",
+    "size": 65996320
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml-compact/tajweedformer_v4.mlmodelc/weights/weight.bin.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-compact",
+   "sha256": "07b281336c5aa229ea427ba1208dedca3ba6258cbe0195d793a40ea5cac40e6f",
+   "size": 53895652,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "coreml-compact/tajweedformer_v4.mlmodelc/weights/weight.bin.qlpd",
+    "sha256": "9ca0251e313404099a9e5e122d4e71d95d09719207ab367a5d65e45a7d6ecb10",
+    "size": 66049157
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml-compact/tajweedformer_v4.mlmodelc/weights/weight.bin.qlpd.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-compact-delta",
+   "sha256": "3e5cd99ecf2214d4f50c1f3d4c9f2b8b0810a265cb41add3047b8b5f67a76382",
+   "size": 1717685,
+   "soc": "*"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "coreml/c16_l64/keeps.bin",
+    "sha256": "e6c1bb7e014aa6ac898d002035c0381f7215105b2058fd103abfa8e67683c540",
+    "size": 562216
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml/c16_l64/keeps.bin.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-keeps",
+   "sha256": "01c9f1c11e3375024a2ebd2452b7f74092bee8e08976d827f1e65da8fb55a5fd",
+   "size": 920,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l256",
+   "decoded": {
+    "path": "coreml/c24_l256/keeps.bin",
+    "sha256": "70d92bd1069bda44489603487f904ab809c292af5145233ca36dd2618b6b8344",
+    "size": 860200
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml/c24_l256/keeps.bin.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-keeps",
+   "sha256": "3743566c3c19724b451b0eacca167339395c70df1be860c5b071506b34ba1565",
+   "size": 1369,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l72",
+   "decoded": {
+    "path": "coreml/c24_l72/keeps.bin",
+    "sha256": "5f1c3adae3c0fe5e9c29e8a245b151c62e39bc3f3657d7082889bb58fa318ef9",
+    "size": 832552
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml/c24_l72/keeps.bin.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-keeps",
+   "sha256": "437431545d7e77c54bafb69e9e36ec8cc571695ae79e02f7221792cf0b9aa46f",
+   "size": 1245,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "encoding": "identity",
+   "need": "optional",
+   "path": "coreml/tajweedformer_v4.mlmodelc/analytics/coremldata.bin",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml",
+   "sha256": "c9f55ebb849490c50555ff15966c3c3ef465e4806ab4b21788872a7588ae89a8",
+   "size": 243,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "encoding": "identity",
+   "need": "optional",
+   "path": "coreml/tajweedformer_v4.mlmodelc/coremldata.bin",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml",
+   "sha256": "be8e1f3e5ef2d68569059cd4347af9f3e067e38ee93f36ce4d24f1c419f5eb09",
+   "size": 2020,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "encoding": "identity",
+   "need": "optional",
+   "path": "coreml/tajweedformer_v4.mlmodelc/metadata.json",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml",
+   "sha256": "f9d7f6023ae5dc135e2fbfb6f2b71474298d7cb0dfea0a5ffe20b868c92e7d4d",
+   "size": 31703,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "coreml/tajweedformer_v4.mlmodelc/model.mil",
+    "sha256": "e46b0bfc8d76d4e069f30b9e7a0248df5ff1d47bb516a3281d96a3ba2e7948ad",
+    "size": 4681944
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml/tajweedformer_v4.mlmodelc/model.mil.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml",
+   "sha256": "9b120975d6c11721f4b09e94c5881a957f6b7c1a596aa9ea12b6067efc4ebca7",
+   "size": 418520,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "coreml/tajweedformer_v4.mlmodelc/weights/weight.bin",
+    "sha256": "c60bd469b2f10b235c5b0855b5d78bca4a864278eb89787fb64735f80842d277",
+    "size": 130125984
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml/tajweedformer_v4.mlmodelc/weights/weight.bin.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml",
+   "sha256": "bc18b1b04ea7743c3cb31b12f3b3849c91e9c82d5b0b93a024ef058cc4ef6df0",
+   "size": 119469796,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "coreml/tajweedformer_v4.mlmodelc/weights/weight.bin.qlpd",
+    "sha256": "4110926d9840d8dfd0a8354fe4ad58788edc6019c4f8e82df935d3017c404877",
+    "size": 130160971
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "coreml/tajweedformer_v4.mlmodelc/weights/weight.bin.qlpd.gz",
+   "platforms": [
+    "apple"
+   ],
+   "role": "coreml-delta",
+   "sha256": "48a3faaae1f0a71716c44ef9462022ca1234d948cd61ce96e47e8d8bb1d9f2b1",
+   "size": 76101680,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "expected_tj3.zfx",
+    "sha256": "4e17b776b3b88b4d6d45f39ebf49654aa9593501ce7053b18152e57f1271cdc6",
+    "size": 5489848
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "expected_tj3.zfx.gz",
+   "platforms": "*",
+   "role": "expected",
+   "sha256": "bfb40e817aaece513b2700a14ab26943b135288948eec7677e11ca9baa82cf53",
+   "size": 1001765,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "frontend.zfw",
+    "sha256": "929e29d26a4645129b9aa11eee75acc3544f9a3ea63c50ce0840fd379ba6ce05",
+    "size": 1194308
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "frontend.zfw.gz",
+   "platforms": "*",
+   "role": "frontend",
+   "sha256": "fb00bf66711536317a6fefc58554a2d571cde08282c6fb1e8432550a6fb64beb",
+   "size": 1033260,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "layers.zfw",
+    "sha256": "440672a54c11fe47816eaeb08d2f763f8c48e1618d2c1aa2d4d7dfa787426453",
+    "size": 65715584
+   },
+   "encoding": "gzip",
+   "need": "required",
+   "path": "layers.zfw.gz",
+   "platforms": "*",
+   "role": "weights",
+   "sha256": "1229eded4e296ef8e6692a11950c459051b2079bd789482a6233ffd7dc2e2650",
+   "size": 53737620,
+   "soc": "*"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P0.tflite",
+    "sha256": "3a485a6052c51049399db0370737802b65b3126712995174a90a54e23e5ddd36",
+    "size": 1515168
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P0.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "1311c50165e048309820cbc6bb0c21fd2572f04e9e2b859133814af478b37fa4",
+   "size": 580324,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P0.tflite.qlpd",
+    "sha256": "ea80b99d3229fd22e717389fa8f828c6885ac215c265c8e7299ef29fc96638b1",
+    "size": 1515781
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P0.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "0a24ec85fb7c40813dcd61329aeb3a1ff0840c2a4e4863663a98261eeebaabac",
+   "size": 581062,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P1.tflite",
+    "sha256": "8d563451f69a4f0967250ac17f3f2d8f02c65ba6a70bba054d0de57cbda6b7d5",
+    "size": 13208816
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P1.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "32544840b9cb74ef5b584be0c9696db702d32f5cfbe24ce8bf7e882e408580da",
+   "size": 5853247,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P1.tflite.qlpd",
+    "sha256": "009dbbce7db4035954449360a1b100e28cdde83dd2057423b1a4c6e40a1ad7b3",
+    "size": 13300694
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P1.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "1b906bf57243a699b68cecca8b82618c067887edffdf43294c6e5fc310388047",
+   "size": 2251323,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P2.tflite",
+    "sha256": "8a52104d999a3fd3f9a3ef5a6ba75dd36d243867fb60137751ad7b07f0fe1003",
+    "size": 18730944
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P2.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "6a5f11f09fbed9f09073cef1fa9c31712a553b5583ea5881ac076c538150223c",
+   "size": 11059333,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P2.tflite.qlpd",
+    "sha256": "61f0a7fd6fccabfdbf5f61997a39551d598b1a4e920769b571061a24a4e2ba6f",
+    "size": 18844221
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P2.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "463e2bd44689e3bc286731dccb39688ede61a17dda0ed4626025db4059b1ad7c",
+   "size": 3426851,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P3.tflite",
+    "sha256": "d0c472478e8331d2954ab468ac308147005278f30022c0db26feab8a199a36aa",
+    "size": 38799648
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P3.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "bba7609b714cf7d38200a84a6b7b40eaf9de84336ee86684206570948f428af5",
+   "size": 28276538,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P3.tflite.qlpd",
+    "sha256": "e49601f0681ad785de62570318f13a155a714d94012965016c9a9de65705893c",
+    "size": 39018867
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P3.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "74cba42af6c20a38021ba9ec24096475a93db7398f275a940c1982c8ad03f4b0",
+   "size": 7427651,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P4.tflite",
+    "sha256": "c278a3109f5d421142f9fda0b866185b00b0771a80cab8066d625effe69f92e7",
+    "size": 18775760
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P4.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "bf60a5893182562609f4df9076793562b05877f46e09b7ccad5062992be29509",
+   "size": 11192022,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P4.tflite.qlpd",
+    "sha256": "6e6c5a969ce54ae552900d4d3b300b908fc1c1b41941f96759f5db6ce1fb9ebc",
+    "size": 18889055
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P4.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "e55e56b4cda1369160ec1dbe6abee5dda245936402a176adea5629f55217c808",
+   "size": 3434221,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P5.tflite",
+    "sha256": "29c18a96c1b3975997990c1c14261d8a04d46dced651910a149fcd343ab34aec",
+    "size": 7729984
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P5.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "2830ac27470674543a7bb35d8cf1918421fd27e47a53d8f8c29bb6a9ce90e969",
+   "size": 3756775,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P5.tflite.qlpd",
+    "sha256": "bc252fc2ab88a93fb7c462bfa6ebe100340884b686560c092b53ac527ef249dc",
+    "size": 7784935
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P5.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "ff62eb845e4cf58077b5845a725814eadd4922e44588a40b24a5cd93a683132d",
+   "size": 1395310,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P6.tflite",
+    "sha256": "54de014adb066872e9768fe3f172433670a5b1accf0fbc677a6a506fb80f1fe8",
+    "size": 777136
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P6.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "7de7ce990b86d3af1779814ba0a8b655805cd21d19382883900c712c95c9b636",
+   "size": 538428,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P6.tflite.qlpd",
+    "sha256": "d412b4799288ed38ddb485fd7eb06b3bbc4edb3c5150359ec56a029ffeaa11b8",
+    "size": 780056
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P6.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "75d611e85d53bba58977a29d7e943bf063ef7fa0ff922cba71fdefeb7b745ba3",
+   "size": 198795,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P7.tflite",
+    "sha256": "80e13ce01b406b67b2bea617716b099ab413893624eeb1fa5715fcbbec5c5b81",
+    "size": 490640
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P7.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "bff365c068e92e5597e5127f3b8495be0aedccc8ea2c3797065f2c3c6f03d290",
+   "size": 48173,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P7.tflite.qlpd",
+    "sha256": "129b115b0fb05c637c77c06c8bce5703be570f950856c5cac1a0b5a4c550df3f",
+    "size": 491252
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P7.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "e0d98a8143d56b850fa2be53f7a960247c37b948caf7fd09ab71ec5a405fdce0",
+   "size": 48782,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P8.tflite",
+    "sha256": "3d4fd07b2a5d9970b62a4cd968face21849f8787d5186e395bb619e1cf073f8a",
+    "size": 240272
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P8.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-part",
+   "sha256": "4c2977a41f39749869b370281ec4f98d8517e28ed938c14b0b1c2454e054b733",
+   "size": 70980,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P8.tflite.qlpd",
+    "sha256": "e8bc24259ee100aebaa2de52a00391c079bba4ac1c3c0ffbf913de1c16029f10",
+    "size": 240884
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.P8.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "90d84444fbcdd7f6f3e7e360d3218e8f700abed4fa95cf6eee70da3e030d5b51",
+   "size": 71552,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.io.json",
+    "sha256": "f9d4a0f0f492395632968cb1e400b3e3eebd6c7f7bf73d946cdddcdb225f36bb",
+    "size": 332121
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.io.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-io",
+   "sha256": "916d5d01004a3713aa87c8ff48a890c31440265f87ffa71f15e4d346e129f033",
+   "size": 163048,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.masks.json",
+    "sha256": "a36afa9aefdc013b034fe22ae0aa8fea1e80dec2084bdc6f4812a14ad28195a3",
+    "size": 238184
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2500/c16_l64/tajweedformer_v4_exynos2500_c16_l64.masks.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-masks",
+   "sha256": "5521fa77b8068cc10914c7a49eee6bfc0c305c22de71118791f4e8a4e90f8603",
+   "size": 1233,
+   "soc": "exynos2500"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2600/c16_l64/tajweedformer_v4_exynos2600_c16_l64.io.json",
+    "sha256": "663ac67e0d34306ca0d4137dd11ca2bb8cf9a20099105fa2c38c22a31b145755",
+    "size": 51589
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2600/c16_l64/tajweedformer_v4_exynos2600_c16_l64.io.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-io",
+   "sha256": "d84121db4874c68e25eb088f83ea1e18b81befd44f5715bb07d797b0144c4740",
+   "size": 4801,
+   "soc": "exynos2600"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2600/c16_l64/tajweedformer_v4_exynos2600_c16_l64.masks.json",
+    "sha256": "978794924ae995d33a7a745f10742ad668116895c5b3f00f2ecfc620c44bc130",
+    "size": 238184
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2600/c16_l64/tajweedformer_v4_exynos2600_c16_l64.masks.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-masks",
+   "sha256": "3ed73f1b37003f33fc932199ca45785929b24180293a4d86bc8fe7f7cefd3a59",
+   "size": 1234,
+   "soc": "exynos2600"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2600/c16_l64/tajweedformer_v4_exynos2600_c16_l64.tflite",
+    "sha256": "fdc295dda95aa22df73704861ee579fbbe43b2eb978bae105ba17856aa1b5bed",
+    "size": 110638720
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2600/c16_l64/tajweedformer_v4_exynos2600_c16_l64.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-model",
+   "sha256": "77aacc07498870998a1c3388b88f94537cf2995d1cf20ad471c17cf20177f881",
+   "size": 61739331,
+   "soc": "exynos2600"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/exynos2600/c16_l64/tajweedformer_v4_exynos2600_c16_l64.tflite.qlpd",
+    "sha256": "c0d9e6a6856da01e59a8e17e2325642018ecd27bfa4f40c34b4613bd904113ca",
+    "size": 111226797
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/exynos2600/c16_l64/tajweedformer_v4_exynos2600_c16_l64.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "494a5e49354cd08ebeb0e9bd860fadb13df5301d318e2ae35b8aa5163bdda8a5",
+   "size": 18146975,
+   "soc": "exynos2600"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g3/c16_l64/tajweedformer_v4_tensor_g3_c16_l64.io.json",
+    "sha256": "9beb8d9075f8db294d6222a00571bebb7176134bf1564ea0a183365f24c82868",
+    "size": 51588
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g3/c16_l64/tajweedformer_v4_tensor_g3_c16_l64.io.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-io",
+   "sha256": "9aa0d817460a04dcc85b33d45740ff5336c3584c702961d2b9dae2b62fb9a99d",
+   "size": 4801,
+   "soc": "tensor_g3"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g3/c16_l64/tajweedformer_v4_tensor_g3_c16_l64.masks.json",
+    "sha256": "27bcd84bff1c83aebc6c1df5801d96e5623cde3cbc2fcadbccdc3677dbe075d7",
+    "size": 238181
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g3/c16_l64/tajweedformer_v4_tensor_g3_c16_l64.masks.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-masks",
+   "sha256": "978d4ac6840c672495b8ae5e9ccfe2732e45ee3e89cc647fa2cf13aaca007ab2",
+   "size": 1233,
+   "soc": "tensor_g3"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g3/c16_l64/tajweedformer_v4_tensor_g3_c16_l64.tflite",
+    "sha256": "24ee2ae2e4a642f1f5d2583bb13b9472d4432a117e3ac28028ee368f5a6fb480",
+    "size": 167049440
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g3/c16_l64/tajweedformer_v4_tensor_g3_c16_l64.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-model",
+   "sha256": "fc7b9c9020e693bc13b79a3a7db615b915138f8903f1cb566a57402a6f544e51",
+   "size": 120839139,
+   "soc": "tensor_g3"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g3/c16_l64/tajweedformer_v4_tensor_g3_c16_l64.tflite.qlpd",
+    "sha256": "fad61f904a25adf2363f91b52c45ecd627f12d8a96bf8eb9660f22b11a17e9e9",
+    "size": 168128945
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g3/c16_l64/tajweedformer_v4_tensor_g3_c16_l64.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "c6573f1539195cee41bd36c4575b3635606ae435229c358ab65dd0479f5ef1a2",
+   "size": 84638541,
+   "soc": "tensor_g3"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.io.json",
+    "sha256": "52b070ce3488b3a04563141b06f596092d40b4bf66179cbd929a0f1769ef71e5",
+    "size": 51588
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.io.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-io",
+   "sha256": "5e03bf2e7f665ec58830e1301e8f6f65bf183b946cf86e0e90ff571ec8c5de57",
+   "size": 4800,
+   "soc": "tensor_g4"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.masks.json",
+    "sha256": "0ecee45892c83a181f6eac4bd0257911eec3c681adf9ce2f708ffa1ad3ebe8d9",
+    "size": 238181
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.masks.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-masks",
+   "sha256": "0c1f920789d1e727c8a2b65710e21dd98c8ec3af8bcf6ed64cd68b869e955b99",
+   "size": 1233,
+   "soc": "tensor_g4"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.tflite",
+    "sha256": "6ab55c42c1e43fa23011c0eea348f5ee857a8ea135174f36b576095ae4478a27",
+    "size": 167049440
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-model",
+   "sha256": "52755f3f077f5a64ad5042e581d17e871d335305698315e46c3e47d9ba477d82",
+   "size": 120839129,
+   "soc": "tensor_g4"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.tflite.qlpd",
+    "sha256": "e678710a184310947b95c2f180008d6f282a75b8436470b338bb9a8335245e38",
+    "size": 168128945
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "1968b1be98d4cf89762468c8c95843c4a4415273d7204f7fc0abd352d158b72d",
+   "size": 84638494,
+   "soc": "tensor_g4"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g5/c16_l64/tajweedformer_v4_tensor_g5_c16_l64.io.json",
+    "sha256": "e8e2f10d3bedad812cbd98142d90e4ec6a6a8c7ff34a87cdd69a785d3bcf2bc8",
+    "size": 51588
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g5/c16_l64/tajweedformer_v4_tensor_g5_c16_l64.io.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-io",
+   "sha256": "8d7355a92acc68ac5ed73d967085b621ca914e7bac6e55309d5438142310bf89",
+   "size": 4801,
+   "soc": "tensor_g5"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g5/c16_l64/tajweedformer_v4_tensor_g5_c16_l64.masks.json",
+    "sha256": "0b0e849b3c00c16aacd1c3383a94abe9aef6d0b2fff3f9b0b82b3f13c035d869",
+    "size": 238181
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g5/c16_l64/tajweedformer_v4_tensor_g5_c16_l64.masks.json.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-masks",
+   "sha256": "293722089d361380f47ef4908ac68da0437ff7eb8c1ff5481bbb5350ebf81d1b",
+   "size": 1233,
+   "soc": "tensor_g5"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g5/c16_l64/tajweedformer_v4_tensor_g5_c16_l64.tflite",
+    "sha256": "97b1e6e0c6a7e67be87999a7c7f581d9fb08dc3df37229a51d606956a9eb1d36",
+    "size": 158084448
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g5/c16_l64/tajweedformer_v4_tensor_g5_c16_l64.tflite.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-model",
+   "sha256": "ef2544f0c9a60fa64af58f0b715eaad8fc7e27be93713a048cc2891902664541",
+   "size": 120980613,
+   "soc": "tensor_g5"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "npu/tensor_g5/c16_l64/tajweedformer_v4_tensor_g5_c16_l64.tflite.qlpd",
+    "sha256": "e328d6184d0e9ec13073fe50a2423f9c2e8bbefae3131f75fb93acad7365f6f1",
+    "size": 159126445
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "npu/tensor_g5/c16_l64/tajweedformer_v4_tensor_g5_c16_l64.tflite.qlpd.gz",
+   "platforms": [
+    "android"
+   ],
+   "role": "npu-delta",
+   "sha256": "cabe529125089d5b899f0e9ac5dddb493b22c71e9d175cd2fee8de9d1afe73f9",
+   "size": 85969589,
+   "soc": "tensor_g5"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "selftest/Abdul_001001.s16",
+    "sha256": "74d6907427390da24f78e10cdb0f969f97ba0dd99edd4f676d04736c5da8f419",
+    "size": 138762
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/Abdul_001001.s16.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "d797b2b6982bac8d834385f7967aaf7e5335290eafac4752c061db9d04368bff",
+   "size": 116316,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "selftest/Husary_001001.s16",
+    "sha256": "91132902a6c5b48697dbd79bfeeabacacf250155209d13971f4e1ab0c0e53ff0",
+    "size": 163840
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/Husary_001001.s16.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "1dc18b17c02229ba6819da05eede12b84178a96054811abbcb5453904a3b989a",
+   "size": 138816,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "selftest/Husary_112001.s16",
+    "sha256": "dcbaf0d058077d012b0284fe5f672cc4e543f1818868097d0d435e1ec73dea8b",
+    "size": 186410
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/Husary_112001.s16.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "64a4060ecf72ce39665e688e98716e0ae875955e980ff9818066ed5050bf6396",
+   "size": 149296,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "selftest/Husary_112001_vsub2.s16",
+    "sha256": "effba1c02961278a2f3bc8a149cd627eb26c4fef788584c9ddfee9bb7bd147d7",
+    "size": 188458
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/Husary_112001_vsub2.s16.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "4c18895f8ce2351e12b7fa436a0ecf508273fe7f2d2d4b914390c43f635f3035",
+   "size": 150973,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "selftest/Saood_001001.s16",
+    "sha256": "eb939e5c27007415db74b89fb33d6bfa19b85911e1d8eb230046f33e37c24672",
+    "size": 87092
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/Saood_001001.s16.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "abf33234027911c1f43a7cf524a67185036ec97e2b0969ffaa9359173ffd2052",
+   "size": 74069,
+   "soc": "*"
+  },
+  {
+   "context": "c16_l64",
+   "decoded": {
+    "path": "selftest/expected_c16_l64.json",
+    "sha256": "75429d88d7c6c71a9d42516210d327d0d9f89dc095008023f5fda0855219159b",
+    "size": 1444
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/expected_c16_l64.json.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "577e6f9105613284263c518951bf14adba3c37cd2ec0f17da4550c985ec537a6",
+   "size": 634,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l256",
+   "decoded": {
+    "path": "selftest/expected_c24_l256.json",
+    "sha256": "aa63df5573bca444982176d87b0cf53583b1de55ed455b3c8253d7ec1f38be5a",
+    "size": 1444
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/expected_c24_l256.json.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "ec63ad7844123317fa332a60c7bf458e345a7f7deef823604bbecd9379362195",
+   "size": 636,
+   "soc": "*"
+  },
+  {
+   "context": "c24_l72",
+   "decoded": {
+    "path": "selftest/expected_c24_l72.json",
+    "sha256": "962c7a9c305d4009bf97a1afd3d7d8db46c28301b5ab4306fa9cadca6343d038",
+    "size": 1442
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/expected_c24_l72.json.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "b6223e68f87ba7150da6ffa6433813182f8e47011b14dc4ecc24c9224ac97423",
+   "size": 631,
+   "soc": "*"
+  },
+  {
+   "context": "c8_l64",
+   "decoded": {
+    "path": "selftest/expected_c8_l64.json",
+    "sha256": "8835bf6f8169dac37344ef2974e2d681aec0a996c374226e19b6e36cf36e2209",
+    "size": 1492
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/expected_c8_l64.json.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "7da68782a00dc51bd2ce30e16b1b7ae40743552126216fdd4ac058d25aaa2165",
+   "size": 581,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "decoded": {
+    "path": "selftest/selftest.json",
+    "sha256": "8972a580579982ce7441d5b79d523d88b3e120eb5ed99d3859b57db2376c6f78",
+    "size": 3333
+   },
+   "encoding": "gzip",
+   "need": "optional",
+   "path": "selftest/selftest.json.gz",
+   "platforms": "*",
+   "role": "selftest",
+   "sha256": "a393c29a8c639194aff524574e6259b569115e6836bf70fca914b63fd51381c5",
+   "size": 1431,
+   "soc": "*"
+  },
+  {
+   "context": "*",
+   "encoding": "identity",
+   "need": "required",
+   "path": "tokens.txt",
+   "platforms": "*",
+   "role": "tokens",
+   "sha256": "66fe6eb81b15506270f9e3c6efb0724cda757cd54326f26ca4bcd6be4f3b2aa4",
+   "size": 224,
+   "soc": "*"
+  }
+ ],
+ "format": 3,
+ "golden_tolerance": {
+  "coreml": {
+   "site_flag_diffs": 1,
+   "token_diffs": 0,
+   "word_flag_diffs": 1
+  },
+  "coreml-compact": {
+   "site_flag_diffs": 1,
+   "token_diffs": 0,
+   "word_flag_diffs": 1
+  },
+  "npu:exynos2500:c16_l64": {
+   "site_flag_diffs": 1,
+   "token_diffs": 0,
+   "word_flag_diffs": 1
+  },
+  "npu:exynos2600:c16_l64": {
+   "site_flag_diffs": 1,
+   "token_diffs": 0,
+   "word_flag_diffs": 1
+  },
+  "npu:tensor_g3:c16_l64": {
+   "site_flag_diffs": 1,
+   "token_diffs": 0,
+   "word_flag_diffs": 1
+  },
+  "npu:tensor_g4:c16_l64": {
+   "site_flag_diffs": 1,
+   "token_diffs": 0,
+   "word_flag_diffs": 1
+  },
+  "npu:tensor_g5:c16_l64": {
+   "site_flag_diffs": 1,
+   "token_diffs": 0,
+   "word_flag_diffs": 1
+  }
+ },
+ "min_sdk_version": "2.0.1",
+ "model_id": "v4.0",
+ "revision": "v4.0-2026-11-10",
+ "signature": "23PclP1wi2P6x8XLpIMx9S3mdayq0NbicKQH2IXgAXieXDvv8HYtvarYk/5vdeB4BSDAZW2LUr9gFo2TQ1WAAw==",
+ "tokens": "tokens.txt",
+ "tokens_sha256": "66fe6eb81b15506270f9e3c6efb0724cda757cd54326f26ca4bcd6be4f3b2aa4"
+}

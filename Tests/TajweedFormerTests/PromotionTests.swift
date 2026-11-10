@@ -387,12 +387,13 @@ final class PromotionTests: XCTestCase {
         XCTAssertNotNil(next.leaseForSession())
     }
 
-    func testAFailoverDemotesTheBuildForAtLeastADay() async {
+    /// An exception in a session keeps 2.0.1's rule: demoted, golden-tested again no sooner than a day later.
+    func testAnExceptionInASessionDemotesTheBuildForAtLeastADay() async {
         let c = h.controller()
         await c.run(h.stages())
         XCTAssertNotNil(c.leaseForSession())
-        let f = TakeRunner.Failover(cause: .deadline, detail: "no answer within 300 ms", chunk: 7, replayFrom: 0, stallMs: 84, cold: true,
-                                    elapsedMs: 300, deadlineMs: 300, errorDomain: nil, errorCode: nil)
+        let f = TakeRunner.Failover(cause: .exception, detail: "the accelerator threw: prediction failed", chunk: 7, replayFrom: 0, stallMs: 84,
+                                    cold: true, elapsedMs: nil, deadlineMs: 300, errorDomain: "com.apple.CoreML", errorCode: "-1")
         c.failedOver(f)
         c.endLease()
         guard case .disabled(let why) = c.state else { return XCTFail("\(c.state)") }
@@ -404,7 +405,7 @@ final class PromotionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(r.notBefore!.timeIntervalSince(h.now.withLock { $0 }), 24 * 3600)
         let inc = h.incidents.withLock { $0 }.last
         XCTAssertEqual(inc?.kind, .failover)
-        XCTAssertEqual(inc?.code, "session:timeout")
+        XCTAssertEqual(inc?.code, "session:exception")
         XCTAssertEqual(inc?.chunk, 7)
         XCTAssertEqual(inc?.stallMs, 84)
         // the next launch within the day: CPU; after it: retested from the download stage
@@ -416,6 +417,190 @@ final class PromotionTests: XCTestCase {
         await later.run(h.stages())
         XCTAssertEqual(h.calls.withLock { $0 }, ["download", "compile", "warmup", "golden"])
         XCTAssertEqual(later.state, .ready)
+    }
+
+    // MARK: 2.0.2: demotion by cause
+
+    func miss(_ chunk: Int = 0) -> TakeRunner.Failover {
+        TakeRunner.Failover(cause: .deadline, detail: "the first chunk took 1180.0 ms (first-chunk limit 1000 ms)", chunk: chunk, replayFrom: 0,
+                            stallMs: 30, cold: true, elapsedMs: 1180, deadlineMs: 1000, errorDomain: nil, errorCode: nil)
+    }
+
+    /// Deadline misses in 3 different sessions within 24 h: a transient demotion (6 h, the build stays promoted and
+    /// verified, used again without a golden test), never off for good however often it happens.
+    func testMissesInThreeSessionsWithinADayDemoteForSixHoursNeverForGood() async {
+        var launch = 1
+        var c = h.controller(launch: "L1")
+        await c.run(h.stages())
+        for round in 0..<4 {
+            for s in 0..<3 {
+                XCTAssertNotNil(c.leaseForSession(), "round \(round) session \(s)")
+                c.failedOver(miss(), session: "r\(round)s\(s)")
+                c.endLease()
+                if s < 2 {
+                    XCTAssertEqual(c.state, .ready, "round \(round): \(s + 1) sessions with a miss do not demote")
+                    h.advance(3600)
+                }
+            }
+            guard case .disabled(let why) = c.state else { return XCTFail("round \(round): \(c.state)") }
+            XCTAssertTrue(why.contains("used again after"), why)
+            let r = c.record!
+            XCTAssertEqual(r.status, .ready, "still verified")
+            XCTAssertEqual(r.backoffUntil, h.now.withLock { $0 }.addingTimeInterval(6 * 3600))
+            XCTAssertNil(r.missSessions)
+            XCTAssertEqual(r.lastCause, .deadline)
+            XCTAssertNil(c.leaseForSession())
+            // within the backoff a new launch stays on the CPU; after it the build is loaded again, no golden test
+            launch += 1
+            h.resetCalls()
+            let during = h.controller(launch: "L\(launch)")
+            await during.run(h.stages())
+            XCTAssertEqual(h.calls.withLock { $0 }, [])
+            h.advance(6 * 3600 + 1)
+            launch += 1
+            c = h.controller(launch: "L\(launch)")
+            await c.run(h.stages())
+            XCTAssertEqual(h.calls.withLock { $0 }, ["compile", "warmup"], "round \(round)")
+            XCTAssertEqual(c.state, .ready)
+        }
+        XCTAssertNotEqual(c.record?.status, .failed, "deadline misses never turn the build off for good")
+        XCTAssertEqual(h.promotions.filter { if case .demoted = $0.kind { return true }; return false }.count, 4)
+        XCTAssertEqual(h.promotions.filter { if case .failover(.deadline, _) = $0.kind { return true }; return false }.count, 12)
+    }
+
+    /// Misses in 2 sessions, or in 3 sessions spread over more than 24 h, or twice in one session: no demotion.
+    func testMissesInTwoSessionsOrOverMoreThanADayDoNotDemote() async {
+        let c = h.controller()
+        await c.run(h.stages())
+        for s in ["a", "b", "b"] {
+            XCTAssertNotNil(c.leaseForSession())
+            c.failedOver(miss(), session: s)
+            c.endLease()
+        }
+        XCTAssertEqual(c.state, .ready, "two sessions")
+        XCTAssertEqual(c.record?.missSessions?.count, 2)
+        h.advance(24 * 3600 + 60)
+        XCTAssertNotNil(c.leaseForSession())
+        c.failedOver(miss(), session: "c")
+        c.endLease()
+        XCTAssertEqual(c.state, .ready, "the first two are more than 24 h old")
+        XCTAssertEqual(c.record?.missSessions?.map(\.session), ["c"])
+        XCTAssertNil(c.record?.backoffUntil)
+        XCTAssertNotNil(c.leaseForSession())
+    }
+
+    /// NaN or a head out of range in a session: off for good for the key at once.
+    func testANumericFaultInASessionTurnsTheBuildOffForGood() async {
+        for (i, cause) in [FailoverCause.nonFinite, .outOfRange].enumerated() {
+            h = Harness()
+            let c = h.controller(revision: "n\(i)")
+            await c.run(h.stages())
+            XCTAssertNotNil(c.leaseForSession())
+            c.failedOver(TakeRunner.Failover(cause: cause, detail: "log_probs is NaN or infinite", chunk: 3, replayFrom: 0, stallMs: 20, cold: true,
+                                             elapsedMs: 4, deadlineMs: 50, errorDomain: nil, errorCode: nil), session: "s")
+            c.endLease()
+            XCTAssertEqual(c.record?.status, .failed, "\(cause)")
+            XCTAssertEqual(c.record?.lastReason, .nonFinite)
+            h.advance(30 * 86_400)
+            h.resetCalls()
+            await h.controller(revision: "n\(i)", launch: "L2").run(h.stages())
+            XCTAssertEqual(h.calls.withLock { $0 }, [], "never again for the key")
+        }
+    }
+
+    /// The first launch of 2.0.2 over 2.0.1's records: a build demoted for blank and one off for good after 4 deadline
+    /// failovers are cleared and go back to the golden stage (loaded, warmed, golden-tested again, promoted); one off
+    /// for good for NaN and one demoted for an exception stay. The migration runs once.
+    func testTheUpgradeFrom201ClearsBlankAndDeadlineDemotionsOnce() async throws {
+        let now = h.now.withLock { $0 }
+        func key(_ rev: String) -> String {
+            AcceleratorController.key(revision: rev, context: "c16_l64", build: "coreml", osBuild: "23A100", deviceModel: "iPhone17,1")
+        }
+        func old(_ rev: String, _ status: PromotionRecord.Status, _ reason: PromotionReason, _ detail: String, failures: Int,
+                 stage: PromotionStage? = nil) -> PromotionRecord {
+            var r = PromotionRecord(key: key(rev))
+            r.status = status
+            r.attempts = failures + 1
+            r.failures = failures
+            r.lastReason = reason
+            r.lastStage = stage
+            r.lastDetail = detail
+            r.notBefore = status == .retry ? now.addingTimeInterval(24 * 3600) : nil
+            r.compileMs = 9000
+            r.acceleratorMedianMs = 3.7
+            r.acceleratorP90Ms = 4.4
+            r.cpuMedianMs = 34
+            r.programSHA256 = String(repeating: "a", count: 64)
+            return r
+        }
+        // as 2.0.1 wrote them (2.0.1 had no lastCause: the cause is in the detail text)
+        let store = PromotionStore(dir: h.storage)
+        store.save(old("u-blank", .retry, .failover, "failover: 3 chunks in a row heard nothing in audio with energy", failures: 1))
+        store.save(old("u-deadline", .failed, .failover, "failover: no answer within 55 ms", failures: 4))
+        store.save(old("u-chunk", .retry, .failover, "failover: a chunk took 61.2 ms (deadline 50 ms)", failures: 2))
+        store.save(old("u-nan", .failed, .nonFinite, "golden: Husary_001001: log_probs is NaN or infinite", failures: 1, stage: .golden))
+        store.save(old("u-throw", .retry, .failover, "failover: the accelerator threw: prediction failed", failures: 1))
+        for rev in ["u-blank", "u-deadline", "u-chunk"] {
+            h.resetCalls()
+            let c = h.controller(revision: rev, launch: "L2")
+            XCTAssertEqual(c.state, .cpu, rev)
+            let r = try XCTUnwrap(c.record)
+            XCTAssertEqual(r.status, .pending, rev)
+            XCTAssertEqual(r.completed, .warmup, "\(rev): back to the golden stage")
+            XCTAssertEqual(r.failures, 0)
+            XCTAssertNil(r.notBefore)
+            XCTAssertNil(r.lastReason)
+            XCTAssertEqual(r.acceleratorMedianMs, 3.7, "the measurements stay")
+            await c.run(h.stages())
+            XCTAssertEqual(h.calls.withLock { $0 }, ["compile", "warmup", "golden"], "\(rev): loaded, warmed, golden-tested again")
+            XCTAssertEqual(c.state, .ready, rev)
+            XCTAssertEqual(c.record?.status, .ready)
+        }
+        h.resetCalls()
+        let nan = h.controller(revision: "u-nan", launch: "L2")
+        XCTAssertEqual(nan.record?.status, .failed, "NaN stays off")
+        guard case .disabled = nan.state else { return XCTFail("\(nan.state)") }
+        await nan.run(h.stages())
+        XCTAssertEqual(h.calls.withLock { $0 }, [])
+        let thrown = h.controller(revision: "u-throw", launch: "L2")
+        XCTAssertEqual(thrown.record?.status, .retry, "other causes stay")
+        XCTAssertEqual(thrown.record?.lastReason, .failover)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.migratedURL.path))
+        // once: a record of that shape written later (never by 2.0.2 itself) is left alone
+        store.save(old("u-later", .retry, .failover, "failover: 3 chunks in a row heard nothing in audio with energy", failures: 1))
+        XCTAssertEqual(store.migrate(now: now), [])
+        XCTAssertEqual(h.controller(revision: "u-later", launch: "L3").record?.status, .retry)
+    }
+
+    /// `blank_confirmed_ok`: counted per session from the take, sent in the `promotions` entry, no failover or
+    /// demotion; days saved by 2.0.1 (no such field) still decode.
+    func testBlankConfirmedOKIsCountedWithoutAFailover() throws {
+        let c = h.controller()
+        c.sessionEnded(warmMs: [], blankConfirmedOK: 2)
+        let store = AnalyticsStore(storage: Fixtures.storage(), enabled: true,
+                                   context: .init(platform: "ios", sdkVersion: SDKInfo.version, appVersion: "1", deviceClass: "phone", soc: nil,
+                                                  osMajor: 26, ramTier: "8gb"))
+        for p in h.promotions { store.record(.promotion(p)) }
+        let e = try XCTUnwrap(AnalyticsStore.promotions(try XCTUnwrap(store.pending.first).promotions).first)
+        XCTAssertEqual(e["blank_confirmed_ok"] as? Int, 2)
+        XCTAssertNil(e["failovers"])
+        XCTAssertNil(e["demoted"])
+        XCTAssertTrue(h.incidents.withLock { $0 }.isEmpty, "no incident report")
+        var o = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(AnalyticsStore.Promotion(backend: "ane", revision: "r", context: "c16_l64"))) as? [String: Any])
+        o["blankConfirmedOK"] = nil
+        let old = try JSONDecoder().decode(AnalyticsStore.Promotion.self, from: JSONSerialization.data(withJSONObject: o))
+        XCTAssertNil(old.blankConfirmedOK)
+    }
+
+    /// A session's warm chunk times join the key's (the limits of later sessions), cold ones never do.
+    func testSessionWarmTimesJoinTheKeysLimits() async {
+        let c = h.controller()
+        await c.run(h.stages())
+        XCTAssertEqual(c.record?.warmChunkMs?.count, 3, "the golden test's warm chunks")
+        c.sessionEnded(warmMs: Array(repeating: 20, count: 70), blankConfirmedOK: 0)
+        XCTAssertEqual(c.record?.warmChunkMs?.count, PromotionPolicy.warmSamplesKept)
+        XCTAssertEqual(c.limits.laterMs, 80, "4 x 20 ms")
+        XCTAssertEqual(c.limits.firstMs, 1000)
     }
 
     func testTheDenyListKeepsTheCPUAndIsCountedOnce() async {

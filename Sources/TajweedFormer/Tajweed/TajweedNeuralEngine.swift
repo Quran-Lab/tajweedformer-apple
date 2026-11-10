@@ -114,6 +114,14 @@ final class TajweedNeuralEngine {
         lastError = nil
     }
 
+    /// One chunk of silent features through both functions (the Neural Engine powers up for it), then a reset: no
+    /// state, heads or chunk time is left behind.
+    func warmUp() throws(RecognizerError) {
+        let zeros = [Float](repeating: 0, count: window * 80)
+        defer { reset() }
+        _ = try zeros.withUnsafeBufferPointer { (p) throws(RecognizerError) in try runChunk(p) }
+    }
+
     /// One chunk of `window` fbank frames: both functions, every head read out.
     private func runChunk(_ frames: UnsafeBufferPointer<Float>) throws(RecognizerError) -> TajweedHeads {
         let t0 = CFAbsoluteTimeGetCurrent()

@@ -169,6 +169,54 @@ final class IncidentTests: XCTestCase {
         XCTAssertFalse(IncidentLedger(storage: dir).isFirst(kind: r.kind, revision: "rev-1"), "kept on disk")
     }
 
+    /// 2.0.2: an app that never configured a Quran Lab client (as when a developer tests offline without
+    /// `QuranLab.configure`): incident reports are kept on the device (2.0.1 dropped them: no client, nothing queued),
+    /// stay while a client with a key is offline, and go once the network is there.
+    func testIncidentsAreKeptOfflineWithoutAClientAndSentOnceConfigured() async throws {
+        let storage = CloudFixtures.storage()
+        QuranLab.configure(options: .init(modelSource: [], analytics: .off, storageDirectory: storage, cloud: nil))
+        XCTAssertNil(QuranLab.cloud)
+        QuranLab.reportIncident(AcceleratorIncident(kind: .failover, stage: "session", cause: "blank", revision: "rev-off", context: "c16_l64"))
+        QuranLab.reportIncident(AcceleratorIncident(kind: .failover, stage: "session", cause: "timeout", revision: "rev-off", context: "c16_l64"))
+        QuranLab.reportIncident(AcceleratorIncident(kind: .failover, stage: "session", cause: "timeout", revision: "rev-off", context: "c16_l64"))
+        XCTAssertEqual(IncidentLedger(storage: storage).pending.map(\.code), ["session:blank"], "the first of the kind")
+        XCTAssertEqual(IssueQueue(storage: storage).pending.map(\.code), ["session:timeout"], "later ones once a day per signature")
+        // a client configured with a key, offline: everything stays
+        StubProtocol.reset { _ in .down }
+        let cloud = CloudFixtures.cloud(storage: storage)
+        _ = await cloud.flush()
+        XCTAssertEqual(cloud.incidents.pending.count, 1)
+        XCTAssertEqual(cloud.issues.pending.count, 1)
+        // online: both go
+        StubProtocol.reset(CloudFixtures.server())
+        let sent = await cloud.flush()
+        XCTAssertEqual(sent.issues, 2)
+        XCTAssertEqual(StubProtocol.seen("/v1/issues").count, 2)
+        XCTAssertTrue(cloud.incidents.pending.isEmpty)
+        XCTAssertTrue(cloud.issues.pending.isEmpty)
+        for s in StubProtocol.seen("/v1/issues") { Self.validate(try XCTUnwrap(s.json)) }
+        Fixtures.configure()
+    }
+
+    /// Reports are kept at most 7 days on the device.
+    func testReportsOlderThanSevenDaysAreDropped() throws {
+        let storage = CloudFixtures.storage()
+        var old = QuranLabCloud.incidentReport(AcceleratorIncident(kind: .failover, stage: "session", cause: "nan", revision: "rev-7", context: "c16_l64"),
+                                               app: Self.app)
+        old.day = Day.string(Date().addingTimeInterval(-8 * 86_400))
+        var recent = old
+        recent.day = Day.string(Date().addingTimeInterval(-6 * 86_400))
+        recent.code = "session:exception"
+        let q = IssueQueue(storage: storage)
+        q.add(old)
+        q.add(recent)
+        XCTAssertEqual(q.pending.map(\.code), ["session:exception"])
+        XCTAssertEqual(IssueQueue(storage: storage).pending.map(\.code), ["session:exception"], "on disk too")
+        let ledger = IncidentLedger(storage: storage)
+        ledger.addFirst(old)
+        XCTAssertTrue(ledger.pending.isEmpty)
+    }
+
     /// With `flags.issues` off, the first incident of a kind for a revision still goes; a second does not.
     func testTheFirstGoesEvenWhenIssuesAreOff() throws {
         let storage = CloudFixtures.storage()

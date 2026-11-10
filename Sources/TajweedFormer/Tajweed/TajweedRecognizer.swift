@@ -27,10 +27,12 @@ public protocol AudioBufferSink: Sendable {
 /// code needed) the Neural Engine is promoted in the background (`AcceleratorController`: its files downloaded after
 /// the first session, compiled, warmed, golden-tested against the model folder's self-test set); once it is ready
 /// (`acceleratorState == .ready`), takes from the next one on run on it. A chunk that fails on the Neural Engine
-/// (an exception, a NaN or inf, a head out of range, chunks that hear nothing in audio with energy, a missed
-/// deadline) switches the take to the CPU engine at that chunk: the take's recent audio is replayed through it, the
-/// chunks already handed out stay, the take continues, and the app gets no error (`activeBackend` and
-/// `fallbackReason` say what happened). The build is demoted for this model revision and OS build.
+/// (an exception, a NaN or inf, a head out of range, a missed deadline) switches the take to the CPU engine at that
+/// chunk: the take's recent audio is replayed through it, the chunks already handed out stay, the take continues, and
+/// the app gets no error (`activeBackend` and `fallbackReason` say what happened). Chunks that hear nothing in audio
+/// with energy (normal in a long madd or a held vowel) are checked against the CPU engine off the audio path; only a
+/// confirmed disagreement switches, and the chunk stream then hands out the CPU's chunks again from the first one in
+/// question (the same `index`). What happens to the build depends on the cause (`AcceleratorController.failedOver`).
 ///
 /// Settings precedence: the app's `options` > the portal's tajweed block (signed remote config) > calibration.json.
 /// `debugBuild` is the APP's build: only a debug build may turn on a check calibration marks `off`, or force the
@@ -82,6 +84,10 @@ public actor TajweedRecognizer: AudioBufferSink {
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
     private var converter: SampleRateConverter?
     private var delivered = 0
+    /// Chunks handed out at least once in this take (above `delivered` after a re-delivery).
+    private var handedOut = 0
+    /// The current take's id (deadline misses are counted per session).
+    private var takeID = ""
     private var take = TajweedHeads()
     private var takeChunkFrames: [Int] = []
     private var takeAudioSeconds = 0.0
@@ -295,7 +301,8 @@ public actor TajweedRecognizer: AudioBufferSink {
             storage: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"),
             denied: { QuranLab.cloud?.acceleratorDenied(revision: identity) },
             record: { QuranLab.record($0) },
-            incident: { QuranLab.cloud?.reportIncident($0) },
+            // kept on the device even without a Quran Lab client (sent once one is configured with a key)
+            incident: { QuranLab.reportIncident($0) },
             cohort: { cohortNow })
         let controller = AcceleratorController.shared(env)
         controllerBox.withLock { $0 = controller }
@@ -538,14 +545,15 @@ public actor TajweedRecognizer: AudioBufferSink {
                 } while at < c.samples.count
                 for h in try acc.finish().chunks { accHeads.append(h) }
             } catch {
+                // (no blank rule here: the clip's decisions are compared with the CPU engine's below)
                 let cause = acc.detected?.cause
-                let reason: PromotionReason = cause == .deadline ? .hang : (cause == .nonFinite || cause == .outOfRange) ? .nonFinite
-                    : cause == .blank ? .goldenMismatch : .other
+                let reason: PromotionReason = cause == .deadline ? .hang : (cause == .nonFinite || cause == .outOfRange) ? .nonFinite : .other
                 let ns = b.value.lastError
                 return .failed(PromotionFailure(reason, "\(c.id): \(acc.detected?.detail ?? "\(error)")", errorDomain: ns?.domain,
                                                 errorCode: ns.map { String($0.code) }, clip: c.id))
             }
-            accTimes += acc.chunkSeconds
+            // warm chunks only: each clip's first chunk is a take's first (cold) chunk
+            accTimes += acc.takeWarmMs.map { $0 / 1000 }
             // the decisions of both engines (the judge compares them below, in both directions)
             var r = GoldenJudge.Clip(id: c.id, planted: c.planted, plantedSite: c.plantedSite, expected: set?.expected[c.id],
                                      cpuTokens: cpuHeads.greedy, accTokens: accHeads.greedy)
@@ -558,7 +566,7 @@ public actor TajweedRecognizer: AudioBufferSink {
             }
             results.append(r)
         }
-        _ = exec.reset()
+        exec.reset(wait: true)
         let verdict = GoldenJudge.evaluate(results, tolerance: tolerance)
         if let f = verdict.failure { return .failed(f) }
         if !verdict.totals.isZero {
@@ -583,9 +591,11 @@ public actor TajweedRecognizer: AudioBufferSink {
         take = TajweedHeads()
         takeChunkFrames = []
         delivered = 0
+        handedOut = 0
         takeAudioSeconds = 0
         feedError = nil
         lastFailover = nil
+        takeID = UUID().uuidString
         var exec: AcceleratorExecutor?
         if let f = forced, !f.abandoned {
             exec = f
@@ -609,12 +619,20 @@ public actor TajweedRecognizer: AudioBufferSink {
         QuranLab.cloud?.noteActivity()
     }
 
-    /// The failover's numbers for this device: the deadline from the measure stage, the CPU engine's chunk time and
-    /// cold open (for the replay window), the caches' span of the context.
+    /// The failover's numbers for this device: the limits from this key's warm chunk times, the CPU engine's chunk
+    /// time and cold open (for the replay window), the caches' span of the context, and the build's golden tolerance
+    /// (for a blank verification).
     private func failoverPolicy() -> TakeRunner.Policy {
         var p = TakeRunner.Policy()
         let c = controllerBox.withLock { $0 }
-        p.deadlineMs = c?.deadlineMs ?? PromotionPolicy.deadlineMs(p90Ms: nil, medianMs: nil)
+        if let l = c?.limits {
+            p.deadlineMs = l.laterMs
+            p.firstChunkMs = l.firstMs
+            p.warmMs = l.warmMs
+        }
+        let m = acceleratorModel.withLock { $0 }
+        let build = (m.coreML(context: settings.context)?.compact ?? false) ? "coreml-compact" : "coreml"
+        p.blankTokenTolerance = m.manifest.tolerance(build: build).tokenDiffs
         if let m = c?.record?.cpuMedianMs, m > 0 { p.cpuChunkMs = m }
         if let o = runner?.lastOpenMs, o > 0 { p.cpuOpenMs = o }
         p.minReplayChunks = Self.cacheSpanChunks(context: settings.context) + 1
@@ -635,7 +653,9 @@ public actor TajweedRecognizer: AudioBufferSink {
     }
 
     /// The chunks of the current take as they complete (from `append` or the microphone), each with the selected
-    /// heads; the stream ends when the take finishes. Call after `startTake`.
+    /// heads; the stream ends when the take finishes. Call after `startTake`. Since 2.0.2 a chunk can come again with
+    /// the same `index` and `replaces == true` (the CPU engine's, after it confirmed that the Neural Engine missed
+    /// speech there): replace that index and drop what you kept from it on; the later indexes follow in order.
     public func chunks() -> AsyncStream<TajweedChunk> {
         let (s, c) = AsyncStream<TajweedChunk>.makeStream()
         stream?.finish()
@@ -731,11 +751,13 @@ public actor TajweedRecognizer: AudioBufferSink {
             take.truncate(n40: takeChunkFrames.prefix(t).reduce(0, +))
             takeChunkFrames.removeLast(takeChunkFrames.count - t)
         }
+        // a confirmed blank disagreement: the CPU's chunks are handed out again from the first one in question
+        if let r = o.redeliverFrom { delivered = min(delivered, max(0, r)) }
         return deliver(o.chunks)
     }
 
-    /// After a failover in this take: the CPU engine from here on, the build demoted for this key, the counters, the
-    /// incident report. The app gets no error.
+    /// After a failover in this take: the CPU engine from here on, the build's fate by the cause (a single deadline miss
+    /// keeps it promoted), the counters, the incident report. The app gets no error.
     private func noteFailover() {
         guard let runner, let f = runner.failover, lastFailover == nil else { return }
         lastFailover = f
@@ -744,7 +766,7 @@ public actor TajweedRecognizer: AudioBufferSink {
         fallbackReason = f.cause == .nonFinite ? .nonFinite : f.cause == .deadline ? .deadline : .other
         fallbackDetail = f.detail
         if let c = controllerBox.withLock({ $0 }), leased {
-            c.failedOver(f)
+            c.failedOver(f, session: takeID)
         } else if forced != nil {
             forced = nil
             fixedState = .disabled("failover: \(f.detail)")
@@ -762,10 +784,11 @@ public actor TajweedRecognizer: AudioBufferSink {
             let index = takeChunkFrames.count
             takeChunkFrames.append(c.n40)
             if index >= delivered {
-                let chunk = TajweedChunk(index: index, startMs: index * ms, heads: c.keeping(selection.heads))
+                let chunk = TajweedChunk(index: index, startMs: index * ms, heads: c.keeping(selection.heads), replaces: index < handedOut)
                 out.append(chunk)
                 stream?.yield(chunk)
                 delivered = index + 1
+                handedOut = max(handedOut, delivered)
             }
         }
         if coldStart == nil, !out.isEmpty { coldStart = Date().timeIntervalSince(created) * 1000 }
@@ -802,6 +825,14 @@ public actor TajweedRecognizer: AudioBufferSink {
     private func endTake(completed: Bool) {
         guard takeOpen else { return }
         takeOpen = false
+        if let runner {
+            // a cancelled take's verification stops; a session on the build adds its warm chunk times and counts the
+            // blank suspicions the CPU engine confirmed as correct
+            runner.dropVerification()
+            if leased, let c = controllerBox.withLock({ $0 }) {
+                c.sessionEnded(warmMs: runner.takeWarmMs, blankConfirmedOK: runner.blankConfirmedOK)
+            }
+        }
         endLease()
         stream?.finish()
         stream = nil

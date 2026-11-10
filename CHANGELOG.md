@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.0.2
+
+The in-session failover no longer punishes a healthy Neural Engine (a developer measured two 2.0.1 rules firing on
+normal recitation: blank output during held vowels and madd, and a deadline missed by the first chunk after the
+Neural Engine sat idle).
+
+- Blank output is a suspicion: when the Neural Engine writes nothing for a few chunks of audio with sound, the same
+  audio is checked on the CPU engine in the background while the Neural Engine keeps serving. The CPU blank too:
+  nothing happens (`promotions[].blank_confirmed_ok`). The CPU writing tokens: the take switches to the CPU from the
+  first silent chunk, with nothing lost, and the incident carries the divergence.
+- Behaviour change in the chunk stream: after a confirmed disagreement, `chunks()` and the chunks `append` returns
+  hand out the chunks again from the first one in question, with the SAME `index` and `TajweedChunk.replaces ==
+  true`, then continue in order (2.0.1 never handed an index out twice). On a chunk with `replaces`, replace what you
+  have for that index and drop what you have for every later index (they come again in order); do not append.
+  `heads()`, `decoded()` and `finish()` then give the CPU's replay of the whole take for takes up to 30 s, and the
+  Neural Engine's chunks before the switch plus the CPU's after it for longer takes.
+- A cold start is not a failure: a warm-up when a take starts and when the app becomes active; the first chunk of a
+  take gets at least 1 s (max(1000 ms, 10 x p90)); later limits come from warm chunks only.
+- A late chunk is served by the CPU and demotes nothing; late chunks in 3 sessions within 24 h, or one confirmed
+  disagreement with the CPU, pause the build for 6 h (no new golden test). Off for good only for NaN or out-of-range
+  output, a second confirmed disagreement, a golden or CPU mismatch, or a crash. An exception from the Neural Engine
+  keeps the 2.0.1 rule (tested again a day later, at most three times).
+- On the first launch of 2.0.2, builds that 2.0.1 set aside for silence or a late chunk are tested again and
+  promoted again.
+- Incident reports are kept on the device (7 days) even before `QuranLab.configure` is called, and sent once Quran
+  Lab is configured and online. An app that never configures Quran Lab sends none.
+- Staying on 2.0.1: `TajweedRecognizer(model: model, options: options, debugBuild: true, backend: .neuralEngine)`
+  (it throws `invalidArgument` without `debugBuild: true`) uses the CoreML build already in the model folder and
+  skips the promotion pipeline, the persisted record, every demotion and backoff, the deny-lists, the thermal and
+  memory checks, and the promotions telemetry and incident reports; its deadline is the fixed 300 ms, so the slow
+  first chunk after idle passes. Still applied: the per-take checks, including the blank rule, after which that
+  recognizer stays on the CPU until you create a new one. You give up the golden test, the automatic fallback across
+  sessions, the deny-lists, the background compile (the first load compiles inside `prepare()` or the first
+  `startTake()`), and the Neural Engine telemetry and incident reports. Upgrading to 2.0.2 is the fix.
+
 ## 2.0.1
 
 ### CPU first, then the Neural Engine

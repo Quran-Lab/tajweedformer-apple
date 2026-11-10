@@ -16,6 +16,8 @@ final class FailoverTests: XCTestCase {
         r.policy.cpuChunkMs = 1
         r.policy.cpuOpenMs = 1
         r.policy.maxReplayChunks = budgetChunks
+        // a call past its deadline is abandoned at once (2.0.1's executor), so the hang cases finish fast
+        r.policy.hangGraceMs = 0
         return r
     }
 
@@ -72,8 +74,9 @@ final class FailoverTests: XCTestCase {
         }
     }
 
-    /// Blank chunks with audio in them: the switch comes at the third, and the CPU redoes the take from the first.
-    func testBlankChunksSwitchAndRedoFromTheFirstBlank() throws {
+    /// Blank chunks with audio in them that the CPU engine hears: the suspicion at the third is verified on the CPU,
+    /// the disagreement confirmed, and the CPU redoes the take from the first (handed out again from there).
+    func testBlankChunksTheCPUHearsSwitchAndRedoFromTheFirstBlank() throws {
         let audio = fakeRecitation(seconds: 6)
         let ref = try reference(audio)
         let r = runner()
@@ -82,6 +85,8 @@ final class FailoverTests: XCTestCase {
         XCTAssertEqual(f.cause, .blank)
         XCTAssertEqual(f.chunk, 4)
         XCTAssertEqual(got.heads.greedy, ref.heads.greedy)
+        XCTAssertEqual(got.redeliveredFrom, [4])
+        XCTAssertGreaterThan(f.divergence?.tokensDiffer ?? 0, 0)
     }
 
     /// A take longer than the replay budget: the last chunks are replayed, the CPU continues from the failed chunk, the
@@ -194,11 +199,13 @@ final class PromotionOrderTests: XCTestCase {
     let calls = Locked<[String]>([])
     let gate = Locked(true)
     let failure = Locked<(Int, FakeAccelerator.Failure)>((-1, .none))
+    /// Chunks both engines hear nothing in (a held vowel), when set.
+    let held = Locked<Range<Int>?>(nil)
     let sink = Sink()
 
     override func setUp() {
         TajweedRecognizer.cpuEngineOverride.withLock { $0 = { _ in FakeCPUEngine() } }
-        let calls = self.calls, gate = self.gate, failure = self.failure
+        let calls = self.calls, gate = self.gate, failure = self.failure, held = self.held
         TajweedRecognizer.stagesOverride.withLock {
             $0 = { _ in
                 AcceleratorController.Stages(
@@ -207,7 +214,7 @@ final class PromotionOrderTests: XCTestCase {
                         calls.withLock { $0.append("compile") }
                         while !gate.withLock({ $0 }) { try? await Task.sleep(nanoseconds: 10_000_000) }
                         let (at, f) = failure.withLock { $0 }
-                        return UncheckedBox(FakeAccelerator(failAt: at, failure: f) as any AcceleratorBackend)
+                        return UncheckedBox(FakeAccelerator(failAt: at, failure: f, held: held.withLock { $0 }) as any AcceleratorBackend)
                     },
                     warmup: { (_: UncheckedBox<any AcceleratorBackend>) async throws(PromotionFailure) -> Void in calls.withLock { $0.append("warmup") } },
                     golden: { (_: UncheckedBox<any AcceleratorBackend>) async -> AcceleratorController.GoldenOutcome in
@@ -323,6 +330,79 @@ final class PromotionOrderTests: XCTestCase {
         let fo = sink.events.withLock { $0 }.contains { if case .promotion(let p) = $0, case .failover(.exception, _) = p.kind { return true }; return false }
         XCTAssertTrue(fo, "the failover is counted")
         print(String(format: "v4-failover order: chunk %d, stall %.2f ms (fake engines)", f.chunk, f.stallMs))
+    }
+
+    /// 2.0.2: a held vowel both engines hear nothing in keeps the session and the build on the Neural Engine, counted
+    /// as `blank_confirmed_ok`; the next session runs on it too.
+    func testAHeldVowelTheCPUConfirmsKeepsTheNeuralEngine() async throws {
+        let model = try await model()
+        held.withLock { $0 = 6..<14 }
+        TajweedRecognizer.cpuEngineOverride.withLock { $0 = { _ in FakeCPUEngine(held: 6..<14) } }
+        let r = try TajweedRecognizer(model: model, backend: .automatic)
+        let (first, cpuHeads) = try await take(r, seconds: 8)
+        XCTAssertEqual(first, .exact)
+        let ready = await waitFor(r, .ready)
+        XCTAssertTrue(ready)
+        let (second, heads) = try await take(r, seconds: 8)
+        XCTAssertEqual(second, .neuralEngine)
+        let still = await r.activeBackend
+        XCTAssertEqual(still, .neuralEngine, "no failover")
+        let lf = await r.lastFailover
+        XCTAssertNil(lf)
+        XCTAssertEqual(heads.greedy, cpuHeads.greedy)
+        let st = await r.acceleratorState
+        XCTAssertEqual(st, .ready)
+        let ok = sink.events.withLock { $0 }.filter { if case .promotion(let p) = $0, case .blankConfirmedOK = p.kind { return true }; return false }
+        XCTAssertEqual(ok.count, 1)
+        let (third, _) = try await take(r)
+        XCTAssertEqual(third, .neuralEngine)
+    }
+
+    /// 2.0.2: a stretch the Neural Engine hears nothing in and the CPU does: the session switches, the chunk stream
+    /// hands out the CPU's chunks again from the first one in question, the take is the CPU-only one, the build is
+    /// demoted for 6 h (transient).
+    func testAConfirmedBlankDisagreementRedeliversTheCPUChunks() async throws {
+        let model = try await model()
+        failure.withLock { $0 = (6, .blankSpan(8)) }
+        let r = try TajweedRecognizer(model: model, backend: .automatic)
+        let (_, cpuHeads) = try await take(r, seconds: 8)
+        let ready = await waitFor(r, .ready)
+        XCTAssertTrue(ready)
+        try await r.startTake()
+        let started = await r.activeBackend
+        XCTAssertEqual(started, .neuralEngine)
+        let stream = await r.chunks()
+        let collector = Task { () -> [(Int, Bool)] in
+            var seen: [(Int, Bool)] = []
+            for await c in stream { seen.append((c.index, c.replaces)) }
+            return seen
+        }
+        let a = fakeRecitation(seconds: 8)
+        var at = 0
+        while at < a.count {
+            try await r.append(Array(a[at..<min(a.count, at + 4000)]))
+            at += 4000
+        }
+        let heads = try await r.finish()
+        let pairs = await collector.value
+        let seen = pairs.map(\.0)
+        // replaces is true exactly for an index handed out before
+        var before = Set<Int>()
+        for (i, r) in pairs {
+            XCTAssertEqual(r, before.contains(i), "chunk \(i)")
+            before.insert(i)
+        }
+        XCTAssertEqual(pairs.first { $0.1 }?.0, 6, "the first replacement is the first suspicious chunk")
+        let lf = await r.lastFailover
+        let f = try XCTUnwrap(lf)
+        XCTAssertEqual(f.cause, .blank)
+        XCTAssertEqual(f.chunk, 6)
+        XCTAssertEqual(heads.greedy, cpuHeads.greedy, "nothing lost: the CPU-only take")
+        XCTAssertGreaterThanOrEqual(seen.filter { $0 == 6 }.count, 2, "chunk 6 handed out again (\(seen))")
+        XCTAssertEqual(Set(seen), Set(0..<(seen.max() ?? 0) + 1), "every index handed out")
+        let st = await r.acceleratorState
+        guard case .disabled(let why) = st else { return XCTFail("\(st)") }
+        XCTAssertTrue(why.contains("used again after"), why)
     }
 
     func testAKeyPromotedEarlierIsWarmedWhileTheFirstSessionRunsOnTheCPU() async throws {
@@ -525,6 +605,9 @@ final class FailoverRealClipTests: XCTestCase {
                         if variant == "purged" && !Self.purge() { continue }
                         let r = TakeRunner(chunkMs: 320, openCPU: engine(f))
                         r.policy.deadlineMs = 200
+                        // the 0.5 s timeout at the first chunk too (its own limit is 1 s), abandoned at once as in 2.0.1
+                        r.policy.firstChunkMs = 200
+                        r.policy.hangGraceMs = 0
                         let acc = AcceleratorExecutor(Recorded(perPush: perPush, flush: flush, failAt: at, failure: mode))
                         if variant == "warm" {
                             // the standby that was rejected (64 MB resident): the engine stays open behind the accelerator

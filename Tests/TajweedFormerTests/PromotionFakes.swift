@@ -5,17 +5,27 @@ import XCTest
 /// A deterministic stand-in for the exact CPU engine, with the streaming engine's shape: a chunk every 320 ms of audio
 /// once a 450 ms window is full, a 1.05 s flush at the end, and a state carried from chunk to chunk (so a replay that
 /// starts late does not rebuild it exactly, as with the real encoder's caches). Each chunk has 8 frames of log_probs:
-/// a token per frame derived from the window's audio and the carried state, blank where the window is silent.
+/// a token per frame derived from the window's audio and the carried state, blank where the window is silent, and
+/// blank over `held` (chunk indexes since the reset): a long madd or a held vowel, sound the model rightly writes
+/// nothing for.
 final class FakeCPUEngine: CPUStreamEngine {
     let chunkMs = 320
     static let advance = 5120, window = 7200
     private var audio: [Float] = []
     private var consumed = 0     // chunks run
     private var state = 0.0
-    /// Engines opened (cold opens), across instances.
+    let held: Range<Int>?
+    /// Engines opened (cold opens), across instances, and those alive now.
     static let opened = Locked(0)
+    static let alive = Locked(0)
 
-    init() { Self.opened.withLock { $0 += 1 } }
+    init(held: Range<Int>? = nil) {
+        self.held = held
+        Self.opened.withLock { $0 += 1 }
+        Self.alive.withLock { $0 += 1 }
+    }
+
+    deinit { Self.alive.withLock { $0 -= 1 } }
 
     func reset() {
         audio = []
@@ -27,7 +37,7 @@ final class FakeCPUEngine: CPUStreamEngine {
         audio += s
         var out: [TajweedHeads] = []
         while audio.count >= Self.window + consumed * Self.advance {
-            out.append(chunk(audio[(consumed * Self.advance)..<(consumed * Self.advance + Self.window)]))
+            out.append(chunk(audio[(consumed * Self.advance)..<(consumed * Self.advance + Self.window)], blank: held?.contains(consumed) ?? false))
             consumed += 1
         }
         return out
@@ -38,12 +48,12 @@ final class FakeCPUEngine: CPUStreamEngine {
         return try zeros.withUnsafeBufferPointer { (p) throws(RecognizerError) in try push(p) }
     }
 
-    private func chunk(_ w: ArraySlice<Float>) -> TajweedHeads {
+    private func chunk(_ w: ArraySlice<Float>, blank: Bool) -> TajweedHeads {
         let m = Double(w.reduce(Float(0)) { $0 + abs($1) }) / Double(max(1, w.count))
         state = 0.6 * state + m
         var lp = [Float](repeating: -20, count: 8 * 38)
         for f in 0..<8 {
-            let t = m > 0.002 ? 1 + Int((state * 997).rounded(.down) + Double(f / 3)) % 37 : 0
+            let t = m > 0.002 && !blank ? 1 + Int((state * 997).rounded(.down) + Double(f / 3)) % 37 : 0
             lp[f * 38 + t] = 0
         }
         return TajweedHeads(chunk: ["log_probs": lp])
@@ -64,19 +74,35 @@ final class FakeAccelerator: AcceleratorBackend {
         case hang(Double)
         /// Every chunk from this one on hears nothing.
         case blank
+        /// This many chunks from this one on hear nothing (a stretch the CPU engine does hear).
+        case blankSpan(Int)
     }
 
-    private let inner = FakeCPUEngine()
+    private let inner: FakeCPUEngine
     var failAt = -1
     var failure = Failure.none
     private var produced = 0
     private(set) var chunkSeconds: [Double] = []
     /// Seconds each chunk takes (a slower build is still promoted).
     var chunkCost: Double = 0
+    /// Seconds particular chunks take (by index since the reset), over `chunkCost`.
+    var costs: [Int: Double] = [:]
+    /// Seconds a warm-up takes, and the warm-ups run.
+    var warmUpCost: Double = 0
+    let warmUpsRun = Locked(0)
 
-    init(failAt: Int = -1, failure: Failure = .none) {
+    /// - Parameter held: chunks both engines hear nothing in (the CPU engine of the test is made with the same).
+    init(failAt: Int = -1, failure: Failure = .none, held: Range<Int>? = nil) {
         self.failAt = failAt
         self.failure = failure
+        inner = FakeCPUEngine(held: held)
+        // the inner engine is part of the accelerator, not a CPU engine the take opened
+        FakeCPUEngine.opened.withLock { $0 -= 1 }
+    }
+
+    func warmUp() throws(RecognizerError) {
+        if warmUpCost > 0 { Thread.sleep(forTimeInterval: warmUpCost) }
+        warmUpsRun.withLock { $0 += 1 }
     }
 
     func reset() {
@@ -93,18 +119,21 @@ final class FakeAccelerator: AcceleratorBackend {
         for var c in chunks {
             let i = produced
             produced += 1
-            if chunkCost > 0 { Thread.sleep(forTimeInterval: chunkCost) }
-            var spent = max(chunkCost, 0.0005)
+            let cost = chunkCost + (costs[i] ?? 0)
+            if cost > 0 { Thread.sleep(forTimeInterval: cost) }
+            var spent = max(cost, 0.0005)
             if i == failAt {
                 switch failure {
                 case .exception: throw .neuralEngineUnavailable("prediction failed: injected")
                 case .nan: var lp = c.logProbs; lp[3] = .nan; c.logProbs = lp
                 case .outOfRange: var lp = c.logProbs; lp[5] = 40; c.logProbs = lp
                 case .hang(let s): Thread.sleep(forTimeInterval: s); spent = s
-                case .blank, .none: break
+                case .blank, .blankSpan, .none: break
                 }
             }
-            if failure == .blank && failAt >= 0 && i >= failAt { c.logProbs = (0..<c.logProbs.count).map { (k: Int) -> Float in k % 38 == 0 ? 0 : -20 } }
+            var blankHere = failure == .blank && failAt >= 0 && i >= failAt
+            if case .blankSpan(let n) = failure, failAt >= 0, i >= failAt, i < failAt + n { blankHere = true }
+            if blankHere { c.logProbs = (0..<c.logProbs.count).map { (k: Int) -> Float in k % 38 == 0 ? 0 : -20 } }
             chunkSeconds.append(spent)
             out.append(c)
         }
@@ -126,6 +155,8 @@ struct RunResult {
     var heads = TajweedHeads()
     var frames: [Int] = []
     var handedOut = 0
+    /// Where the take's chunks were handed out again (a confirmed blank disagreement).
+    var redeliveredFrom: [Int] = []
 }
 
 func runTake(_ runner: TakeRunner, _ audio: [Float], accelerator: AcceleratorExecutor?, piece: Int = 5120) throws -> RunResult {
@@ -136,6 +167,7 @@ func runTake(_ runner: TakeRunner, _ audio: [Float], accelerator: AcceleratorExe
             r.heads.truncate(n40: r.frames.prefix(t).reduce(0, +))
             r.frames.removeLast(r.frames.count - t)
         }
+        if let f = o.redeliverFrom { r.redeliveredFrom.append(f) }
         for c in o.chunks {
             r.heads.append(c)
             r.frames.append(c.n40)
