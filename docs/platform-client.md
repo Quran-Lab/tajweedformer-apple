@@ -1,4 +1,4 @@
-# How the SDK talks to Quran Lab (2.0.2)
+# How the SDK talks to Quran Lab (2.0.3)
 
 This page is the same in every TajweedFormer SDK (Android, iOS and macOS, web, Windows and Linux). It describes
 what the SDK sends to Quran Lab, when, and what an app can change. Names of the API differ per platform; the
@@ -68,6 +68,18 @@ and input kind (built in, wired, Bluetooth, ...), the UTC day, a random code for
 public half of its deletion key and the hash of its recovery code at the first session), the consent
 version, and, for your own wording, `consent_text_sha256`. Not sent: which ayah was recited, names,
 accounts, contacts, location, device identifiers.
+
+### Takes in a row are one recording (2.0.3)
+
+An app often stops and starts its takes while the learner keeps reciting. So when a take ends, the shared
+recording stays open for a few seconds (3 s, or what Quran Lab's signed config sets): if the next take starts
+in that time, its audio continues the same recording, one Ogg stream with no new headers, and the time between
+the takes is simply left out (no audio is made up for it). The recording closes when no take follows in time,
+when the app goes to the background, when sharing is turned off, after 20 minutes, or when the next take has
+another sample rate. For a recording of several takes the SDK sends, after its last segment, where each take
+starts in the stream and how long the pause before it was (in tenths of a second), so the takes can be told
+apart. Audio from before or after a take is never recorded: the SDK only has the audio the app gives it during
+takes.
 
 ### Bitrate on bad networks
 

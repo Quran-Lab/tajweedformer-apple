@@ -106,8 +106,28 @@ extension SharingState {
 /// Once the learner agrees, every session the SDK listens to is shared in full, continuously, as Ogg Opus segments
 /// uploaded in the background (`ContributionOutbox`). The learner can stop at any time (`setSharing(false)` stops
 /// uploads at once and deletes the unsent queue) and delete what they shared (`deleteShared()`).
+///
+/// 2.0.3: takes that follow one another within a few seconds are one recording (`TakeJoin`), so an app that stops and
+/// starts takes while the learner keeps reciting no longer splits the recitation.
 public enum Contributions {
     static let lock = Locked<SharingState?>(nil)
+
+    /// The recording of the takes (2.0.3), one per process: it stays open after a take for the join window (the signed
+    /// config's `flags.share_join_ms`, 3000 ms when absent), so the next take in a row continues the same stream. Its
+    /// clock is the configured client's.
+    static let recorder = ShareRecorder(
+        clock: { QuranLab.cloud?.clock() ?? Date() },
+        window: { QuranLab.cloud?.currentConfig?.flags.share_join_ms ?? TakeJoin.defaultWindowMs },
+        active: { Contributions.isActive },
+        // what a recording is bound to: a take joins an open one only in the same storage, under the same contributor,
+        // consent version (and wording hash) and model revision; the backend and the input route may differ
+        identity: { (info: ShareRecorder.TakeInfo) -> [String] in
+            [QuranLab.configuration.storageDirectory.path, QuranLab.contributorID, Contributions.consentVersion ?? "",
+             Contributions.grantedTextSHA256 ?? "", info.revision]
+        },
+        open: { (info: ShareRecorder.TakeInfo) -> (any ShareRecording)? in
+            Contributions.capture(revision: info.revision, backend: info.backend, weightsSHA256: info.weightsSHA256)
+        })
 
     private static func file() -> JSONFile<SharingState> {
         JSONFile(url: QuranLab.configuration.storageDirectory.appendingPathComponent("cloud/sharing-state.json"))
@@ -307,6 +327,8 @@ public enum Contributions {
                 s.consent = .final
                 s.decidedAt = Date().timeIntervalSince1970.rounded()
             }
+            // the open recording ends at once, in a take or waiting for the next one
+            recorder.stop()
             await QuranLab.cloud?.outbox.cancelQueued()
         }
     }
@@ -324,6 +346,7 @@ public enum Contributions {
     public static func deleteShared() async throws(RecognizerError) {
         guard let cloud = QuranLab.cloud else { throw .serviceUnavailable("deleting shared recordings (no cloud configured)") }
         try await cloud.deleteContributions(contributor: contributionCode)
+        recorder.stop()
         await cloud.outbox.cancelQueued()
         QuranLab.resetContributor()
         _ = update { s in
@@ -346,7 +369,8 @@ public enum Contributions {
         await QuranLab.cloud?.contributionSummary(contributor: contributionCode)
     }
 
-    /// The capture for a session that starts now, when sharing is active.
+    /// The capture for a recording that starts now, when sharing is active (the recorder asks for one when a take
+    /// starts a new recording).
     static func capture(revision: String, backend: ActiveBackend, weightsSHA256: String?) -> ShareCapture? {
         guard isActive, let outbox = QuranLab.cloud?.outbox else { return nil }
         return ShareCapture(outbox: outbox, consentVersion: consentVersion, consentTextSHA256: grantedTextSHA256, modelRevision: revision,

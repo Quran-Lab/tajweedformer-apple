@@ -58,12 +58,17 @@ public struct RemoteConfig: Codable, Sendable, Equatable {
         public var contributions: Bool
         /// Per platform: `off`, `capped` or `attested` (who may upload shared sessions).
         public var upload_trust: [String: String]?
+        /// 2.0.3: how long a shared recording stays open for the next take, in ms. A whole number 0 to 10000; absent
+        /// or anything else 3000; 0 never joins takes.
+        public var share_join_ms: Int
 
-        public init(analytics: Bool = true, issues: Bool = true, contributions: Bool = true, upload_trust: [String: String]? = nil) {
+        public init(analytics: Bool = true, issues: Bool = true, contributions: Bool = true, upload_trust: [String: String]? = nil,
+                    share_join_ms: Int = 3000) {
             self.analytics = analytics
             self.issues = issues
             self.contributions = contributions
             self.upload_trust = upload_trust
+            self.share_join_ms = share_join_ms
         }
 
         public init(from d: any Decoder) throws {
@@ -73,6 +78,9 @@ public struct RemoteConfig: Codable, Sendable, Equatable {
             // absent: not offered (only Quran Lab's literal true offers sharing, 2.0.1)
             contributions = try c.decodeIfPresent(Bool.self, forKey: .contributions) ?? false
             upload_trust = try? c.decodeIfPresent([String: String].self, forKey: .upload_trust)
+            // any JSON type is read (a string, a boolean or a fraction is the default), never failing the config
+            let window: JSONValue? = try? c.decodeIfPresent(JSONValue.self, forKey: .share_join_ms)
+            share_join_ms = TakeJoin.window(window)
         }
     }
 

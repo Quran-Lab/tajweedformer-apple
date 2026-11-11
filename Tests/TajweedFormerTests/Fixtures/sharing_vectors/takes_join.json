@@ -1,0 +1,375 @@
+{
+ "about": "SDK 2.0.3 back-to-back takes (make_takes_join.py): replay the events per case; the recordings the capture forms, each with its input rate, audio ms (floor of samples * 1000 / rate) and its take metadata (null for a single take).",
+ "default_window_ms": 3000,
+ "cap_ms": 1200000,
+ "cases": [
+  {
+   "name": "three back-to-back takes: one recording",
+   "flags": {},
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 80000,
+     "rate": 16000,
+     "end_wall_ms": 5000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 6200,
+     "samples": 48000,
+     "rate": 16000,
+     "end_wall_ms": 9200
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 10000,
+     "samples": 64000,
+     "rate": 16000,
+     "end_wall_ms": 14000
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 12000,
+     "takes": [
+      {
+       "start_ms": 0,
+       "gap_ms": 0
+      },
+      {
+       "start_ms": 5000,
+       "gap_ms": 1200
+      },
+      {
+       "start_ms": 8000,
+       "gap_ms": 800
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a gap over the window: two recordings",
+   "flags": {},
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 80000,
+     "rate": 16000,
+     "end_wall_ms": 5000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 8001,
+     "samples": 48000,
+     "rate": 16000,
+     "end_wall_ms": 11001
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 5000,
+     "takes": null
+    },
+    {
+     "rate": 16000,
+     "audio_ms": 3000,
+     "takes": null
+    }
+   ]
+  },
+  {
+   "name": "the window edge: exactly 3000 joins",
+   "flags": {},
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 2000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 5000,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 7000
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 4000,
+     "takes": [
+      {
+       "start_ms": 0,
+       "gap_ms": 0
+      },
+      {
+       "start_ms": 2000,
+       "gap_ms": 3000
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a different input rate: a new recording",
+   "flags": {},
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 2000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 2500,
+     "samples": 96000,
+     "rate": 48000,
+     "end_wall_ms": 4500
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 2000,
+     "takes": null
+    },
+    {
+     "rate": 48000,
+     "audio_ms": 2000,
+     "takes": null
+    }
+   ]
+  },
+  {
+   "name": "the app went to the background: closed",
+   "flags": {},
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 2000
+    },
+    {
+     "event": "background",
+     "wall_ms": 2100
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 2600,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 4600
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 2000,
+     "takes": null
+    },
+    {
+     "rate": 16000,
+     "audio_ms": 2000,
+     "takes": null
+    }
+   ]
+  },
+  {
+   "name": "the config's window 0: never join",
+   "flags": {
+    "share_join_ms": 0
+   },
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 2000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 2100,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 4100
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 2000,
+     "takes": null
+    },
+    {
+     "rate": 16000,
+     "audio_ms": 2000,
+     "takes": null
+    }
+   ]
+  },
+  {
+   "name": "the config's window 8000",
+   "flags": {
+    "share_join_ms": 8000
+   },
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 2000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 9000,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 11000
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 4000,
+     "takes": [
+      {
+       "start_ms": 0,
+       "gap_ms": 0
+      },
+      {
+       "start_ms": 2000,
+       "gap_ms": 7000
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "an invalid window is the default",
+   "flags": {
+    "share_join_ms": "5"
+   },
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 2000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 5500,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 7500
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 2000,
+     "takes": null
+    },
+    {
+     "rate": 16000,
+     "audio_ms": 2000,
+     "takes": null
+    }
+   ]
+  },
+  {
+   "name": "gap rounding and odd sample counts",
+   "flags": {},
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 12345,
+     "rate": 16000,
+     "end_wall_ms": 800
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 849,
+     "samples": 999,
+     "rate": 16000,
+     "end_wall_ms": 1000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 1150,
+     "samples": 777,
+     "rate": 16000,
+     "end_wall_ms": 1300
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 882,
+     "takes": [
+      {
+       "start_ms": 0,
+       "gap_ms": 0
+      },
+      {
+       "start_ms": 771,
+       "gap_ms": 0
+      },
+      {
+       "start_ms": 834,
+       "gap_ms": 200
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "the 20-minute cap: a new recording",
+   "flags": {},
+   "events": [
+    {
+     "event": "take",
+     "start_wall_ms": 0,
+     "samples": 19184000,
+     "rate": 16000,
+     "end_wall_ms": 1199000
+    },
+    {
+     "event": "take",
+     "start_wall_ms": 1199500,
+     "samples": 32000,
+     "rate": 16000,
+     "end_wall_ms": 1201500
+    }
+   ],
+   "expect": [
+    {
+     "rate": 16000,
+     "audio_ms": 1199000,
+     "takes": null
+    },
+    {
+     "rate": 16000,
+     "audio_ms": 2000,
+     "takes": null
+    }
+   ]
+  }
+ ]
+}

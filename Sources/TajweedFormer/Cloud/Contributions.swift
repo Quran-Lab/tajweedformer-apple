@@ -2,7 +2,8 @@ import CryptoKit
 import Foundation
 import Security
 
-/// One shared session in the outbox.
+/// One shared recording in the outbox. Since 2.0.3 a recording holds the takes that followed one another within the
+/// join window (`TakeJoin`): one Ogg stream, one upload id.
 public struct Contribution: Sendable, Hashable, Identifiable {
     public enum Status: Sendable, Hashable {
         /// Recording, waiting to upload, or uploading.
@@ -31,6 +32,8 @@ public struct Contribution: Sendable, Hashable, Identifiable {
     public let lastError: String?
     /// The bitrate (bit/s) of each closed segment, in segment order (2.0.1: the adaptive bitrate, 192000 to 32000).
     public let segmentBitrates: [Int]
+    /// The takes in the recording so far (2.0.3): 1, or more when takes in a row joined it.
+    public let takes: Int
 }
 
 /// The random contributor id of this install: 128 bits, 32 lowercase hex, in the Keychain (this
@@ -130,6 +133,18 @@ struct ContributionClient: Sendable {
         return r
     }
 
+    /// `POST /v1/uploads/{id}/takes` (2.0.3): the take boundaries of a recording of two or more takes, after its last
+    /// segment. Idempotent: the server replaces the list.
+    func takesRequest(id: String, takes: [ShareTake], contributor: String, token: String) -> URLRequest {
+        var r = URLRequest(url: apiURL.appendingPathComponent("v1/uploads/\(id)/takes"))
+        r.httpMethod = "POST"
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+        r.setValue("application/json", forHTTPHeaderField: "content-type")
+        r.setValue(contributor, forHTTPHeaderField: "x-qlab-contributor")
+        r.httpBody = ShareFiles.takesBody(takes)
+        return r
+    }
+
     /// The URLs in an answer of either route; nil when it has none.
     static func urls(_ resp: HTTPClient.Response, id: String) -> [SegmentURL]? {
         guard let o = (try? JSONSerialization.jsonObject(with: resp.body)) as? [String: Any], o["id"] as? String == id,
@@ -184,11 +199,13 @@ struct ContributionClient: Sendable {
 
 /// The files of one shared session in its outbox folder. The capture writes the session JSON,
 /// the segments and a marker per closed segment, and `end.json`; the outbox writes only
-/// `item.json`.
+/// `item.json`. Since 2.0.3 a recording that holds two or more takes also has `takes.json`
+/// (`{"takes":[{"start_ms","gap_ms"}]}`, rewritten when a take joins), which the outbox sends after the last segment.
 enum ShareFiles {
     static let session = "session.json"
     static let capture = "capture.json"
     static let end = "end.json"
+    static let takesFile = "takes.json"
     static func name(_ n: Int) -> String { String(format: "seg-%05d", n) }
 
     /// A closed segment: its size and hash, where the stream stood, and the bitrate it was encoded at (absent in
@@ -212,6 +229,49 @@ enum ShareFiles {
         var preSkip: Int
         /// The bitrate of each segment opened so far, in order.
         var bitrates: [Int]?
+    }
+
+    /// `takes.json`, and the body of the take list call.
+    struct TakeList: Codable, Sendable {
+        var takes: [ShareTake]
+    }
+
+    /// The take list as `POST /v1/uploads/{id}/takes` gets it and as `takes.json` keeps it, the same bytes in every
+    /// SDK: `{"takes":[{"start_ms":0,"gap_ms":0},...]}`.
+    static func takesBody(_ takes: [ShareTake]) -> Data {
+        let entries = takes.map { (t: ShareTake) -> String in "{\"start_ms\":\(t.start_ms),\"gap_ms\":\(t.gap_ms)}" }
+        return Data(("{\"takes\":[" + entries.joined(separator: ",") + "]}").utf8)
+    }
+
+    /// `takes.json`: the recording's takes so far (written when a take joins, so two or more), replaced in one step.
+    static func writeTakes(_ folder: URL, _ takes: [ShareTake]) throws {
+        try takesBody(takes).write(to: folder.appendingPathComponent(takesFile), options: .atomic)
+    }
+
+    /// The takes of a recording, or nil when it has one take (no file) or the file is not a take list: the first
+    /// entry `{0, 0}`, `start_ms` strictly increasing, each gap 0 to 10000, at most `TakeJoin.maxTakes` entries.
+    static func takes(_ folder: URL) -> [ShareTake]? {
+        guard let list = read(TakeList.self, folder.appendingPathComponent(takesFile))?.takes,
+              (2...TakeJoin.maxTakes).contains(list.count), list[0] == ShareTake(start_ms: 0, gap_ms: 0) else { return nil }
+        for (i, t) in list.enumerated() {
+            guard t.gap_ms >= 0, t.gap_ms <= TakeJoin.maxWindowMs else { return nil }
+            if i > 0, t.start_ms <= list[i - 1].start_ms { return nil }
+        }
+        return list
+    }
+
+    /// Keeps the takes that start inside the first `durationMs` of the recording (what a recovery left of it); fewer
+    /// than two left: no list (the file goes).
+    static func trimTakes(_ folder: URL, durationMs: Int) {
+        let url = folder.appendingPathComponent(takesFile)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let all = takes(folder) ?? []
+        let kept = all.filter { $0.start_ms < durationMs }
+        if kept.count < 2 {
+            try? FileManager.default.removeItem(at: url)
+        } else if kept.count < all.count {
+            try? writeTakes(folder, kept)
+        }
     }
 
     static func sha256(_ url: URL) -> (Int64, String)? {
@@ -266,7 +326,8 @@ enum ShareFiles {
     }
 
     /// A session the app was killed in: the last segment is cut back to its last whole page,
-    /// closed, and the session ended as not completed.
+    /// closed, and the session ended as not completed. A recording of several takes (2.0.3) keeps the takes that
+    /// start inside what was recovered.
     /// Returns false when there is nothing to share (the folder is then removed).
     @discardableResult
     static func recover(_ folder: URL) -> Bool {
@@ -301,6 +362,7 @@ enum ShareFiles {
             return false
         }
         let ms = Int(max(0, last.granule - Int64(cap.preSkip)) / 48)
+        trimTakes(folder, durationMs: ms)
         try? write(End(durationMs: ms, completed: false), folder.appendingPathComponent(end))
         return true
     }
@@ -334,9 +396,12 @@ struct SHA256Hasher {
     var hex: String { h.finalize().map { String(format: "%02x", $0) }.joined() }
 }
 
-/// One session being shared: Ogg Opus segments written as the session runs, into the session's
-/// folder in the outbox, each closed segment handed to the outbox at once. Lives on the recognizer's actor with the session.
-final class ShareCapture {
+/// One recording being shared: Ogg Opus segments written as it runs, into its folder in the outbox, each closed
+/// segment handed to the outbox at once. Since 2.0.3 it outlives a take: the process's `ShareRecorder` owns it and
+/// calls it under its lock (the capture itself is not thread safe), takes in a row append to the same writer, so the
+/// stream, the encoder, the resampler and the segment plan run on across them, and `takes(_:)` keeps their boundaries
+/// in `takes.json`.
+final class ShareCapture: ShareRecording {
     /// A session that fails or is cancelled is shared only from this long.
     static let minimumPartial: TimeInterval = 2
     /// Folders being written in this process (so the outbox does not take them for crashed).
@@ -353,6 +418,13 @@ final class ShareCapture {
     /// The bitrate of each segment opened so far (the capture file keeps them for recovery).
     private var bitrates: [Int] = []
     private var preSkip = 0
+    private var ended = false
+    private var abandoned = false
+    /// Sharing went off (`discard()`): nothing of the capture is kept.
+    private var off = false
+
+    /// False once the capture failed or ended: no take joins it.
+    var isAlive: Bool { !failed && !ended }
 
     init(outbox: ContributionOutbox, consentVersion: String?, consentTextSHA256: String? = nil, modelRevision: String?, backend: String,
          weightsSHA256: String?) {
@@ -373,8 +445,15 @@ final class ShareCapture {
         Self.active.withLock { _ = $0.insert(id) }
     }
 
+    /// The recording's takes so far (two or more), kept in `takes.json` before the joining take's audio is encoded.
+    /// A list that cannot be written leaves the earlier one: the audio still joins.
+    func takes(_ list: [ShareTake]) {
+        guard writer != nil, !failed, !ended else { return }
+        try? ShareFiles.writeTakes(folder, list)
+    }
+
     func append(_ mono: [Float], rate: Double) throws(RecognizerError) {
-        guard !failed else { return }
+        guard !failed, !ended else { return }
         guard Contributions.isActive else { return abandon() }
         if writer == nil {
             do {
@@ -420,8 +499,11 @@ final class ShareCapture {
     }
 
     /// Ends the capture: the last segment and `end.json`; or nothing kept, when sharing went off,
-    /// or a failed or cancelled session is shorter than `minimumPartial` with no segment gone.
+    /// or a failed or cancelled session is shorter than `minimumPartial` with no segment gone. For a recording of
+    /// several takes `completed` is the last take's, and the minimum counts the audio of all of them.
     func finish(completed: Bool) {
+        guard !ended else { return }
+        ended = true
         guard let writer, !failed, Contributions.isActive, writer.duration > 0,
               completed || writer.duration >= Self.minimumPartial || segments > 0 else { return abandon() }
         do {
@@ -436,12 +518,24 @@ final class ShareCapture {
         Task.detached(priority: .utility) { await outbox.poke() }
     }
 
+    /// Sharing went off (the settings switch, a deletion): the capture ends at once and its folder goes, whatever was
+    /// already handed to the outbox.
+    func discard() {
+        ended = true
+        off = true
+        abandon()
+    }
+
     func abandon() {
+        // once: a capture that failed while it ran is ended later (a recording waits for the next take), when the
+        // outbox may already have sent what it kept
+        guard !abandoned else { return }
+        abandoned = true
         writer?.abandon()
         writer = nil
         failed = true
         // segments already handed over stay with the outbox only while sharing is on
-        if segments == 0 || !Contributions.isActive {
+        if segments == 0 || off || !Contributions.isActive {
             try? FileManager.default.removeItem(at: folder)
         } else {
             ShareFiles.recover(folder)

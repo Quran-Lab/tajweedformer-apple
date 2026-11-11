@@ -7,21 +7,80 @@ final class SharingTests: XCTestCase {
     /// A stub qlab-api and R2 for sharing: the start and URL routes, and the PUTs to presigned URLs,
     /// whose bodies it keeps. Each batch's URLs carry `X-Amz-Signature=b<batch>-<n>`, so a test can
     /// tell which batch a PUT used. `batch` is the URLs per answer; `put` can refuse a PUT (per
-    /// attempt, 1-based).
+    /// attempt, 1-based). Since 2.0.3 it has the take list route (`POST /v1/uploads/{id}/takes`) as the server checks
+    /// it, and can put `flags.share_join_ms` into the signed config.
     final class Server: @unchecked Sendable {
         let token: StubProtocol.Reply
-        let flags: [String: Bool]
+        let flags: [String: Any]
         let start = Locked<(Int) -> StubProtocol.Reply?>({ _ in nil })
         let put = Locked<(Int) -> StubProtocol.Reply?>({ _ in nil })
         let down = Locked(false)
         let objects = Locked<[String: Data]>([:])
         let batches = Locked(0)
         let batch: Int
+        /// The take list route. Off: a server without it (404 `not_found`).
+        let takesRoute = Locked(true)
+        /// An answer that replaces the take list route's, per call (1-based, counted over every upload).
+        let takesReply = Locked<(Int) -> StubProtocol.Reply?>({ _ in nil })
+        /// The take list the server holds per upload id (the last one sent replaces the earlier).
+        let takes = Locked<[String: [[String: Int]]]>([:])
+        /// The contributor of each upload the server has a session JSON for.
+        let started = Locked<[String: String]>([:])
+        /// `flags.share_join_ms` of the signed config (any JSON value); nil leaves the flag out.
+        let joinWindow = Locked<Any?>(nil)
 
-        init(token: StubProtocol.Reply = CloudFixtures.attestedToken, flags: [String: Bool] = [:], batch: Int = 20) {
+        init(token: StubProtocol.Reply = CloudFixtures.attestedToken, flags: [String: Any] = [:], batch: Int = 20) {
             self.token = token
             self.flags = flags
             self.batch = batch
+        }
+
+        /// Milliseconds of audio the server holds for an upload: its last page's granule position less the pre-skip.
+        func receivedMs(_ id: String) -> Int {
+            let b = [UInt8](segments(id).reduce(Data(), +))
+            var at = 0
+            var granule: Int64 = 0
+            while at + 27 <= b.count {
+                let n = Int(b[at + 26])
+                var len = 27 + n
+                for i in 0..<n { len += Int(b[at + 27 + i]) }
+                var g: Int64 = 0
+                for i in 0..<8 { g |= Int64(b[at + 6 + i]) << (8 * Int64(i)) }
+                granule = g
+                at += len
+            }
+            return Int(max(0, granule - 312) / 48)
+        }
+
+        /// `POST /v1/uploads/{id}/takes` as the server checks it: the token and `x-qlab-contributor`, the upload known
+        /// under that contributor (404 `not_found` otherwise), a closed body `{"takes":[{"start_ms","gap_ms"}]}` of 2
+        /// to 256 entries, the first `{0, 0}`, `start_ms` strictly increasing and no further than the received audio
+        /// plus 1000 ms, `gap_ms` 0 to 10000 in hundreds. The list replaces any earlier one; 204.
+        func takeList(_ s: StubProtocol.Seen) -> StubProtocol.Reply {
+            func bad(_ why: String) -> StubProtocol.Reply { .json(["error": "invalid_body", "message": why], status: 400) }
+            let id = String(s.path.dropFirst("/v1/uploads/".count).prefix(32))
+            guard s.headers["authorization"]?.hasPrefix("Bearer qlt_v1.") == true else {
+                return .json(["error": "unauthorized", "message": "unauthorized"], status: 401)
+            }
+            guard let who = s.headers["x-qlab-contributor"], who.count == 32 else { return bad("x-qlab-contributor") }
+            guard started.withLock({ $0[id] }) == who else { return .json(["error": "not_found", "message": "not_found"], status: 404) }
+            guard let o = s.json, o.count == 1, let list = o["takes"] as? [[String: Any]], (2...256).contains(list.count) else {
+                return bad("json.takes")
+            }
+            let received = receivedMs(id)
+            var out: [[String: Int]] = []
+            var last = -1
+            for (i, t) in list.enumerated() {
+                guard t.count == 2, let at = t["start_ms"] as? Int, let gap = t["gap_ms"] as? Int else { return bad("json.takes[\(i)]") }
+                if i == 0, at != 0 || gap != 0 { return bad("json.takes[0]: 0, 0") }
+                if i > 0, at <= last { return bad("json.takes[\(i)].start_ms: not increasing") }
+                if at > received + 1000 { return bad("json.takes[\(i)].start_ms: past the received audio (\(received) ms)") }
+                if gap < 0 || gap > 10_000 || gap % 100 != 0 { return bad("json.takes[\(i)].gap_ms") }
+                last = at
+                out.append(["start_ms": at, "gap_ms": gap])
+            }
+            takes.withLock { $0[id] = out }
+            return StubProtocol.Reply(status: 204, headers: [:])
         }
 
         func urls(_ id: String, from: Int, status: Int) -> StubProtocol.Reply {
@@ -38,6 +97,15 @@ final class SharingTests: XCTestCase {
         var handler: @Sendable (StubProtocol.Seen) -> StubProtocol.Reply {
             CloudFixtures.server(config: CloudFixtures.config(flags: flags), token: token, extra: { [self] s in
                 if down.withLock({ $0 }), s.url.host == "r2.test" || s.path.hasPrefix("/v1/uploads") { return .down }
+                if s.path == "/v1/config", let w = joinWindow.withLock({ $0 }) {
+                    return CloudFixtures.config(flags: flags.merging(["share_join_ms": w]) { _, b in b })
+                }
+                if s.method == "POST", s.path.hasPrefix("/v1/uploads/"), s.path.hasSuffix("/takes") {
+                    let n = StubProtocol.seen.filter { $0.path.hasSuffix("/takes") }.count
+                    if let r = takesReply.withLock({ $0(n) }) { return r }
+                    guard takesRoute.withLock({ $0 }) else { return .json(["error": "not_found", "message": "not_found"], status: 404) }
+                    return takeList(s)
+                }
                 if s.url.host == "r2.test", s.method == "PUT" {
                     let n = SharingTests.puts.count
                     if let r = put.withLock({ $0(n) }) { return r }
@@ -46,7 +114,9 @@ final class SharingTests: XCTestCase {
                 }
                 if s.method == "POST", s.path == "/v1/uploads" {
                     let n = StubProtocol.seen("/v1/uploads").count
-                    return start.withLock { $0(n) } ?? urls(s.headers["x-qlab-id"] ?? "", from: 1, status: 201)
+                    if let r = start.withLock({ $0(n) }) { return r }
+                    if let id = s.headers["x-qlab-id"], let who = s.json?["contributor"] as? String { started.withLock { $0[id] = who } }
+                    return urls(s.headers["x-qlab-id"] ?? "", from: 1, status: 201)
                 }
                 if s.method == "POST", s.path.hasPrefix("/v1/uploads/"), s.path.hasSuffix("/urls") {
                     let from = URLComponents(url: s.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "from" }?.value
@@ -74,6 +144,8 @@ final class SharingTests: XCTestCase {
         }
     }
     static var starts: [StubProtocol.Seen] { StubProtocol.seen("/v1/uploads") }
+    /// Every take list call for upload `id`, in order (2.0.3).
+    static func takeCalls(_ id: String) -> [StubProtocol.Seen] { StubProtocol.seen("/v1/uploads/\(id)/takes") }
 
     override func tearDown() {
         QuranLab.configure(key: nil, options: .init(cloud: nil), cloud: nil)

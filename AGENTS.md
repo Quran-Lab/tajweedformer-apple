@@ -68,11 +68,11 @@ Copy the setup prompt from [portal.quranlab.ai](https://portal.quranlab.ai) and 
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 2.0.2. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 2.0.3. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "2.0.2"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "2.0.3"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -343,6 +343,18 @@ signed with a P-256 key made on the device (in the Secure Enclave where there is
 a learner's recordings, and there is no call to do so for another learner. On a Mac without App Attest support
 (`DCAppAttestService.isSupported` false), the SDK runs unattested and sharing waits until Quran Lab opens the
 `capped` upload tier for macOS.
+
+Takes in a row are one recording (2.0.3). An app often stops and starts its takes while the learner keeps reciting,
+which used to cut the shared recitation into recordings that began or ended in the middle of speech. A shared
+recording now stays open after a take for a few seconds (3 s; Quran Lab's signed config can set it from 0, never, to
+10 s with `flags.share_join_ms`), and a take that starts in that time continues the same Ogg stream: no new headers,
+the encoder keeps its state, segments are cut by the same plan counted across the takes, and the pause between the
+takes is left out (no audio is made up for it). The recording closes when no take follows in time, when the app goes
+to the background (on the Mac: when it is no longer the active app), when sharing is turned off (the unsent queue is
+deleted, as before), when the next take has another sample rate, or at 20 minutes of audio. For a recording of several
+takes the SDK sends, after the last segment, where each take starts in the stream and how long the pause before it
+was; `Contribution.takes` is their count. Nothing changes in your code, and audio from outside a take is never
+recorded.
 
 ## Build and test
 

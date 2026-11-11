@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.0.3
+
+Takes in a row share one recording. An app often stops and starts its takes while the learner is still reciting,
+so shared recordings began or ended in the middle of speech. The take (`startTake`, `append`, `finish`), your code and what a learner is asked do not
+change.
+
+- The join window. When a take ends while the learner shares, the shared recording (its Ogg stream, its item in the
+  outbox, its upload) stays open for a few seconds: `flags.share_join_ms` of Quran Lab's signed config, a whole number
+  from 0 to 10000 ms; 3000 when the flag is absent; 0 never joins, which is 2.0.2's behaviour. A take that starts
+  within the window at the same input sample rate, with the same contributor, consent and model, continues the same
+  stream: no new headers, the encoder and the resampler keep their state, segments are cut by the same plan counted
+  across the takes, the bitrate ladder applies as before. The pause between the takes gets no audio. The bytes are
+  those of one continuous encode of the same audio.
+- Otherwise the recording closes as a session ended in 2.0.2 and the take starts a new one. It also closes at once
+  when the window passes, when the app goes to the background (on the Mac: when it is no longer active; a take
+  that is running keeps its recording until it ends), when sharing is turned off (the unsent queue is deleted, as
+  before), and at 20 minutes of audio or 256 takes. `completed` is the last take's; the 2 s minimum of a
+  cancelled take counts the whole recording.
+- The 20 minute cap never cuts a take. With 30 s or less of room, a joining take is held in memory until it ends: it
+  joins when it fits, else the recording closes without it and the take starts a new one with all its audio.
+- Take boundaries. A recording of two or more takes keeps where each take starts in the stream and the pause before
+  it (rounded to 100 ms), and sends them once after its last segment: `POST /v1/uploads/{id}/takes`. The recording is
+  uploaded when its segments are, whatever becomes of that list: a server without the route (404) or a deleted
+  upload (410) drops it, a refused list (400) drops it with an issue report, 401 renews the token, and 429, 5xx or
+  no answer keep it for a retry with the same body, also after the app starts again. A recording of one take sends nothing.
+- A killed app: the recording is closed at its last whole page, as before, and its take list keeps the takes that
+  start inside what was recovered.
+- `Contribution.takes`: the takes in a recording (1, or more when takes joined). `RemoteConfig.Flags.share_join_ms`
+  is the window in force. Takes of different `TajweedRecognizer`s in a row join too.
+- Fixed: turning sharing off and "Delete what I shared" end an open recording without keeping anything of it.
+- Fixed: a crash when sharing was turned off (or an item was cancelled) in the moment the outbox asked the server
+  to start that item's upload and the server said yes. Since 2.0.0.
+- Unchanged: consent (a yes is never asked again, at most three asks; the ask after a finished take leaves the
+  recording open), one upload at a time and in order, the bitrate ladder, stopping and deleting. Telemetry counts a
+  session per take.
+- `docs/platform-client.md`: the 2.0.3 text.
+
 ## 2.0.2
 
 The in-session failover no longer punishes a healthy Neural Engine (a developer measured two 2.0.1 rules firing on

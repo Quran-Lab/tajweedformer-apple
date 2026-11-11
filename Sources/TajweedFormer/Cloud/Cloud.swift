@@ -222,8 +222,9 @@ public final class QuranLabCloud: Sendable {
     }
 
     /// A return to the foreground: a launch for telemetry, the day's registration if not done yet, the config, the
-    /// telemetry delta and the queues, and the 15-minute timer again.
+    /// telemetry delta and the queues, and the 15-minute timer again. Takes in a row join one shared recording again.
     func cameToForeground() {
+        Contributions.recorder.foreground()
         let returning = lifecycle.withLock { (l: inout Lifecycle) -> Bool in
             defer { l.background = false }
             return l.background
@@ -239,8 +240,10 @@ public final class QuranLabCloud: Sendable {
 
     /// The app went to the background: a telemetry delta now (saved before it is sent, so one the system cuts short
     /// goes at the next send point), and no timer while in the background. On the Mac, where the app resigns active at
-    /// every switch to another app, at most one a minute.
+    /// every switch to another app, at most one a minute. A shared recording that waits for the next take closes
+    /// (2.0.3; a take that is running keeps its recording until it ends).
     func wentToBackground() {
+        Contributions.recorder.background()
         lifecycle.withLock { $0.background = true }
         deltaTimer.withLock { t in
             t?.cancel()

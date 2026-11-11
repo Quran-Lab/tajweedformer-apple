@@ -94,7 +94,9 @@ public actor TajweedRecognizer: AudioBufferSink {
     private var takeOpen = false
     /// Counts takes: the golden test stops when a take ran between two of its steps.
     private var takeGeneration = 0
-    private var share: ShareCapture?
+    /// This take in the process's sharing recorder (2.0.3: the recording outlives the take, so that the next take in a
+    /// row continues it; `Contributions.recorder`).
+    private var shareTake: Int?
     private var activity: SessionActivity?
     private var stream: AsyncStream<TajweedChunk>.Continuation?
     private let created = Date()
@@ -581,7 +583,8 @@ public actor TajweedRecognizer: AudioBufferSink {
 
     /// A new take (one recitation session): builds the CPU engine on first use, picks the backend (the Neural Engine
     /// when it is promoted and warm, else the CPU engine; never decided during a take), resets every cache and the
-    /// kept heads, and starts sharing the session's audio when the learner agreed to share.
+    /// kept heads, and starts sharing the session's audio when the learner agreed to share (2.0.3: a take that starts
+    /// within a few seconds of the previous one continues its shared recording).
     public func startTake() throws(RecognizerError) {
         if takeOpen { endTake(completed: false) }
         let runner = makeRunner()
@@ -613,8 +616,9 @@ public actor TajweedRecognizer: AudioBufferSink {
         settingsInForce = runner.onAccelerator ? acceleratorSettings : settings
         takeOpen = true
         activity = SessionActivity()
-        share = Contributions.capture(revision: model.identity, backend: activeBackend ?? .exact,
-                                      weightsSHA256: model.manifest.files(role: "weights").first?.localSHA256)
+        shareTake = Contributions.recorder.takeStarted(
+            .init(revision: model.identity, backend: activeBackend ?? .exact,
+                  weightsSHA256: model.manifest.files(role: "weights").first?.localSHA256))
         QuranLab.cloud?.analytics.markSessionOpen(cohort)
         QuranLab.cloud?.noteActivity()
     }
@@ -668,14 +672,10 @@ public actor TajweedRecognizer: AudioBufferSink {
     public func append(_ samples: [Float], sampleRate: Double = 16_000) throws(RecognizerError) -> [TajweedChunk] {
         guard takeOpen else { throw .sessionClosed }
         if converter == nil || converter?.inputRate != sampleRate {
-            if converter != nil {
-                // one input rate per take: a change ends the shared session there
-                share?.finish(completed: false)
-                share = nil
-            }
             converter = try SampleRateConverter(inputRate: sampleRate)
         }
-        try share?.append(samples, rate: sampleRate)
+        // one input rate per take: the recorder ends the shared recording where the rate changes
+        if let shareTake { try Contributions.recorder.audio(shareTake, samples, rate: sampleRate) }
         takeAudioSeconds += Double(samples.count) / sampleRate
         return try push(converter!.process(samples))
     }
@@ -836,8 +836,9 @@ public actor TajweedRecognizer: AudioBufferSink {
         endLease()
         stream?.finish()
         stream = nil
-        share?.finish(completed: completed)
-        share = nil
+        // the shared recording stays open for the next take in a row (the join window), or closes
+        if let shareTake { Contributions.recorder.takeEnded(shareTake, completed: completed) }
+        shareTake = nil
         activity?.end()
         activity = nil
         QuranLab.cloud?.analytics.markSessionClosed()

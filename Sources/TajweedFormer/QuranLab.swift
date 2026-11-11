@@ -115,6 +115,9 @@ public enum QuranLab {
         let storage = configuration.storageDirectory
         let cloud = options.cloud.map { _ in QuranLabCloud(key: key, options: options, storage: storage) }
         cloudState.withLock { $0 = cloud }
+        // a shared recording still open from the configuration that ended here ends now: kept where sharing is still
+        // on under this one, dropped otherwise (as a session that ran across a configure did before 2.0.3)
+        Contributions.recorder.reset()
         if let cloud, key != nil {
             Task.detached(priority: .utility) { await cloud.launch() }
         }
@@ -154,6 +157,7 @@ public enum QuranLab {
         state.withLock { $0 = Configuration(key: key, options: options) }
         Contributions.reload()
         cloudState.withLock { $0 = cloud }
+        Contributions.recorder.reset()
     }
 
     static func record(_ event: AnalyticsEvent) {
