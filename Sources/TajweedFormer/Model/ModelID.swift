@@ -2,14 +2,14 @@ import Foundation
 
 /// A model the SDK knows by name. The revision (the exact files) comes from the manifest. SDK 2.0.0 hosts only
 /// TajweedFormer V4 (`.v4_0`); the earlier phoneme models stay with the 1.x SDKs.
-public struct ModelID: Sendable, Hashable, CustomStringConvertible {
-    public let name: String
+struct ModelID: Sendable, Hashable, CustomStringConvertible {
+    let name: String
     /// The model repository (`owner/name`) in its CDN path, and the key of the remote config's `models`.
-    public let repository: String
+    let repository: String
     /// The folder inside the repository holding the SDK build (manifest.json and its files).
-    public let folder: String
+    let folder: String
 
-    public init(_ name: String, repository: String, folder: String? = nil) {
+    init(_ name: String, repository: String, folder: String? = nil) {
         self.name = name
         self.repository = repository
         self.folder = folder ?? "sdk/\(name)"
@@ -18,15 +18,15 @@ public struct ModelID: Sendable, Hashable, CustomStringConvertible {
     /// TajweedFormer V4: 38 tj3 tokens, blank 0, every head of the network and the calibrated tajweed checks;
     /// contexts c16_l64 (320 ms chunks, the default), c8_l64 (160 ms, exact CPU engine only), c24_l72 and c24_l256
     /// (480 ms). A revision ships the contexts its manifest lists.
-    public static let v4_0 = ModelID("v4.0", repository: "Quran-Lab/tajweedformer-v4", folder: "sdk/v4.0")
+    static let v4_0 = ModelID("v4.0", repository: "Quran-Lab/tajweedformer-v4", folder: "sdk/v4.0")
 
     /// Whatever TajweedFormer model Quran Lab recommends for this app and SDK version (the signed remote config's
-    /// `recommended`, remembered for offline launches; `.v4_0` before any is known). Resolved by `TajweedModel.load`.
-    public static let recommended = ModelID("recommended", repository: "", folder: "")
+    /// `recommended`, remembered for offline launches; `.v4_0` before any is known). Resolved by `ModelFolder.load`.
+    static let recommended = ModelID("recommended", repository: "", folder: "")
 
-    public var isRecommended: Bool { name == "recommended" && repository.isEmpty }
+    var isRecommended: Bool { name == "recommended" && repository.isEmpty }
 
-    public var description: String { name }
+    var description: String { name }
 }
 
 /// Resolves `ModelID.recommended`: the verified config's recommendation, remembered in
@@ -57,7 +57,7 @@ enum RecommendedModel {
 }
 
 /// Where the SDK looks for a model, tried in the order given.
-public enum ModelSource: Sendable, Hashable {
+enum ModelSource: Sendable, Hashable {
     /// A folder holding manifest.json and the decoded files it lists.
     case directory(URL)
     /// The app bundle: `QuranLabModels/<model>/` in the main bundle's resources.
@@ -69,15 +69,15 @@ public enum ModelSource: Sendable, Hashable {
 }
 
 /// The model's vocabulary, from tokens.txt ("<symbol> <id>" per line).
-public struct Vocabulary: Sendable, Hashable {
+struct Vocabulary: Sendable, Hashable {
     /// Symbols by id.
-    public let symbols: [String]
+    let symbols: [String]
     /// The CTC blank's id (0 for tj3).
-    public let blank: Int
+    let blank: Int
 
-    public var count: Int { symbols.count }
+    var count: Int { symbols.count }
 
-    public func symbol(_ id: Int) -> String { id >= 0 && id < symbols.count ? symbols[id] : "?" }
+    func symbol(_ id: Int) -> String { id >= 0 && id < symbols.count ? symbols[id] : "?" }
 
     init(tokensFile url: URL) throws(RecognizerError) {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { throw .modelMissing("cannot read \(url.lastPathComponent)") }

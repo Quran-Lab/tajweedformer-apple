@@ -86,7 +86,7 @@ final class FailoverTests: XCTestCase {
         XCTAssertEqual(f.chunk, 4)
         XCTAssertEqual(got.heads.greedy, ref.heads.greedy)
         XCTAssertEqual(got.redeliveredFrom, [4])
-        XCTAssertGreaterThan(f.divergence?.tokensDiffer ?? 0, 0)
+        XCTAssertGreaterThan(f.divergence?.tokenEdits ?? 0, 0)
     }
 
     /// A take longer than the replay budget: the last chunks are replayed, the CPU continues from the failed chunk, the
@@ -137,8 +137,8 @@ final class FailoverTests: XCTestCase {
     // MARK: the pieces
 
     func testHeadsCheck() {
-        func chunk(_ name: String, _ v: [Float]) -> TajweedHeads {
-            var c = TajweedHeads(chunk: ["log_probs": [Float](repeating: -3, count: 38)])
+        func chunk(_ name: String, _ v: [Float]) -> HeadsBuffer {
+            var c = HeadsBuffer(chunk: ["log_probs": [Float](repeating: -3, count: 38)])
             c.set(name, v)
             return c
         }
@@ -233,19 +233,20 @@ final class PromotionOrderTests: XCTestCase {
         TajweedRecognizer.stagesOverride.withLock { $0 = nil }
     }
 
-    /// The bundled folder with its CoreML files (as a bundled or earlier-installed folder has them).
-    func model() async throws -> TajweedModel {
+    /// The bundled folder with the CoreML files a device has by default: the fp16 build (as a bundled or
+    /// earlier-installed folder has them).
+    func model() async throws -> ModelFolder {
         let m = try ModelManifest.read(Fixtures.v4mini().appendingPathComponent("server"))
         let dir = Fixtures.storage().appendingPathComponent("model")
         _ = try await ModelInstaller(source: DirectoryFileSource(root: Fixtures.v4mini().appendingPathComponent("server")))
             .install(m, profile: DownloadProfile(context: "c16_l64", coreML: true), into: dir)
-        let model = try TajweedModel.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [try Fixtures.v4miniKey()], requireSignature: true))
+        let model = try ModelFolder.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [try Fixtures.v4miniKey()], requireSignature: true))
         guard model.coreML(context: "c16_l64") != nil else { throw XCTSkip("the bundled folder has no CoreML build for c16_l64") }
         guard DownloadProfile.osRunsCoreML else { throw XCTSkip("the promotion needs iOS 18 / macOS 15") }
         return model
     }
 
-    func take(_ r: TajweedRecognizer, seconds: Double = 3) async throws -> (ActiveBackend?, TajweedHeads) {
+    func take(_ r: TajweedRecognizer, seconds: Double = 3) async throws -> (ActiveBackend?, HeadsBuffer) {
         try await r.startTake()
         let started = await r.activeBackend
         let a = fakeRecitation(seconds: seconds)
@@ -463,14 +464,20 @@ final class FirstInstallTests: XCTestCase {
         XCTAssertTrue(m.isUsable(context: "c16_l64"))
         XCTAssertNil(m.coreML(context: "c16_l64"), "no CoreML build before the pipeline")
         StubProtocol.log.withLock { $0 = [] }
+        // the build the SDK fetches when the app names none: the fp16 one
         let r = try await updater.installAccelerator(m, context: "c16_l64")
         let later = StubProtocol.log.withLock { $0 }.map(\.url.path)
-        XCTAssertTrue(later.contains { $0.contains("/coreml/") })
+        XCTAssertTrue(later.contains { $0.contains("/coreml/tajweedformer_v4.mlmodelc/") }, "the fp16 package")
+        XCTAssertTrue(later.contains { $0.hasSuffix("/coreml/c16_l64/keeps.bin") }, "the context's keep table")
         XCTAssertTrue(later.contains { $0.contains("/selftest/") })
+        XCTAssertFalse(later.contains { $0.contains("/coreml-compact/") }, "nothing of the compact build: \(later)")
         XCTAssertFalse(later.contains { $0.hasSuffix("layers.zfw.gz") || $0.contains("engine.zfs") })
         XCTAssertGreaterThan(r.downloadedBytes, 0)
-        let files = DownloadProfile(context: "c16_l64", coreML: true).appleFiles(m.manifest).map(\.localPath)
-        XCTAssertNotNil(m.adding(verified: files).coreML(context: "c16_l64"))
+        let fp16 = DownloadProfile(context: "c16_l64", coreML: true)
+        XCTAssertEqual(r.profileBytes, DownloadProfile.bytes(fp16.appleFiles(m.manifest)), "the fp16 profile's accelerator files")
+        let files = fp16.appleFiles(m.manifest).map(\.localPath)
+        XCTAssertEqual(m.adding(verified: files).coreML(context: "c16_l64")?.compact, false)
+        XCTAssertNil(m.adding(verified: files).coreML(context: "c16_l64", compact: true), "the compact build is not there")
         print("v4-promotion first install: \(first.count) requests (CPU set), then \(later.count) for the accelerator")
     }
 }
@@ -485,26 +492,26 @@ final class FirstInstallTests: XCTestCase {
 final class FailoverRealClipTests: XCTestCase {
     /// The CPU-only run's chunks played back as an accelerator, chunk for chunk with the same pieces.
     final class Recorded: AcceleratorBackend {
-        let perPush: [[TajweedHeads]]
-        let flush: [TajweedHeads]
+        let perPush: [[HeadsBuffer]]
+        let flush: [HeadsBuffer]
         var failAt: Int
         var failure: FakeAccelerator.Failure
         private var call = 0, produced = 0
         private(set) var chunkSeconds: [Double] = []
 
-        init(perPush: [[TajweedHeads]], flush: [TajweedHeads], failAt: Int, failure: FakeAccelerator.Failure) {
+        init(perPush: [[HeadsBuffer]], flush: [HeadsBuffer], failAt: Int, failure: FakeAccelerator.Failure) {
             self.perPush = perPush; self.flush = flush; self.failAt = failAt; self.failure = failure
         }
 
         func reset() { call = 0; produced = 0; chunkSeconds = [] }
-        func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [TajweedHeads] {
+        func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer] {
             let out = call < perPush.count ? perPush[call] : []
             call += 1
             return try emit(out)
         }
-        func finish() throws(RecognizerError) -> [TajweedHeads] { try emit(flush) }
-        private func emit(_ cs: [TajweedHeads]) throws(RecognizerError) -> [TajweedHeads] {
-            var out: [TajweedHeads] = []
+        func finish() throws(RecognizerError) -> [HeadsBuffer] { try emit(flush) }
+        private func emit(_ cs: [HeadsBuffer]) throws(RecognizerError) -> [HeadsBuffer] {
+            var out: [HeadsBuffer] = []
             for var c in cs {
                 var spent = 0.001
                 if produced == failAt {
@@ -526,8 +533,6 @@ final class FailoverRealClipTests: XCTestCase {
     struct Folder {
         let dir: URL
         let set: SelfTestSet
-        let scorer: EngineTajweedScorer
-        let settings: EffectiveTajweed
     }
 
     func folder() throws -> Folder {
@@ -540,9 +545,7 @@ final class FailoverRealClipTests: XCTestCase {
             print("v4-failover real: skipped (the folder has no selftest/ set)")
             throw XCTSkip("no self-test set in TAJWEED_V4_FOLDER")
         }
-        let cal = try TajweedCalibration(data: Data(contentsOf: dir.appendingPathComponent("calibration.json")))
-        let settings = try TajweedSettings.resolve(calibration: cal, remote: nil, app: TajweedOptions(context: "c16_l64"), debugBuild: false, backend: .int8)
-        return Folder(dir: dir, set: set, scorer: try EngineTajweedScorer(directory: dir, context: "c16_l64"), settings: settings)
+        return Folder(dir: dir, set: set)
     }
 
     func engine(_ f: Folder) -> () throws(RecognizerError) -> any CPUStreamEngine {
@@ -552,11 +555,6 @@ final class FailoverRealClipTests: XCTestCase {
             e.setHeads(ZfHeadsAll.mask)
             return e
         }
-    }
-
-    func decisions(_ f: Folder, _ c: SelfTestSet.Clip, _ h: TajweedHeads) throws -> (Set<String>, Set<Int>) {
-        let r = try f.scorer.score(heads: h, TajweedScoreRequest(surah: c.surah, ayah: c.ayah, settings: f.settings, options: TajweedOptions(context: "c16_l64")))
-        return (Set(r.sites.filter(\.flagged).map { "\($0.position)|\($0.cls.rawValue)" }), Set(r.words.filter { $0.flagged == true }.map(\.index)))
     }
 
     /// Resident memory that counts against an app (phys_footprint), MB.
@@ -585,9 +583,9 @@ final class FailoverRealClipTests: XCTestCase {
             // the CPU-only run, recorded push by push
             let ref = TakeRunner(chunkMs: 320, openCPU: engine(f))
             try ref.start(accelerator: nil)
-            var perPush: [[TajweedHeads]] = []
+            var perPush: [[HeadsBuffer]] = []
             var at = 0
-            var refHeads = TajweedHeads()
+            var refHeads = HeadsBuffer()
             while at < clip.samples.count {
                 let o = try ref.push(Array(clip.samples[at..<min(clip.samples.count, at + piece)])).chunks
                 perPush.append(o)
@@ -598,7 +596,6 @@ final class FailoverRealClipTests: XCTestCase {
             for h in flush { refHeads.append(h) }
             ref.closeCPU()
             let total = perPush.reduce(0) { $0 + $1.count } + flush.count
-            let (refSites, refWords) = try decisions(f, clip, refHeads)
             for at in [0, total / 2, total - 1] {
                 for (name, mode) in [("exception", FakeAccelerator.Failure.exception), ("nan", .nan), ("timeout", .hang(0.5))] {
                     for variant in ["cold", "warm", "purged"] where variant != "purged" || (name == "exception" && at == total / 2) {
@@ -616,24 +613,20 @@ final class FailoverRealClipTests: XCTestCase {
                         let got = try runTakeKeepingCPU(r, clip.samples, accelerator: acc, piece: piece, keepCPU: variant == "warm")
                         let fo = try XCTUnwrap(r.failover, "\(clip.id) \(name) at \(at)")
                         XCTAssertEqual(got.heads.greedy, refHeads.greedy, "\(clip.id) \(name) at \(at) \(variant): every token, as on the CPU only")
-                        let (s, w) = try decisions(f, clip, got.heads)
-                        XCTAssertEqual(s, refSites, "\(clip.id) \(name) at \(at)")
-                        XCTAssertEqual(w, refWords, "\(clip.id) \(name) at \(at)")
                         stalls[variant, default: []].append(fo.stallMs)
                         r.closeCPU()
                     }
                 }
             }
-            // a bounded replay (the fewest chunks the policy allows): how far the decisions move
+            // a bounded replay (the fewest chunks the policy allows): how far the tokens move
             for at in [total / 2, total - 1] where at >= 6 {
                 let r = TakeRunner(chunkMs: 320, openCPU: engine(f))
                 r.policy.maxReplayChunks = 5
                 r.policy.minReplayChunks = 5
                 let acc = AcceleratorExecutor(Recorded(perPush: perPush, flush: flush, failAt: at, failure: .exception))
                 let got = try runTake(r, clip.samples, accelerator: acc, piece: piece)
-                let (s, w) = try decisions(f, clip, got.heads)
-                let d = Divergence(expected: refHeads.greedy, tokens: got.heads.greedy, expectedSites: refSites, sites: s, expectedWords: refWords, words: w)
-                lines.append("v4-failover real bounded: \(clip.id) fail at \(at)/\(total), replay from \(r.failover?.replayFrom ?? -1): token edits \(d.tokensDiffer)/\(d.tokensExpected), sites differ \(d.sitesDiffer), words differ \(d.wordsDiffer)")
+                let d = Divergence(expected: refHeads.greedy, tokens: got.heads.greedy)
+                lines.append("v4-failover real bounded: \(clip.id) fail at \(at)/\(total), replay from \(r.failover?.replayFrom ?? -1): token edits \(d.tokenEdits ?? 0)/\(d.tokensExpected ?? 0)")
                 r.closeCPU()
             }
         }

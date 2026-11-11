@@ -16,11 +16,11 @@ final class TajweedConformanceTests: XCTestCase {
     }
     static let fnv0: UInt64 = 1_469_598_103_934_665_603
 
-    static func folder() throws -> TajweedModel {
+    static func folder() throws -> ModelFolder {
         guard let path = ProcessInfo.processInfo.environment["TAJWEED_V4_FOLDER"] else { throw XCTSkip("set TAJWEED_V4_FOLDER") }
         let dir = URL(fileURLWithPath: path)
         try Fixtures.manifest(for: dir).write(to: dir)
-        return try TajweedModel.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+        return try ModelFolder.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
     }
 
     func testV4AudioConformanceThroughTheStreamAPI() async throws {
@@ -32,14 +32,14 @@ final class TajweedConformanceTests: XCTestCase {
                 print("v4-exact \(ctx): no audio expectations or engine files, skipped")
                 continue
             }
-            let r = try TajweedRecognizer(model: model, options: TajweedOptions(context: ctx), backend: .exact, heads: .all)
+            let r = try TajweedRecognizer(model: model, context: ctx,backend: .exact, heads: .all)
             var passed = 0, total = 0
             for line in text.split(separator: "\n") where !line.isEmpty {
                 let e = try XCTUnwrap(JSONValue(data: Data(line.utf8)))
                 let clip = try XCTUnwrap(e["clip"]?.string)
                 let samples = try Fixtures.samples(clip)
                 try await r.startTake()
-                var chunks: [TajweedHeads] = []
+                var chunks: [HeadsBuffer] = []
                 var i = 0
                 while i < samples.count {
                     let n = min(320, samples.count - i)
@@ -73,16 +73,16 @@ final class TajweedConformanceTests: XCTestCase {
         }
     }
 
-    /// Lazy heads (API 3): a default recognizer's CPU stream computes the scorer's heads and conf only; heads it did
+    /// Lazy heads: a default recognizer's CPU stream computes the six default heads only; heads it did
     /// not compute come back empty, never stale; `.all` computes everything. The decoded layer's top-2 from the stream
     /// equals zf_tajweed_top2 on the same log_probs.
     func testLazyHeadsAndTheStreamTop2() async throws {
         let model = try Self.folder()
-        let ctx = model.calibration.defaultContext
+        let ctx = model.manifest.defaultContext
         let clip = try Fixtures.samples("Husary_001001")
         // one recognizer at a time (the engine keeps one live stream per process): each run releases its own
-        func run(_ heads: HeadSelection) async throws -> (TajweedHeads, [TajweedChunk], DecodedTake) {
-            let r = try TajweedRecognizer(model: model, options: TajweedOptions(context: ctx), backend: .exact, heads: heads)
+        func run(_ heads: HeadSelection) async throws -> (HeadsBuffer, [RawChunk], DecodedTake) {
+            let r = try TajweedRecognizer(model: model, context: ctx,backend: .exact, heads: heads)
             try await r.startTake()
             let chunks = try await r.append(clip)
             let take = try await r.finish()
@@ -99,19 +99,19 @@ final class TajweedConformanceTests: XCTestCase {
         let (all, _, _) = try await run(.all)
         XCTAssertFalse(all.inter4LogProbs.isEmpty)
         XCTAssertEqual(all.logProbs, take.logProbs, "a head is the same bits whatever else is computed")
-        print("v4-exact lazy heads: \(chunks.count) chunks, default mask computes \(TajweedHead.allCases.filter { !take[$0].isEmpty }.count) heads")
+        print("v4-exact lazy heads: \(chunks.count) chunks, default mask computes \(HeadID.allCases.filter { !take[$0].isEmpty }.count) heads")
     }
 
     /// Top-K on the V4 folder: the CPU stream's ranking (zf_tajweed_stream_topk) equals the model-free zf_tajweed_topk
     /// on the same take, for log_probs to full depth and for a class head; decoded(topK:) carries it.
     func testStreamTopKEqualsTheModelFreeRanking() async throws {
         let model = try Self.folder()
-        let ctx = model.calibration.defaultContext
-        let r = try TajweedRecognizer(model: model, options: TajweedOptions(context: ctx), backend: .exact, heads: .all)
+        let ctx = model.manifest.defaultContext
+        let r = try TajweedRecognizer(model: model, context: ctx,backend: .exact, heads: .all)
         try await r.startTake()
         try await r.append(try Fixtures.samples("Husary_112001"))
         let take = try await r.finish()
-        for (head, k) in [(TajweedHead.logProbs, 38), (.inter1LogProbs, 5), (.timingLogProbs, 3), (.gem, 2), (.ghunna, 5), (.face, 4)] {
+        for (head, k) in [(HeadID.logProbs, 38), (.inter1LogProbs, 5), (.timingLogProbs, 3), (.gem, 2), (.ghunna, 5), (.face, 4)] {
             let stream = try await r.ranking(head, k: k)
             let free = try TajweedRanking.rank(take[head], head: head, k: k, names: head.classNames(vocabulary: model.vocabulary))
             XCTAssertEqual(stream, free, "\(head.rawValue) k \(k)")

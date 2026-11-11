@@ -149,7 +149,7 @@ final class RegistrationAndConfigTests: XCTestCase {
     }
 
     func testDenyListMatching() async throws {
-        let rule: [String: Any] = ["platform": "ios", "os_version": "*", "device_class": "*", "sdk_version": "2.*",
+        let rule: [String: Any] = ["platform": "ios", "os_version": "*", "device_class": "*", "sdk_version": "3.*",
                                    "model_revision": "*", "backend_forced": "exact", "reason": "bad fp16 on this build"]
         StubProtocol.reset(CloudFixtures.server(config: CloudFixtures.config(deny: [rule])))
         let cloud = CloudFixtures.cloud(storage: CloudFixtures.storage())
@@ -200,21 +200,60 @@ final class RegistrationAndConfigTests: XCTestCase {
         XCTAssertNil(cfg)
     }
 
-    /// The upload trust tier per platform, and the tajweed block with its word level, come through the signed config.
-    func testUploadTrustAndTajweedBlock() async throws {
+    /// The upload trust tier per platform, and `inference.context`, come through the signed config. Anything but an
+    /// object with a string there is ignored and never fails the config.
+    func testUploadTrustAndTheInferenceContext() async throws {
         StubProtocol.reset(CloudFixtures.server(config: CloudFixtures.config(flags: ["upload_trust": ["ios": "capped", "macos": "off"]],
-                                                                             tajweed: ["v": 1, "preset": "strict", "word": ["preset": "beginner"]])))
+                                                                             inference: ["context": "c24_l72"])))
         let cloud = CloudFixtures.cloud(storage: CloudFixtures.storage())
         let fetched = await cloud.refreshConfig()
         let cfg = try XCTUnwrap(fetched)
         XCTAssertEqual(UploadTrust.tier(cfg, platform: "ios"), "capped")
         XCTAssertEqual(UploadTrust.tier(cfg, platform: "macos"), "off")
         XCTAssertEqual(UploadTrust.tier(cfg, platform: "windows"), "attested")
-        let block = try XCTUnwrap(RemoteTajweedBlock.parse(cfg.tajweed).block)
-        XCTAssertEqual(block.preset, .strict)
-        XCTAssertEqual(block.word, .beginner)
+        XCTAssertEqual(cfg.inferenceContext, "c24_l72")
+        XCTAssertEqual(cfg.models["Quran-Lab/tajweedformer-v4"]?.version, "4.0.0")
+        XCTAssertEqual(cloud.targetVersion(.v4_0), "4.0.0")
+        let odds: [Any] = ["c16_l64", 3, ["context": 7], ["v": 1], [1, 2]]
+        for odd in odds {
+            StubProtocol.reset(CloudFixtures.server(config: CloudFixtures.config(extra: ["inference": odd])))
+            let c = CloudFixtures.cloud(storage: CloudFixtures.storage())
+            let got = await c.refreshConfig()
+            XCTAssertNotNil(got, "\(odd): the config still loads")
+            XCTAssertNil(got?.inferenceContext, "\(odd)")
+        }
+        // a pinned version the server could not serve is named, and Quran Lab's choice stands
+        StubProtocol.reset(CloudFixtures.server(config: CloudFixtures.config(extra: ["pin": ["version": "4.1.0", "status": "unavailable"]])))
+        let pinned = CloudFixtures.cloud(storage: CloudFixtures.storage())
+        let withPin = await pinned.refreshConfig()
+        XCTAssertEqual(withPin?.pinUnavailable, "4.1.0")
+        XCTAssertEqual(pinned.targetRevision(.v4_0), "rev-b")
     }
 
+    /// A pin goes out as `model_version`, and a body fetched with another pin is not confirmed by its ETag.
+    func testThePinIsSentWithTheConfigRequest() async throws {
+        let reply = CloudFixtures.config()
+        let etag = try XCTUnwrap(reply.headers["etag"])
+        StubProtocol.reset(CloudFixtures.server(config: reply, extra: { s in
+            if s.path == "/v1/config", s.headers["if-none-match"] == etag { return StubProtocol.Reply(status: 304, headers: [:]) }
+            return nil
+        }))
+        let cloud = CloudFixtures.cloud(storage: CloudFixtures.storage())
+        _ = await cloud.refreshConfig()
+        await cloud.pin(version: "4.0.0")
+        await cloud.pin(version: "4.0.0")
+        let seen = StubProtocol.seen("/v1/config")
+        XCTAssertEqual(seen.count, 2, "the same pin again asks for nothing")
+        func query(_ s: StubProtocol.Seen, _ name: String) -> String? {
+            URLComponents(url: s.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == name }?.value
+        }
+        XCTAssertNil(query(seen[0], "model_version"))
+        XCTAssertEqual(query(seen[1], "model_version"), "4.0.0")
+        XCTAssertNil(seen[1].headers["if-none-match"], "the stored body was asked without the pin")
+        await cloud.pin(version: nil)
+        let last = try XCTUnwrap(StubProtocol.seen("/v1/config").last)
+        XCTAssertNil(query(last, "model_version"))
+    }
     /// 403 sdk_too_old at registration stops every network call this launch.
     func testFatalRefusalStopsTheLaunch() async throws {
         StubProtocol.reset(CloudFixtures.server(extra: { s in
@@ -236,13 +275,13 @@ final class AnalyticsAndIssueTests: XCTestCase {
 
     private func store(_ storage: URL, enabled: Bool = true, at date: Date) -> AnalyticsStore {
         AnalyticsStore(storage: storage, enabled: enabled,
-                       context: .init(platform: "ios", sdkVersion: "2.0.0", appVersion: "2.1", deviceClass: "A17", soc: "a17",
+                       context: .init(platform: "ios", sdkVersion: "3.0.0", appVersion: "2.1", deviceClass: "A17", soc: "a17",
                                       osMajor: 18, ramTier: "8_16"),
                        clock: { date })
     }
 
-    static let cpu = TelemetryCohort(revision: "rev-a", context: "c16_l64", backend: "cpu", preset: "balanced", wordLevel: "general",
-                                     wordBucket: "", siteOverrides: 1)
+    static let build = "8b9e3beb169a41b234eacc93252d7bcc141f0b27"
+    static let cpu = TelemetryCohort(revision: "4.0.0", build: build, context: "c16_l64", backend: "cpu")
     static var ane: TelemetryCohort {
         var c = cpu
         c.backend = "ane"
@@ -250,43 +289,53 @@ final class AnalyticsAndIssueTests: XCTestCase {
     }
 
     static func session(_ c: TelemetryCohort, _ seconds: Double, _ chunks: [Double]) -> AnalyticsEvent {
-        .sessionFinished(SessionTelemetry(cohort: c, audioSeconds: seconds, chunkSeconds: chunks, chunkAudioSeconds: 0.32,
-                                          checksOn: ["letters", "vowels"], throttled: false, thermalTransitions: 0, coldStartMs: nil))
+        .sessionFinished(SessionTelemetry(cohort: c, audioSeconds: seconds, chunkSeconds: chunks, chunkAudioSeconds: 0.32))
     }
 
-    /// The v2 body: exactly the documented fields, per cohort sums and histograms, coverage and downloads, nothing
-    /// identifying, under the 32 KB cap.
+    /// The v2 body as SDK 3.0.0 sends it: exactly the documented fields (the server's schema is closed), per cohort the
+    /// sums, the histograms and the SDK-measured counters, the app-reported counters with `reported`, the downloads
+    /// with their build, nothing identifying, under the 32 KB cap.
     func testDailyAggregatesAndTheirV2Payload() async throws {
         let a = store(CloudFixtures.storage(), at: day1)
-        a.record(Self.session(Self.ane, 90, [0.004, 0.009, 0.012, 0.5]))
-        a.record(Self.session(Self.ane, 30, [0.015]))
+        var first = SessionTelemetry(cohort: Self.ane, audioSeconds: 90, chunkSeconds: [0.004, 0.009, 0.012, 0.5], chunkAudioSeconds: 0.32)
+        // 35 frames, tokens at frames 1, 2 and 4, and a timing head that hears nothing: those three frames are speech
+        // (no padding around a token), 32 are silence
+        let ids: [String: [Int]] = ["log_probs": [0, 3, 3, 0, 4] + [Int](repeating: 0, count: 30),
+                                    "inter1_log_probs": [0, 3] + [Int](repeating: 0, count: 33)]
+        first.count(audioMs: 90_000, selected: ["log_probs", "inter1_log_probs", "timing_log_probs"], computeMicroseconds: 525_400) { ids[$0] ?? [] }
+        first.margins = [0.3, 5]
+        first.confidences = [0.99]
+        a.record(.sessionFinished(first))
+        var cancelled = SessionTelemetry(cohort: Self.ane, audioSeconds: 30, chunkSeconds: [0.015], chunkAudioSeconds: 0.32)
+        cancelled.counts = false
+        a.record(.sessionFinished(cancelled))
         a.record(Self.session(Self.cpu, 60, [0.02]))
         a.record(.fallback(.deadline, cohort: Self.ane))
         a.record(.selfTest(passed: true, cohort: Self.ane))
-        var sc = ScoreTelemetry(cohort: Self.ane, surah: 112)
-        sc.classes["cons_sub"] = .init(sites: 10, flagged: 1)
-        sc.maddCounts = [2: 3, 4: 1]
-        sc.maddFlagged = 1
-        sc.wordsScored = 4
-        sc.wordsFlagged = 1
-        sc.margins = [0.3, 5]
-        sc.confidences = [0.99]
-        a.record(.scored(sc))
-        a.record(.download(revision: "rev-b", profile: "apple-coreml", bytes: 1234, success: true, resumed: true))
+        a.reportRecited(surah: 112, ayahFrom: 1, ayahTo: 4)
+        a.reportChecks(rule: "cons_sub", checked: 10, flagged: 1)
+        a.reportChecks(rule: "madd", checked: 4, flagged: 1)
+        a.reportChecks(rule: "word", checked: 4, flagged: 1)
+        a.reportChecks(rule: "qalqalah", checked: 3, flagged: 0)
+        a.reportChecks(rule: "ghunna", checked: 0, flagged: 0)
+        a.record(.download(revision: "4.0.0", build: Self.build, profile: "apple-coreml", bytes: 1234, success: true, resumed: true))
         let days = a.pending
         XCTAssertEqual(days.count, 1)
         let p = a.payload(days[0], reportID: "0123456789abcdef0123456789abcdef")
         XCTAssertEqual(Set(p.keys), ["v", "day", "product", "platform", "sdk_version", "app_version", "device", "cohorts", "coverage", "downloads",
-                                     "report_id", "ayahs", "surah_ayahs", "words", "rule_checks", "rule_flags"],
-                       "2.0.1: the report id, and the counters that are not zero")
+                                     "report_id", "ayahs", "surah_ayahs", "words", "rule_checks", "rule_flags", "reported"],
+                       "the report id, the counters that are not zero, and which of them the app reported")
         XCTAssertEqual(p["report_id"] as? String, "0123456789abcdef0123456789abcdef")
-        XCTAssertEqual(p["ayahs"] as? Int, 1)
-        XCTAssertEqual(p["surah_ayahs"] as? [String: Int], ["112": 1])
+        XCTAssertEqual(p["ayahs"] as? Int, 4)
+        XCTAssertEqual(p["surah_ayahs"] as? [String: Int], ["112": 4])
+        XCTAssertEqual(p["coverage"] as? [String: Int], ["112": 4])
         XCTAssertEqual(p["words"] as? Int, 4)
-        XCTAssertEqual(p["rule_checks"] as? [String: Int], ["cons_sub": 10, "madd": 4, "word": 4])
-        XCTAssertEqual(p["rule_flags"] as? [String: Int], ["cons_sub": 1, "madd": 1, "word": 1])
+        XCTAssertEqual(p["rule_checks"] as? [String: Int], ["cons_sub": 10, "madd": 4, "word": 4, "qalqalah": 3], "a rule checked 0 times is not there")
+        XCTAssertEqual(p["rule_flags"] as? [String: Int], ["cons_sub": 1, "madd": 1, "word": 1], "only rules with a flag")
+        XCTAssertEqual(p["reported"] as? [String], ["ayahs", "surah_ayahs", "coverage", "words", "rule_checks", "rule_flags"])
         XCTAssertEqual(p["v"] as? Int, 2)
         XCTAssertEqual(p["product"] as? String, "apple")
+        XCTAssertEqual(p["sdk_version"] as? String, "3.0.0")
         XCTAssertEqual(p["day"] as? String, "2026-09-21")
         let device = try XCTUnwrap(p["device"] as? [String: Any])
         XCTAssertEqual(device["class"] as? String, "A17")
@@ -296,32 +345,68 @@ final class AnalyticsAndIssueTests: XCTestCase {
         let cohorts = try XCTUnwrap(p["cohorts"] as? [[String: Any]])
         XCTAssertEqual(cohorts.count, 2)
         let ne = try XCTUnwrap(cohorts.first { $0["backend"] as? String == "ane" })
+        XCTAssertEqual(ne["revision"] as? String, "4.0.0", "the model version")
+        XCTAssertEqual(ne["build"] as? String, Self.build)
         XCTAssertEqual(ne["sessions"] as? Int, 2)
+        XCTAssertEqual(ne["aborted"] as? Int, 1, "the cancelled take")
         XCTAssertEqual(ne["minutes"] as? Double, 2)
         XCTAssertEqual(ne["chunks"] as? Int, 5)
         XCTAssertEqual(ne["latency_ms"] as? [String: Int], ["le_5": 1, "le_10": 1, "le_20": 2, "le_40": 0, "le_80": 0, "le_160": 0, "le_320": 0, "gt_320": 1])
         XCTAssertEqual((ne["fallbacks"] as? [String: Int])?["deadline"], 1)
         XCTAssertEqual(ne["self_test"] as? [String: Int], ["pass": 1, "fail": 0])
-        XCTAssertEqual((ne["classes"] as? [String: [String: Int]])?["cons_sub"], ["sites": 10, "flagged": 1])
-        XCTAssertEqual(ne["madd"] as? [String: Int], ["c2": 3, "c4": 1, "c6": 0, "flagged": 1])
-        XCTAssertEqual(ne["words"] as? [String: Int], ["scored": 4, "flagged": 1])
-        XCTAssertEqual((ne["session_flag_pct"] as? [String: Int])?["le_10"], 1)
         XCTAssertEqual((ne["margin"] as? [String: Int])?["le_0_5"], 1)
         XCTAssertEqual((ne["confidence"] as? [String: Int])?["gt_0_95"], 1)
-        XCTAssertEqual((ne["checks_on"] as? [String: Int])?["letters"], 2)
-        XCTAssertEqual(Set(ne.keys), ["revision", "context", "backend", "preset", "word_level", "word_bucket", "site_overrides",
-                                      "sessions", "minutes", "chunks", "aborted", "fallbacks", "self_test", "latency_ms", "rtf",
-                                      "cold_start_ms", "model_load_ms", "thermal", "checks_on", "classes", "session_flag_pct",
-                                      "margin", "confidence", "madd", "words"])
-        XCTAssertEqual(p["coverage"] as? [String: Int], ["112": 1])
+        XCTAssertEqual(ne["takes"] as? Int, 1, "takes = sessions - aborted")
+        XCTAssertEqual(ne["audio_s"] as? Double, 90)
+        XCTAssertEqual(ne["speech_s"] as? Double, 0.12)
+        XCTAssertEqual(ne["silence_s"] as? Double, 1.28)
+        XCTAssertEqual(ne["tokens"] as? [String: Int], ["log_probs": 2, "inter1_log_probs": 1], "a selected head without a token is left out")
+        XCTAssertEqual(ne["compute_s"] as? Double, 0.525, "whole microseconds, rounded to milliseconds")
+        XCTAssertEqual(Set(ne.keys), ["revision", "build", "context", "backend", "sessions", "minutes", "chunks", "aborted", "fallbacks", "self_test",
+                                      "latency_ms", "rtf", "cold_start_ms", "model_load_ms", "thermal", "margin", "confidence", "takes", "audio_s",
+                                      "speech_s", "silence_s", "tokens", "compute_s"])
+        let plain = try XCTUnwrap(cohorts.first { $0["backend"] as? String == "cpu" })
+        XCTAssertEqual(plain["takes"] as? Int, 1)
+        XCTAssertEqual(Set(plain.keys), ["revision", "build", "context", "backend", "sessions", "minutes", "chunks", "aborted", "fallbacks", "self_test",
+                                         "latency_ms", "rtf", "cold_start_ms", "model_load_ms", "thermal", "margin", "confidence", "takes"],
+                       "a counter that is zero is left out")
         let dl = try XCTUnwrap((p["downloads"] as? [[String: Any]])?.first)
+        XCTAssertEqual(Set(dl.keys), ["revision", "build", "profile", "bytes", "success", "failed", "resumed"])
+        XCTAssertEqual(dl["revision"] as? String, "4.0.0")
+        XCTAssertEqual(dl["build"] as? String, Self.build)
         XCTAssertEqual(dl["profile"] as? String, "apple-coreml")
         XCTAssertEqual(dl["resumed"] as? Int, 1)
         let text = String(decoding: try JSONSerialization.data(withJSONObject: p), as: UTF8.self)
-        for banned in ["uuid", "device_id", "install", "idfv", "\"ip\"", "time", "contributor", "locale"] { XCTAssertFalse(text.contains(banned), banned) }
+        for banned in ["uuid", "device_id", "install", "idfv", "\"ip\"", "time", "contributor", "locale", "preset", "word_level", "word_bucket",
+                       "site_overrides", "checks_on", "classes", "session_flag_pct"] {
+            XCTAssertFalse(text.contains(banned), banned)
+        }
         XCTAssertLessThan(text.utf8.count, 32 * 1024)
     }
 
+    /// A day on which the app called neither API carries none of the six fields and no `reported`; one field alone is
+    /// listed alone.
+    func testReportedListsExactlyTheAppReportedFieldsInTheBody() {
+        let quiet = store(CloudFixtures.storage(), at: day1)
+        quiet.record(Self.session(Self.cpu, 60, [0.01]))
+        let q = quiet.payload(quiet.pending[0], reportID: "0123456789abcdef0123456789abcdef")
+        XCTAssertNil(q["reported"])
+        for f in AnalyticsStore.appReported { XCTAssertNil(q[f], f) }
+        let checks = store(CloudFixtures.storage(), at: day1)
+        checks.reportChecks(rule: "madd", checked: 5, flagged: 0)
+        let c = checks.payload(checks.pending[0], reportID: "0123456789abcdef0123456789abcdef")
+        XCTAssertEqual(c["reported"] as? [String], ["rule_checks"])
+        XCTAssertNil(c["rule_flags"])
+        XCTAssertNil(c["words"])
+        let words = store(CloudFixtures.storage(), at: day1)
+        words.reportChecks(rule: "word", checked: 5, flagged: 2)
+        let w = words.payload(words.pending[0], reportID: "0123456789abcdef0123456789abcdef")
+        XCTAssertEqual(w["reported"] as? [String], ["words", "rule_checks", "rule_flags"])
+        let recited = store(CloudFixtures.storage(), at: day1)
+        recited.reportRecited(surah: 1, ayahFrom: 1, ayahTo: 7)
+        let r = recited.payload(recited.pending[0], reportID: "0123456789abcdef0123456789abcdef")
+        XCTAssertEqual(r["reported"] as? [String], ["ayahs", "surah_ayahs", "coverage"])
+    }
     /// 2.0.1: each send point sends what was counted since the previous one (today included), once.
     func testEachFlushSendsADeltaOfWhatIsNewOnce() async throws {
         let storage = CloudFixtures.storage()

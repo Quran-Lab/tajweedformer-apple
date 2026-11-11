@@ -2,7 +2,7 @@ import Foundation
 
 /// Any JSON value, kept exactly as parsed: what calibration.json and the portal's `tajweed` block are read
 /// through, so a number is never confused with a boolean (JSONSerialization gives NSNumber for both).
-public enum JSONValue: Sendable, Hashable {
+enum JSONValue: Sendable, Hashable {
     case null
     case bool(Bool)
     case number(Double)
@@ -11,7 +11,7 @@ public enum JSONValue: Sendable, Hashable {
     case object([String: JSONValue])
 
     /// From JSONSerialization's output.
-    public init(any: Any?) {
+    init(any: Any?) {
         switch any {
         case nil, is NSNull: self = .null
         case let n as NSNumber:
@@ -24,24 +24,24 @@ public enum JSONValue: Sendable, Hashable {
     }
 
     /// Parses UTF-8 JSON text (fragments allowed); nil when it is not JSON.
-    public init?(data: Data) {
+    init?(data: Data) {
         guard let any = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
         self.init(any: any)
     }
 
-    public subscript(key: String) -> JSONValue? {
+    subscript(key: String) -> JSONValue? {
         if case .object(let d) = self { return d[key] }
         return nil
     }
 
-    public var object: [String: JSONValue]? { if case .object(let d) = self { return d }; return nil }
-    public var string: String? { if case .string(let s) = self { return s }; return nil }
-    public var number: Double? { if case .number(let n) = self { return n }; return nil }
-    public var bool: Bool? { if case .bool(let b) = self { return b }; return nil }
-    public var array: [JSONValue]? { if case .array(let a) = self { return a }; return nil }
+    var object: [String: JSONValue]? { if case .object(let d) = self { return d }; return nil }
+    var string: String? { if case .string(let s) = self { return s }; return nil }
+    var number: Double? { if case .number(let n) = self { return n }; return nil }
+    var bool: Bool? { if case .bool(let b) = self { return b }; return nil }
+    var array: [JSONValue]? { if case .array(let a) = self { return a }; return nil }
 
     /// For JSONSerialization (tests, logging).
-    public var any: Any {
+    var any: Any {
         switch self {
         case .null: return NSNull()
         case .bool(let b): return b
@@ -54,7 +54,7 @@ public enum JSONValue: Sendable, Hashable {
 }
 
 extension JSONValue: Codable {
-    public init(from decoder: any Decoder) throws {
+    init(from decoder: any Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let b = try? c.decode(Bool.self) { self = .bool(b) }
@@ -65,7 +65,7 @@ extension JSONValue: Codable {
         else { self = .null }
     }
 
-    public func encode(to encoder: any Encoder) throws {
+    func encode(to encoder: any Encoder) throws {
         var c = encoder.singleValueContainer()
         switch self {
         case .null: try c.encodeNil()

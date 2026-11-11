@@ -6,7 +6,7 @@ import Foundation
 /// it), a `current` pointer file naming the one in use and `previous` the one before. A download goes to
 /// `.download-<cdn revision>` (kept across launches, so it resumes), is verified, then renamed into place and the
 /// pointer switched with an atomic write: a crash at any point leaves the old revision in use.
-public struct ModelStore: Sendable {
+struct ModelStore: Sendable {
     let root: URL
     let verifier: ManifestVerifier
     let updates: UpdatePolicy
@@ -24,9 +24,9 @@ public struct ModelStore: Sendable {
     }
 
     /// The store the SDK uses by default.
-    public static var standard: ModelStore { ModelStore(config: QuranLab.configuration) }
+    static var standard: ModelStore { ModelStore(config: QuranLab.configuration) }
 
-    func resolve(_ id: ModelID, sources: [ModelSource], context: String?) async throws(RecognizerError) -> TajweedModel {
+    func resolve(_ id: ModelID, sources: [ModelSource], context: String?) async throws(RecognizerError) -> ModelFolder {
         var firstFailure: RecognizerError?
         var order = sources
         // with updates on, the store's copy (the newest the updater installed) wins over the copy bundled at install
@@ -46,9 +46,9 @@ public struct ModelStore: Sendable {
     }
 
     /// The model from one source, or nil when that source does not have it (or not the context asked for).
-    func load(_ id: ModelID, from source: ModelSource, context: String?) async throws(RecognizerError) -> TajweedModel? {
+    func load(_ id: ModelID, from source: ModelSource, context: String?) async throws(RecognizerError) -> ModelFolder? {
         let verifier = self.verifier
-        func usable(_ m: TajweedModel?) -> TajweedModel? {
+        func usable(_ m: ModelFolder?) -> ModelFolder? {
             guard let m else { return nil }
             if let context, !m.isUsable(context: context) { return nil }
             return m
@@ -73,9 +73,9 @@ public struct ModelStore: Sendable {
         }
     }
 
-    private static func verified(_ dir: URL, _ id: ModelID, _ verifier: ManifestVerifier) async throws(RecognizerError) -> TajweedModel? {
+    private static func verified(_ dir: URL, _ id: ModelID, _ verifier: ManifestVerifier) async throws(RecognizerError) -> ModelFolder? {
         guard FileManager.default.fileExists(atPath: dir.appendingPathComponent(ModelManifest.fileName).path) else { return nil }
-        return try await detached { () throws(RecognizerError) in try TajweedModel.open(directory: dir, verifier: verifier, expecting: id) }
+        return try await detached { () throws(RecognizerError) in try ModelFolder.open(directory: dir, verifier: verifier, expecting: id) }
     }
 
     func base(_ id: ModelID) -> URL { root.appendingPathComponent(id.name) }
@@ -100,7 +100,7 @@ public struct ModelStore: Sendable {
 
     /// Moves a completed download into the store as revision `manifest.revision`, verifies it there, and returns it.
     /// The CDN revision travels with it in `.source`.
-    func place(_ folder: URL, id: ModelID, cdnRevision: String?) throws(RecognizerError) -> TajweedModel {
+    func place(_ folder: URL, id: ModelID, cdnRevision: String?) throws(RecognizerError) -> ModelFolder {
         let m = try ModelManifest.read(folder)
         guard Self.safeName(m.revision) else { throw .manifestInvalid("bad revision name") }
         let fm = FileManager.default
@@ -133,7 +133,7 @@ public struct ModelStore: Sendable {
         } catch {
             throw .storageFailed("cannot place the model: \(error.localizedDescription)")
         }
-        return try TajweedModel.open(directory: final, verifier: verifier, expecting: id)
+        return try ModelFolder.open(directory: final, verifier: verifier, expecting: id)
     }
 
     func pointer(_ base: URL, _ name: String) -> String? {
@@ -169,10 +169,10 @@ public struct ModelStore: Sendable {
         }
     }
 
-    public func currentRevision(_ id: ModelID) -> String? { pointer(base(id), "current") }
-    public func previousRevision(_ id: ModelID) -> String? { pointer(base(id), "previous") }
+    func currentRevision(_ id: ModelID) -> String? { pointer(base(id), "current") }
+    func previousRevision(_ id: ModelID) -> String? { pointer(base(id), "previous") }
 
-    public func pendingRevision(_ id: ModelID) -> String? {
+    func pendingRevision(_ id: ModelID) -> String? {
         guard let r = pointer(base(id), "pending"), FileManager.default.fileExists(atPath: base(id).appendingPathComponent(r).path) else { return nil }
         return r
     }
@@ -192,14 +192,14 @@ public struct ModelStore: Sendable {
 
     /// Activates the pending revision, if any. Returns the new current revision.
     @discardableResult
-    public func activatePending(_ id: ModelID) throws(RecognizerError) -> String? {
+    func activatePending(_ id: ModelID) throws(RecognizerError) -> String? {
         guard let r = pendingRevision(id) else { return nil }
         try activate(id, revision: r)
         return r
     }
 
     /// Goes back to the previous revision (after the new one failed where it is used). The failed one is removed.
-    public func rollback(_ id: ModelID) throws(RecognizerError) {
+    func rollback(_ id: ModelID) throws(RecognizerError) {
         let b = base(id)
         guard let prev = pointer(b, "previous"), FileManager.default.fileExists(atPath: b.appendingPathComponent(prev).path) else {
             throw .modelMissing("no previous revision of \(id) to go back to")

@@ -11,7 +11,7 @@ final class TajweedExactEngine {
     let stream: OpaquePointer     // ZfTajweedStream*
     let context: String
     let chunkMs: Int
-    private final class Box { var chunks: [TajweedHeads] = [] }
+    private final class Box { var chunks: [HeadsBuffer] = [] }
     private let box = Box()
     /// The engine's head bits this stream computes (set again at every reset, the start of a take).
     private(set) var heads: UInt32 = HeadSelection.default.engineMask
@@ -39,7 +39,7 @@ final class TajweedExactEngine {
         zf_tajweed_stream_set_callback(s, { user, chunk in
             guard let user, let chunk else { return }
             let box = Unmanaged<Box>.fromOpaque(user).takeUnretainedValue()
-            box.chunks.append(TajweedHeads(copying: chunk.pointee))
+            box.chunks.append(HeadsBuffer(copying: chunk.pointee))
         }, Unmanaged.passUnretained(box).toOpaque())
         _ = zf_tajweed_stream_set_heads(s, heads)
     }
@@ -75,7 +75,7 @@ final class TajweedExactEngine {
     }
 
     /// 16 kHz mono samples in; each completed chunk's heads out.
-    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [TajweedHeads] {
+    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer] {
         box.chunks.removeAll(keepingCapacity: true)
         guard let base = s.baseAddress, s.count > 0 else { return [] }
         guard zf_tajweed_stream_push_audio(stream, base, Int32(s.count)) >= 0 else { throw error("zf_tajweed_stream_push_audio") }
@@ -83,21 +83,21 @@ final class TajweedExactEngine {
     }
 
     /// The end of the take: the 1.05 s flush and every chunk it completes.
-    func finish() throws(RecognizerError) -> [TajweedHeads] {
+    func finish() throws(RecognizerError) -> [HeadsBuffer] {
         box.chunks.removeAll(keepingCapacity: true)
         guard zf_tajweed_stream_finish(stream) >= 0 else { throw error("zf_tajweed_stream_finish") }
         return box.chunks
     }
 
     /// Every head of the take so far.
-    var take: TajweedHeads {
+    var take: HeadsBuffer {
         var h = ZfTajweedHeads()
-        guard zf_tajweed_stream_heads(stream, &h) >= 0 else { return TajweedHeads() }
-        return TajweedHeads(copying: h)
+        guard zf_tajweed_stream_heads(stream, &h) >= 0 else { return HeadsBuffer() }
+        return HeadsBuffer(copying: h)
     }
 }
 
-extension TajweedHeads {
+extension HeadsBuffer {
     /// A copy of the engine's heads (zf_tajweed.h layout).
     init(copying h: ZfTajweedHeads) {
         let n40 = Int(h.n40), n20 = Int(h.n20)

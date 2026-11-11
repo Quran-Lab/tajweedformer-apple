@@ -74,7 +74,7 @@ enum Fixtures {
             switch name {
             case "tokens.txt": role = "tokens"
             case "calibration.json": role = "calibration"
-            case "expected_tj3.zfx": role = "expected"
+            case "expected_tj3.zfx": role = "reference"; need = .optional
             case "layers.zfw": role = "weights"
             case "frontend.zfw": role = "frontend"
             case "model_engine2.onnx.zfg": role = "graph"
@@ -94,8 +94,10 @@ enum Fixtures {
             files.append(.init(path: rel, size: size, sha256: sha, platforms: platforms, context: ctx, role: role, need: need))
         }
         let tok = try XCTUnwrap(files.first { $0.path == "tokens.txt" }).sha256
-        let cal = try TajweedCalibration(data: Data(contentsOf: dir.appendingPathComponent("calibration.json")))
-        return ModelManifest(modelID: "v4.0", revision: revision, tokensSHA256: tok, defaultContext: cal.defaultContext,
-                             contexts: cal.contexts, files: files)
+        // the contexts: the folders of the CPU engine's graphs, the default as calibration.json names it
+        let contexts = Array(Set(files.compactMap { $0.context == "*" ? nil : $0.context })).sorted()
+        let cal = JSONValue(data: (try? Data(contentsOf: dir.appendingPathComponent("calibration.json"))) ?? Data())
+        let first = try XCTUnwrap(cal?["default_context"]?.string ?? contexts.first)
+        return ModelManifest(modelID: "v4.0", revision: revision, tokensSHA256: tok, defaultContext: first, contexts: contexts, files: files)
     }
 }

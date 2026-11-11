@@ -1,6 +1,6 @@
 name: CI
 
-# swift test on macOS, and package builds for iOS, the iOS Simulator and macOS.
+# swift test on macOS, package builds for iOS, the iOS Simulator and macOS, and the example program.
 # TajweedFormerCore.xcframework is rebuilt from the engine submodule (Quran-Lab/tajweedformer-engine) and must be
 # what the package links. The model-dependent tests (V4 through the exact engine, every output of every
 # chunk; CoreML parity) need the model, which Quran Lab serves with an app key: they run when the
@@ -47,6 +47,11 @@ jobs:
                 echo "::error::committed $s/$h differs from the engine's"; exit 1
               fi
             done
+          done
+      - name: The privacy manifest is in every slice
+        run: |
+          for s in ios-arm64 ios-arm64-simulator macos-arm64; do
+            plutil -lint "TajweedFormerCore.xcframework/$s/PrivacyInfo.xcprivacy"
           done
       - uses: actions/upload-artifact@v4
         with:
@@ -100,6 +105,39 @@ jobs:
           fi
       - name: swift test
         run: set -o pipefail; swift test 2>&1 | tee "$RUNNER_TEMP/test.log"
+      - name: The privacy manifest is in the built package
+        run: |
+          found=$(find .build -name PrivacyInfo.xcprivacy -path '*TajweedFormer_TajweedFormer*' | head -1)
+          test -n "$found" || { echo "::error::PrivacyInfo.xcprivacy is not in the package's resource bundle"; exit 1; }
+          plutil -lint "$found"
+      - name: The proof on a Mac, rehearsed (scripts/prove-on-mac.sh --rehearse)
+        # The script a person runs on a Mac with a real key, here over the test suite's stub server with stand-in
+        # engines: its checks of the Mac, its build, the run it follows, the summary it prints last and its exit
+        # status. Nothing here reaches Quran Lab's servers: the two reachability probes go to a local server.
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/probe"
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$RUNNER_TEMP/probe" >/dev/null 2>&1 &
+          sleep 2
+          export QURANLAB_PROVE_PROBE_API=http://127.0.0.1:8765/ QURANLAB_PROVE_PROBE_CDN=http://127.0.0.1:8765/
+          QURANLAB_PROVE_DIR="$RUNNER_TEMP/prove" scripts/prove-on-mac.sh --rehearse | tee "$RUNNER_TEMP/prove.log"
+          # the summary is the last thing printed: the records of the golden stage's measures, then the tolerance made
+          # from them, named a proposal for the model side
+          tail -1 "$RUNNER_TEMP/prove.log" | grep -q '^}$' || { echo "::error::the summary's proposal is not the last thing printed"; exit 1; }
+          grep -q '^{"build": "coreml-compact", "context": "c16_l64", .*"passed": true, .*}$' "$RUNNER_TEMP/prove.log" || { echo "::error::the compact build's record is not in the summary"; exit 1; }
+          grep -q '^{"build": "coreml", "context": "c16_l64", .*"passed": false, .*}$' "$RUNNER_TEMP/prove.log" || { echo "::error::the fp16 build's record is not in the summary"; exit 1; }
+          grep -B1 '^"golden_raw_tolerance": {$' "$RUNNER_TEMP/prove.log" | grep -q '^a proposal for the model side, not a tolerance in force' || { echo "::error::the tolerance made from the measures is not named a proposal for the model side"; exit 1; }
+          # each build's golden stage is printed as measures against the signed bounds, or says that it has none
+          grep -q 'golden stage, judged by the tolerance the signed manifest gives coreml-compact (measured / bound):$' "$RUNNER_TEMP/prove.log" || { echo "::error::the compact build's measures are not printed against its bounds"; exit 1; }
+          grep -q 'log_probs: token_edits 0 / 2, lp_mean 0.012346 / 0.13, lp_p99 0.45679 / 0.5: inside$' "$RUNNER_TEMP/prove.log" || { echo "::error::no line shows a measure next to its bound"; exit 1; }
+          grep -q 'golden stage, the signed manifest gives coreml no tolerance: identical tokens decided$' "$RUNNER_TEMP/prove.log" || { echo "::error::a build without a tolerance does not say that tokens decided"; exit 1; }
+          test "$(grep -c '^step [0-6]  .* PASS' "$RUNNER_TEMP/prove.log")" = 7 || { echo "::error::not every step of the rehearsal passed"; exit 1; }
+          # a build whose tokens differ stays on the CPU engine, and step 4 passes and says so
+          grep -q '^step 4  the promotion pipeline  *PASS  promoted 1 of 2; 1 stayed on the CPU engine: tokens differ$' "$RUNNER_TEMP/prove.log" || { echo "::error::step 4 does not say how the builds ended"; exit 1; }
+          grep -q 'still compiling' "$RUNNER_TEMP/prove.log" || { echo "::error::a compile that takes a while printed no line"; exit 1; }
+          # no build id is expected unless the caller names one: the signed config says which build an SDK gets
+          if grep -q 'd841ec6c' scripts/prove-on-mac.sh; then echo "::error::the script names a build id"; exit 1; fi
+          grep -q 'the network: not metered  *yes$' "$RUNNER_TEMP/prove.log" || echo "::warning::the script could not ask the system whether the network is metered"
       - name: Summary
         if: always()
         run: grep -E "^(v4-coreml|v4-scorer|v4-exact)|Executed [0-9]+ tests|skipped" "$RUNNER_TEMP/test.log" | sort | uniq -c | tail -40 || true
@@ -107,7 +145,8 @@ jobs:
   consumer:
     # The README's install line and quick start as a developer has them: a package that depends on this
     # repository at this commit (SwiftPM fetches it from GitHub, with the committed xcframework) and holds the
-    # quick start's code (the marked region of Tests/TajweedFormerTests/QuickStartTests.swift) in its own target.
+    # quick start's code (the marked region of examples/QuickStart/Sources/QuickStart/QuickStart.swift) in its
+    # own target.
     name: A consumer package builds (install line and quick start)
     if: github.event_name != 'pull_request'
     runs-on: macos-26
@@ -130,7 +169,7 @@ jobs:
             echo '    targets: [.target(name: "App", dependencies: [.product(name: "TajweedFormer", package: "tajweedformer-apple")])]'
             echo ')'
           } > Package.swift
-          sed -n '/README:begin/,/README:end/p' "$GITHUB_WORKSPACE/Tests/TajweedFormerTests/QuickStartTests.swift" | sed '1d;$d' > Sources/App/QuickStart.swift
+          sed -n '/README:begin/,/README:end/p' "$GITHUB_WORKSPACE/examples/QuickStart/Sources/QuickStart/QuickStart.swift" | sed '1d;$d' > Sources/App/QuickStart.swift
           test -s Sources/App/QuickStart.swift
           cat Package.swift Sources/App/QuickStart.swift
           swift build
@@ -152,8 +191,15 @@ jobs:
         run: rm -rf TajweedFormerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" TajweedFormerCore.xcframework
       - name: GitHub token for the COpus release asset
         run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
+      - name: The example program (examples/QuickStart) builds
+        run: swift build --package-path examples/QuickStart
       - name: Package, iOS device
         run: xcodebuild -scheme TajweedFormer -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" build CODE_SIGNING_ALLOWED=NO
+      - name: The privacy manifest is in the iOS build's products
+        run: |
+          found=$(find "$RUNNER_TEMP/dd/Build/Products" -name PrivacyInfo.xcprivacy | head -1)
+          test -n "$found" || { echo "::error::PrivacyInfo.xcprivacy is not in the iOS build's products"; exit 1; }
+          plutil -lint "$found"
       - name: Package, iOS Simulator (arm64)
         run: xcodebuild -scheme TajweedFormer -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/dd" ARCHS=arm64 build CODE_SIGNING_ALLOWED=NO
       - name: Package, macOS

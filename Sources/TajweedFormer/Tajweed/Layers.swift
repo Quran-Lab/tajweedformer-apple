@@ -1,11 +1,11 @@
 import Foundation
 import TajweedFormerCore
 
-// SDK 2.0.0's three layers, one shape across Android, Apple, Web and Native: the raw heads, the
-// decoded layer (no known text needed), and the tajweed layer (`TajweedResult`, a known surah:ayah).
+// What the SDK gives, one shape across Android, Apple, Web and Native: the raw heads and the decoded layer (what
+// the model heard; no known text is involved). The public types over them are in API/.
 
 /// One output head of the network.
-public enum TajweedHead: String, CaseIterable, Sendable, Hashable, Codable {
+enum HeadID: String, CaseIterable, Sendable, Hashable, Codable {
     case logProbs = "log_probs"
     case inter1LogProbs = "inter1_log_probs"
     case inter4LogProbs = "inter4_log_probs"
@@ -20,14 +20,14 @@ public enum TajweedHead: String, CaseIterable, Sendable, Hashable, Codable {
     case conf
 
     /// What the values are.
-    public enum Kind: String, Sendable { case logSoftmax, softmax, logit }
+    enum Kind: String, Sendable { case logSoftmax, softmax, logit }
 
     /// Values per frame.
-    public var width: Int { TajweedHeads.layout.first { $0.name == rawValue }!.width }
+    var width: Int { HeadsBuffer.layout.first { $0.name == rawValue }!.width }
     /// Milliseconds per frame: 40 for the CTC heads, 20 for the others.
-    public var frameMs: Int { TajweedHeads.layout.first { $0.name == rawValue }!.ms }
+    var frameMs: Int { HeadsBuffer.layout.first { $0.name == rawValue }!.ms }
 
-    public var kind: Kind {
+    var kind: Kind {
         switch self {
         case .logProbs, .inter1LogProbs, .inter4LogProbs, .idLogProbs, .timingLogProbs: return .logSoftmax
         case .gem, .tafkheem, .ghunna, .qalqalah, .face: return .softmax
@@ -37,7 +37,7 @@ public enum TajweedHead: String, CaseIterable, Sendable, Hashable, Codable {
 
     /// The name of each value of a frame: tokens.txt's units for the 38-wide heads (the timing head's 0 is the
     /// pause state), the classes for the attribute heads, one name for the logits.
-    public func classNames(vocabulary: Vocabulary) -> [String] {
+    func classNames(vocabulary: Vocabulary) -> [String] {
         switch self {
         case .logProbs, .inter1LogProbs, .inter4LogProbs, .idLogProbs, .timingLogProbs: return vocabulary.symbols
         case .gem: return ["single", "held"]
@@ -50,8 +50,16 @@ public enum TajweedHead: String, CaseIterable, Sendable, Hashable, Codable {
         }
     }
 
-    /// The heads the scorer reads (kept for every take whatever the app selected).
-    public static let scorer: Set<TajweedHead> = [.logProbs, .inter1LogProbs, .timingLogProbs, .gem, .qalqalah]
+    /// The six heads a Session hands out when nothing else is asked for.
+    static let defaults: Set<HeadID> = [.logProbs, .inter1LogProbs, .timingLogProbs, .gem, .qalqalah, .conf]
+
+    /// The heads every take computes and keeps whatever the app selected: the decoded layer reads `log_probs` and
+    /// `conf`, and speech and silence are read from `log_probs` and `timing_log_probs` (`SpeechTracker`). A kept head
+    /// the app did not select is not handed to the app.
+    static let kept: Set<HeadID> = [.logProbs, .conf, .timingLogProbs]
+
+    /// The CTC heads, in the network's order.
+    static let ctc: [HeadID] = [.logProbs, .inter1LogProbs, .inter4LogProbs, .idLogProbs, .timingLogProbs]
 
     /// The head's bit in the engine's head mask (zf_tajweed.h `ZF_TAJWEED_HEAD_*`, bit 0 log_probs to bit 11 conf, in
     /// the order of the network's outputs).
@@ -73,73 +81,93 @@ public enum TajweedHead: String, CaseIterable, Sendable, Hashable, Codable {
     }
 }
 
-/// Which heads a recognizer hands out per chunk. The default is what the scorer needs plus `conf` (the decoded
-/// layer's confidence); `.all` is every head. The take always keeps the scorer's heads, so scoring works whatever
-/// is selected. The exact CPU engine computes only the selected heads and the scorer's (zf_tajweed.h API 3 lazy heads),
-/// so a head nobody asked for costs nothing; the CoreML package computes all twelve, with the same API.
-public struct HeadSelection: Sendable, Hashable {
-    public var heads: Set<TajweedHead>
+/// Which heads a recognizer hands out per chunk. The default is the six of `HeadID.defaults`; `.all` is every head.
+/// The take always keeps `HeadID.kept` (`log_probs` and `conf` for the decoded layer, `timing_log_probs` for speech
+/// and silence). The exact CPU engine computes only the selected heads and those three (zf_tajweed.h lazy heads), so
+/// another head nobody asked for costs nothing; the CoreML package computes all twelve, with the same API.
+struct HeadSelection: Sendable, Hashable {
+    var heads: Set<HeadID>
 
-    public init(_ heads: Set<TajweedHead>) { self.heads = heads }
+    init(_ heads: Set<HeadID>) { self.heads = heads }
 
-    public static let `default` = HeadSelection(TajweedHead.scorer.union([.conf]))
-    public static let all = HeadSelection(Set(TajweedHead.allCases))
+    static let `default` = HeadSelection(HeadID.defaults)
+    static let all = HeadSelection(Set(HeadID.allCases))
 
     /// The default plus `extra`.
-    public static func adding(_ extra: [TajweedHead]) -> HeadSelection { HeadSelection(HeadSelection.default.heads.union(extra)) }
+    static func adding(_ extra: [HeadID]) -> HeadSelection { HeadSelection(HeadSelection.default.heads.union(extra)) }
 
-    public func contains(_ h: TajweedHead) -> Bool { heads.contains(h) }
+    func contains(_ h: HeadID) -> Bool { heads.contains(h) }
 
-    /// The engine's head mask for a take with this selection: the selected heads, the scorer's (always kept) and
-    /// log_probs (always computed). The CoreML package computes every head anyway; the API is the same on both.
-    var engineMask: UInt32 { heads.union(TajweedHead.scorer).union([.logProbs]).reduce(UInt32(0)) { $0 | $1.engineBit } }
+    /// The engine's head mask for a take with this selection: the selected heads and log_probs (always computed).
+    /// The CoreML package computes every head anyway; the API is the same on both.
+    var engineMask: UInt32 { heads.union([.logProbs]).reduce(UInt32(0)) { $0 | $1.engineBit } }
 }
 
-extension TajweedHeads {
+extension HeadsBuffer {
     /// A typed head (empty when it was not kept).
-    public subscript(head: TajweedHead) -> [Float] { self[head.rawValue] }
+    subscript(head: HeadID) -> [Float] { self[head.rawValue] }
 
     /// Value `k` of frame `t` of a head.
-    public func value(_ head: TajweedHead, frame t: Int, _ k: Int = 0) -> Float { self[head][t * head.width + k] }
+    func value(_ head: HeadID, frame t: Int, _ k: Int = 0) -> Float { self[head][t * head.width + k] }
+
+    /// The top value's index of each frame of a head (the lowest index on ties): the greedy ids of a CTC head. Empty
+    /// when the head was not kept.
+    func top1(_ head: HeadID) -> [Int] {
+        let v = self[head]
+        let w = head.width
+        guard w > 0, !v.isEmpty else { return [] }
+        var out = [Int](repeating: 0, count: v.count / w)
+        for f in out.indices {
+            var best = 0
+            for k in 1..<w where v[f * w + k] > v[f * w + best] { best = k }
+            out[f] = best
+        }
+        return out
+    }
 
     /// Only `keep`'s heads (the others emptied); the frame counts stay.
-    public func keeping(_ keep: Set<TajweedHead>) -> TajweedHeads {
+    func keeping(_ keep: Set<HeadID>) -> HeadsBuffer {
         var out = self
-        for h in TajweedHead.allCases where !keep.contains(h) { out.set(h.rawValue, []) }
+        for h in HeadID.allCases where !keep.contains(h) { out.set(h.rawValue, []) }
         return out
     }
 }
 
 /// One chunk of a take as it streams: its index and the selected heads.
-public struct TajweedChunk: Sendable, Hashable {
-    public let index: Int
+struct RawChunk: Sendable, Hashable {
+    let index: Int
     /// Milliseconds of audio from the start of the take to the start of this chunk's frames.
-    public let startMs: Int
-    public let heads: TajweedHeads
+    let startMs: Int
+    let heads: HeadsBuffer
+    /// Which of the chunk's 40 ms frames are active (`SpeechTracker.active`): from `log_probs` and
+    /// `timing_log_probs` as the engine gave them, also when the app did not select the timing head.
+    let active: [Bool]
     /// True when a chunk with this `index` was handed out before in this take (2.0.2): the CPU engine confirmed that
     /// the Neural Engine missed speech there, and the take continues on the CPU from the first such chunk. Replace what
     /// you kept or drew for this index, and drop what you kept for later indexes (they come again in order).
-    public let replaces: Bool
+    let replaces: Bool
 
-    init(index: Int, startMs: Int, heads: TajweedHeads, replaces: Bool = false) {
+    init(index: Int, startMs: Int, heads: HeadsBuffer, replaces: Bool = false, active: [Bool]? = nil) {
         self.index = index
         self.startMs = startMs
         self.heads = heads
         self.replaces = replaces
+        // without the engine's own chunk: what the handed-out heads say
+        self.active = active ?? SpeechTracker.active(logProbs: heads.top1(.logProbs), timing: heads.top1(.timingLogProbs))
     }
 }
 
 /// The decoded layer: what the model heard, from `log_probs` (and `conf` for confidences), without a known text.
-/// For display, practice feedback and analysis; tajweed decisions come from the scorer (`TajweedResult`).
-public struct DecodedTake: Sendable, Hashable {
+/// For display, practice feedback and analysis. The public form is `TajweedDecoded`.
+struct DecodedTake: Sendable, Hashable {
     /// Each 40 ms frame of log_probs: the top token and the runner-up (lowest id on ties), and their margin.
-    public struct Frame: Sendable, Hashable {
-        public let top1: Int
-        public let top1LogProb: Float
-        public let runnerUp: Int
-        public let runnerUpLogProb: Float
+    struct Frame: Sendable, Hashable {
+        let top1: Int
+        let top1LogProb: Float
+        let runnerUp: Int
+        let runnerUpLogProb: Float
         /// top1LogProb - runnerUpLogProb, as the engine computes it.
-        public let margin: Double
+        let margin: Double
 
         init(top1: Int, top1LogProb: Float, runnerUp: Int, runnerUpLogProb: Float, margin: Double) {
             self.top1 = top1; self.top1LogProb = top1LogProb; self.runnerUp = runnerUp
@@ -155,7 +183,7 @@ public struct DecodedTake: Sendable, Hashable {
     /// Per-frame top-1 and runner-up of log-probs from any source, from the engine (`zf_tajweed_top2`: one scan of
     /// each row, ties to the lower id, the greedy decode's argmax).
     static func top2(_ logProbs: [Float], frames: Int) -> [Frame] {
-        let v = TajweedHeads.vocab
+        let v = HeadsBuffer.vocab
         guard frames > 0, logProbs.count >= frames * v else { return [] }
         var out = [ZfTajweedTop2](repeating: ZfTajweedTop2(), count: frames)
         let n = logProbs.withUnsafeBufferPointer { lp in
@@ -166,52 +194,52 @@ public struct DecodedTake: Sendable, Hashable {
     }
 
     /// A greedy CTC token: a run of equal non-blank top-1 frames.
-    public struct Token: Sendable, Hashable {
-        public let id: Int
-        public let unit: String
+    struct Token: Sendable, Hashable {
+        let id: Int
+        let unit: String
         /// First and last 40 ms frame of the run (inclusive).
-        public let frame0: Int, frame1: Int
-        public let startMs: Int, endMs: Int
+        let frame0: Int, frame1: Int
+        let startMs: Int, endMs: Int
         /// The run's frame with the largest top-1 log-prob (first on ties); the values below are at it.
-        public let peakFrame: Int
-        public let logProb: Float
-        public let runnerUp: Int
-        public let runnerUpLogProb: Float
-        public let margin: Double
+        let peakFrame: Int
+        let logProb: Float
+        let runnerUp: Int
+        let runnerUpLogProb: Float
+        let margin: Double
         /// Mean of sigmoid(conf) over the run's 20 ms frames; nil without the conf head.
-        public let confidence: Double?
+        let confidence: Double?
     }
 
     /// Tokens between word boundaries ("|"). V4 rarely emits "|", so for a known ayah use the tajweed layer's words.
-    public struct Word: Sendable, Hashable {
-        public let index: Int
+    struct Word: Sendable, Hashable {
+        let index: Int
         /// Indexes into `tokens`.
-        public let tokens: [Int]
-        public let units: [String]
-        public let startMs: Int, endMs: Int
+        let tokens: [Int]
+        let units: [String]
+        let startMs: Int, endMs: Int
         /// The lowest token confidence; nil without the conf head.
-        public let confidence: Double?
+        let confidence: Double?
         /// The lowest token margin.
-        public let margin: Double
+        let margin: Double
     }
 
     /// Per 40 ms frame the top token and the runner-up (top-K at k = 2), kept as the convenient view.
-    public let frames: [Frame]
+    let frames: [Frame]
     /// log_probs ranked to the depth asked for (`TajweedRecognizer.decoded(topK:)`, 2 by default; 38 is the whole
     /// list), from the engine.
-    public internal(set) var ranked: TajweedRanking?
-    public let tokens: [Token]
-    public let words: [Word]
+    var ranked: TajweedRanking?
+    let tokens: [Token]
+    let words: [Word]
     /// The token units joined by single spaces.
-    public let transcript: String
+    let transcript: String
 
-    public static let frameMs = 40
+    static let frameMs = 40
 
     /// The decoded layer of `h`; `frames` is the engine's top-2 of the same log_probs when the caller has it (the
     /// exact engine's stream keeps it), else it is computed by the engine here.
-    public init(heads h: TajweedHeads, vocabulary: Vocabulary) { self.init(heads: h, vocabulary: vocabulary, frames: nil) }
+    init(heads h: HeadsBuffer, vocabulary: Vocabulary) { self.init(heads: h, vocabulary: vocabulary, frames: nil) }
 
-    init(heads h: TajweedHeads, vocabulary: Vocabulary, frames given: [Frame]?) {
+    init(heads h: HeadsBuffer, vocabulary: Vocabulary, frames given: [Frame]?) {
         let blank = 0, bar = 1
         let frames = given.flatMap { $0.count == h.n40 ? $0 : nil } ?? Self.top2(h.logProbs, frames: h.n40)
         let conf = h.conf

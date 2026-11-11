@@ -2,13 +2,13 @@ import Foundation
 
 /// Who the app is for. With `.children`, the SDK's consent sheet addresses the parent or guardian and needs their
 /// confirmation before it can share.
-public enum Audience: String, Sendable, Hashable, Codable {
+enum Audience: String, Sendable, Hashable, Codable {
     case general
     case children
 }
 
 /// What the app should show now, if anything (the SDK's `SharingConsentView` shows it for you).
-public enum SharingMoment: Sendable, Hashable {
+enum SharingMoment: Sendable, Hashable {
     /// The consent sheet: the first ask, or a gentle re-ask after "Not now" (the sheet is shown at most three times per
     /// install). `guardian`: the children's variant.
     case ask(reask: Bool, guardian: Bool)
@@ -17,7 +17,7 @@ public enum SharingMoment: Sendable, Hashable {
 }
 
 /// The learner's answer as the SDK keeps it.
-public enum SharingConsent: String, Sendable, Hashable, Codable {
+enum SharingConsent: String, Sendable, Hashable, Codable {
     /// Never asked.
     case unknown
     /// Shares every session in full while the SDK listens.
@@ -106,8 +106,31 @@ extension SharingState {
 /// Once the learner agrees, every session the SDK listens to is shared in full, continuously, as Ogg Opus segments
 /// uploaded in the background (`ContributionOutbox`). The learner can stop at any time (`setSharing(false)` stops
 /// uploads at once and deletes the unsent queue) and delete what they shared (`deleteShared()`).
-public enum Contributions {
+///
+/// 2.0.3: takes that follow one another within a few seconds are one recording (`TakeJoin`), so an app that stops and
+/// starts takes while the learner keeps reciting no longer splits the recitation.
+enum Contributions {
     static let lock = Locked<SharingState?>(nil)
+
+    /// The recording of the takes (2.0.3), one per process: it stays open after a take for the join window (the signed
+    /// config's `flags.share_join_ms`, 3000 ms when absent), so the next take in a row continues the same stream. Its
+    /// clock is the configured client's.
+    static let recorder = ShareRecorder(
+        clock: { QuranLab.cloud?.clock() ?? Date() },
+        window: { QuranLab.cloud?.currentConfig?.flags.share_join_ms ?? TakeJoin.defaultWindowMs },
+        active: { Contributions.isActive },
+        // what a recording is bound to: a take joins an open one only in the same storage, under the same contributor,
+        // consent version (and wording hash) and model revision; the backend and the input route may differ
+        identity: { (info: ShareRecorder.TakeInfo) -> [String] in
+            [QuranLab.configuration.storageDirectory.path, QuranLab.contributorID, Contributions.consentVersion ?? "",
+             Contributions.grantedTextSHA256 ?? "", info.revision]
+        },
+        open: { (info: ShareRecorder.TakeInfo) -> (any ShareRecording)? in
+            Contributions.capture(revision: info.version.isEmpty ? info.revision : info.version, build: info.version.isEmpty ? nil : info.revision,
+                                  backend: info.backend, weightsSHA256: info.weightsSHA256)
+        },
+        // this install's count of shared recordings (take_seq, gap_ms_prev), in the configured storage
+        sequence: .stored { ShareSequencer.file(storage: QuranLab.configuration.storageDirectory) })
 
     private static func file() -> JSONFile<SharingState> {
         JSONFile(url: QuranLab.configuration.storageDirectory.appendingPathComponent("cloud/sharing-state.json"))
@@ -139,14 +162,14 @@ public enum Contributions {
     static func reload() { lock.withLock { $0 = nil } }
 
     /// The copy deck in force (the app's locale, else English), with the app's own wording applied.
-    public static var copy: SharingCopy {
+    static var copy: SharingCopy {
         SharingCopy.forLocale(QuranLab.configuration.options.sharingLocale).applying(wording)
     }
 
     private static let wordingState = Locked<[String: String]>([:])
 
     /// The app's own wording in force, by deck key (empty: the deck's words).
-    public static var wording: [String: String] { wordingState.withLock { $0 } }
+    static var wording: [String: String] { wordingState.withLock { $0 } }
 
     /// Replaces strings of the SDK's copy deck with the app's own words, `{key: text}` (the deck's keys; a plural line
     /// by category, `impact.minutes.one`). Nil or empty goes back to the deck's words. An unknown key or an empty or
@@ -156,7 +179,7 @@ public enum Contributions {
     /// learner who already agreed keeps the version and hash they agreed to, is not asked again, and keeps sharing.
     /// Your words must still say that the audio of recitation sessions is sent to Quran Lab, what else is sent, what it
     /// is used for, and how to stop and delete.
-    public static func setWording(_ overrides: [String: String]?) throws(RecognizerError) {
+    static func setWording(_ overrides: [String: String]?) throws(RecognizerError) {
         let o = overrides ?? [:]
         let known = SharingCopy.allKeys
         for k in o.keys.sorted() {
@@ -170,20 +193,20 @@ public enum Contributions {
 
     /// The consent version in force (what a grant from now on records): the deck's, or `custom-...` for the app's own
     /// wording. A learner who agreed earlier keeps the version they agreed to.
-    public static var consentVersionInForce: String { copy.consentVersion }
+    static var consentVersionInForce: String { copy.consentVersion }
 
     /// With the app's own wording: the SHA-256 (64 hex) every shared session carries, for the developer to send to
     /// Quran Lab with the wording. Nil with the deck's words.
-    public static var consentTextSHA256: String? { copy.consentTextSHA256 }
+    static var consentTextSHA256: String? { copy.consentTextSHA256 }
 
     /// With the app's own wording: the canonical text `consentTextSHA256` is the hash of. Nil with the deck's words.
-    public static var consentText: String? { copy.consentText }
+    static var consentText: String? { copy.consentText }
 
     /// Your own UI instead of the SDK's sheet: the SDK hands each moment (the consent ask, the thank-you) to `handler`
     /// on the main actor and shows nothing itself. Show the deck's strings from `copy` (the app's own wording applied),
     /// buttons of equal weight, and report the learner's own tap with `answer(share:guardianConfirmed:)`. The SDK
     /// picks the moments and counts the asks as for its own sheet. Nil goes back to the SDK's sheet.
-    public static func setPresenter(_ handler: (@MainActor @Sendable (SharingMoment) -> Void)?) {
+    static func setPresenter(_ handler: (@MainActor @Sendable (SharingMoment) -> Void)?) {
         SharingPresenter.shared.set(handler)
     }
 
@@ -192,7 +215,7 @@ public enum Contributions {
     /// without a verified config in force nothing is offered (2.0.0 offered it before the first config arrived). When
     /// false, the SDK never asks and never uploads; the learner's answer is kept. Offered is never consent: capture and
     /// upload also need the learner's grant (`isActive`).
-    public static var isEnabled: Bool {
+    static var isEnabled: Bool {
         guard QuranLab.configuration.options.cloud != nil, let cfg = QuranLab.cloud?.currentConfig else { return false }
         if !cfg.flags.contributions { return false }
         if UploadTrust.tier(cfg, platform: AppIdentity.currentPlatform) == "off" { return false }
@@ -201,12 +224,12 @@ public enum Contributions {
 
     /// Enabled and the learner agreed: sessions are being shared. A grant holds whatever consent version it was given
     /// (an older deck, the app's earlier wording, a 2.0.0 grant): the sessions carry that version.
-    public static var isActive: Bool {
+    static var isActive: Bool {
         isEnabled && state().consent == .granted
     }
 
     /// The learner's answer.
-    public static var consent: SharingConsent { state().consent }
+    static var consent: SharingConsent { state().consent }
 
     /// The consent version the learner agreed to, sent with every shared session.
     static var consentVersion: String? { state().consent == .granted ? state().consentVersion : nil }
@@ -221,7 +244,7 @@ public enum Contributions {
     /// A finished session: counts it, and says whether this is the moment to ask (or thank). `feedback`: the learner
     /// was shown the model's feedback for the session.
     @discardableResult
-    public static func sessionCompleted(feedback: Bool) -> SharingMoment? {
+    static func sessionCompleted(feedback: Bool) -> SharingMoment? {
         let enabled = isEnabled
         var moment: SharingMoment?
         _ = update { s in
@@ -249,7 +272,7 @@ public enum Contributions {
     /// The app's own timing: the sheet now, whatever the session count, when the learner has not agreed or turned
     /// sharing off and the sheet was shown fewer than three times (it counts as one of the three).
     @discardableResult
-    public static func askNow() -> SharingMoment? {
+    static func askNow() -> SharingMoment? {
         guard isEnabled else { return nil }
         var moment: SharingMoment?
         _ = update { s in
@@ -266,7 +289,7 @@ public enum Contributions {
     /// The learner's answer on the sheet (the SDK's, or the app's own UI from `setPresenter(_:)`), only from the
     /// learner's own tap. `guardianConfirmed` must be true for a grant in a children's app. The grant is to the
     /// consent version in force (the app's own wording included).
-    public static func answer(share: Bool, guardianConfirmed: Bool = false) {
+    static func answer(share: Bool, guardianConfirmed: Bool = false) {
         let granted = decide(share: share, guardianConfirmed: guardianConfirmed)
         QuranLab.count(granted ? .shareYes : .shareNo)
     }
@@ -298,7 +321,7 @@ public enum Contributions {
     /// children's app needs the guardian's confirmation); already on, nothing changes (the learner keeps the version
     /// they agreed to). Off: final, never asked again, and every queued upload stops at once (the unsent queue is
     /// deleted); it works whatever version the learner agreed to.
-    public static func setSharing(_ on: Bool, guardianConfirmed: Bool = false) async {
+    static func setSharing(_ on: Bool, guardianConfirmed: Bool = false) async {
         if on {
             if state().consent == .granted { return }
             decide(share: true, guardianConfirmed: guardianConfirmed)
@@ -307,23 +330,28 @@ public enum Contributions {
                 s.consent = .final
                 s.decidedAt = Date().timeIntervalSince1970.rounded()
             }
+            // the open recording ends at once, in a take or waiting for the next one
+            recorder.stop()
             await QuranLab.cloud?.outbox.cancelQueued()
         }
     }
 
     /// The lines behind "What is shared" (disclosure lines: show them as they are).
-    public static var whatIsShared: [String] { [copy.string("what.detail")].filter { !$0.isEmpty } }
+    static var whatIsShared: [String] { [copy.string("what.detail")].filter { !$0.isEmpty } }
 
     /// This install's contribution code (32 hex), shown to the learner in the sharing settings for deletion requests.
-    public static var contributionCode: String { QuranLab.contributorID }
+    static var contributionCode: String { QuranLab.contributorID }
 
     /// "Delete what I shared": every recording this learner shared from this app is deleted from Quran Lab's
     /// servers (a challenge signed with this device's key, no app credential can do this),
     /// the unsent queue is dropped, and the contribution code, device key and recovery code are replaced, so later
     /// shares are not linked to the deleted ones. There is no call to delete another learner's recordings.
-    public static func deleteShared() async throws(RecognizerError) {
+    static func deleteShared() async throws(RecognizerError) {
         guard let cloud = QuranLab.cloud else { throw .serviceUnavailable("deleting shared recordings (no cloud configured)") }
         try await cloud.deleteContributions(contributor: contributionCode)
+        recorder.stop()
+        // later recordings are not linked to the deleted ones: the count starts again
+        ShareSequencer.reset(ShareSequencer.file(storage: QuranLab.configuration.storageDirectory))
         await cloud.outbox.cancelQueued()
         QuranLab.resetContributor()
         _ = update { s in
@@ -342,15 +370,16 @@ public enum Contributions {
 
     /// The learner's own shared minutes, this app's and Quran Lab's totals (real numbers from the server); nil when
     /// the call fails (show nothing then).
-    public static func summary() async -> ContributionSummary? {
+    static func summary() async -> ContributionSummary? {
         await QuranLab.cloud?.contributionSummary(contributor: contributionCode)
     }
 
-    /// The capture for a session that starts now, when sharing is active.
-    static func capture(revision: String, backend: ActiveBackend, weightsSHA256: String?) -> ShareCapture? {
+    /// The capture for a recording that starts now, when sharing is active (the recorder asks for one when a take
+    /// starts a new recording).
+    static func capture(revision: String, build: String? = nil, backend: ActiveBackend, weightsSHA256: String?) -> ShareCapture? {
         guard isActive, let outbox = QuranLab.cloud?.outbox else { return nil }
         return ShareCapture(outbox: outbox, consentVersion: consentVersion, consentTextSHA256: grantedTextSHA256, modelRevision: revision,
-                            backend: backend.rawValue, weightsSHA256: weightsSHA256)
+                            backend: backend.rawValue, weightsSHA256: weightsSHA256, modelBuild: build)
     }
 
     /// A shared session finished (the thank-you becomes due at the next completed session).
@@ -358,14 +387,14 @@ public enum Contributions {
 }
 
 /// The learner's and the community's real totals (`GET /v1/contributions/summary`).
-public struct ContributionSummary: Sendable, Hashable {
-    public let mySessions: Int
-    public let myMinutes: Double
+struct ContributionSummary: Sendable, Hashable {
+    let mySessions: Int
+    let myMinutes: Double
     /// Nil while the app has fewer than 10 contributors (the privacy floor).
-    public let appContributors: Int?
-    public let appMinutes: Double?
-    public let allContributors: Int
-    public let allMinutes: Double
+    let appContributors: Int?
+    let appMinutes: Double?
+    let allContributors: Int
+    let allMinutes: Double
 }
 
 /// The signed config's `flags.upload_trust` for a platform: `off`, `capped` or `attested` (defaults: ios and macos

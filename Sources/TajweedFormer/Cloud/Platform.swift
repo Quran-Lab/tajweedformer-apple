@@ -1,27 +1,56 @@
 import Foundation
 
 /// The SDK's own version, sent in registration, events and issue reports.
-public enum SDKInfo {
-    public static let version = "2.0.2"
+enum SDKInfo {
+    static let version = "3.0.0"
+    /// Where the SDK runs: the one sentence every `runtime_unsupported` error ends its fix with. It says what the
+    /// README's "Before you start" says.
+    static let minimum = "iOS 15 or macOS 12 or later, on Apple silicon (an arm64 device, the arm64 simulator or an arm64 Mac)"
+}
+
+/// Whether this process can run the SDK. The engine's binary has arm64 slices only, so an Intel Mac and the x86_64
+/// simulator cannot run it; that is `runtime_unsupported`, never a fault of the model.
+enum RuntimeSupport {
+    /// The processor this process was built for.
+    static var architecture: String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "another processor"
+        #endif
+    }
+
+    /// Why the SDK cannot run on `architecture`; nil when it can.
+    static func problem(architecture: String = RuntimeSupport.architecture) -> String? {
+        if architecture == "arm64" { return nil }
+        return architecture == "x86_64" ? "this is an Intel processor (x86_64)" : "this is not Apple silicon (\(architecture))"
+    }
+
+    /// Throws `runtime_unsupported` where the SDK cannot run.
+    static func check(architecture: String = RuntimeSupport.architecture) throws(TajweedError) {
+        if let why = problem(architecture: architecture) { throw TajweedError(.runtimeUnsupported, ["detail": why]) }
+    }
 }
 
 /// Which app the SDK runs in: what registration sends. Read from the main bundle; a host (or a
 /// test) can set it explicitly in `CloudOptions.app`.
-public struct AppIdentity: Sendable, Hashable {
+struct AppIdentity: Sendable, Hashable {
     /// "ios" or "macos".
-    public var platform: String
-    public var bundleID: String
-    public var name: String?
-    public var version: String
+    var platform: String
+    var bundleID: String
+    var name: String?
+    var version: String
 
-    public init(platform: String = AppIdentity.currentPlatform, bundleID: String, name: String? = nil, version: String) {
+    init(platform: String = AppIdentity.currentPlatform, bundleID: String, name: String? = nil, version: String) {
         self.platform = platform
         self.bundleID = bundleID
         self.name = name
         self.version = version
     }
 
-    public static var currentPlatform: String {
+    static var currentPlatform: String {
         #if os(macOS)
         return "macos"
         #else
@@ -30,7 +59,7 @@ public struct AppIdentity: Sendable, Hashable {
     }
 
     /// The main bundle's identifier, display name and short version.
-    public static var main: AppIdentity {
+    static var main: AppIdentity {
         let info = Bundle.main.infoDictionary ?? [:]
         let bundle = Bundle.main.bundleIdentifier ?? "unknown.app"
         let name = (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String)

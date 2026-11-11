@@ -50,8 +50,8 @@ import Foundation
 protocol CPUStreamEngine: AnyObject {
     var chunkMs: Int { get }
     func reset()
-    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [TajweedHeads]
-    func finish() throws(RecognizerError) -> [TajweedHeads]
+    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer]
+    func finish() throws(RecognizerError) -> [HeadsBuffer]
 }
 
 extension TajweedExactEngine: CPUStreamEngine {}
@@ -109,7 +109,7 @@ struct AudioRing: Sendable {
 /// (it refuses every later call).
 final class AcceleratorExecutor: @unchecked Sendable {
     enum Outcome {
-        case done([TajweedHeads], seconds: [Double])
+        case done([HeadsBuffer], seconds: [Double])
         case threw(RecognizerError, nsError: NSError?)
         /// The deadline passed first; the call may still be running.
         case timedOut(elapsedMs: Double)
@@ -144,7 +144,7 @@ final class AcceleratorExecutor: @unchecked Sendable {
 
     private final class Slot: @unchecked Sendable {
         let done = DispatchSemaphore(value: 0)
-        var result: Result<[TajweedHeads], RecognizerError>?
+        var result: Result<[HeadsBuffer], RecognizerError>?
         var nsError: NSError?
         var seconds: [Double] = []
     }
@@ -153,7 +153,7 @@ final class AcceleratorExecutor: @unchecked Sendable {
     /// recognizer's synchronous chunk path, never from the queue itself). A call still running then is a hang if it
     /// has not answered `grace` seconds later (0: at once, as 2.0.1 did).
     func run(timeout: TimeInterval, grace: TimeInterval = 0,
-             _ body: @escaping @Sendable (any AcceleratorBackend) throws(RecognizerError) -> [TajweedHeads]) -> Outcome {
+             _ body: @escaping @Sendable (any AcceleratorBackend) throws(RecognizerError) -> [HeadsBuffer]) -> Outcome {
         if abandoned { return .threw(.neuralEngineUnavailable("the accelerator was abandoned after a call that did not return"), nsError: nil) }
         let slot = Slot()
         let box = UncheckedBox(backend)
@@ -254,8 +254,8 @@ enum HeadsCheck {
     static let probHeads: Set<String> = ["gem", "attr_tafkheem", "attr_ghunna", "attr_qalqalah", "attr_face"]
 
     /// Nil when the chunk is fine, else the cause and which head.
-    static func check(_ c: TajweedHeads) -> (FailoverCause, String)? {
-        for (name, _, _) in TajweedHeads.layout {
+    static func check(_ c: HeadsBuffer) -> (FailoverCause, String)? {
+        for (name, _, _) in HeadsBuffer.layout {
             let v = c[name]
             if v.isEmpty { continue }
             if !v.allSatisfy(\.isFinite) { return (.nonFinite, "\(name) is NaN or infinite") }
@@ -286,7 +286,7 @@ final class BlankVerification: @unchecked Sendable {
     struct Replayed {
         var engine: (any CPUStreamEngine)?
         /// CPU chunk i is the take's chunk `from + i`.
-        var chunks: [TajweedHeads] = []
+        var chunks: [HeadsBuffer] = []
         var error: RecognizerError?
         var openMs = 0.0
         var replayMs = 0.0
@@ -342,7 +342,7 @@ final class BlankVerification: @unchecked Sendable {
             while at < audio.count, !isCancelled {
                 let n = min(piece, audio.count - at)
                 let lo = at
-                r.chunks += try audio.withUnsafeBufferPointer { (p) throws(RecognizerError) -> [TajweedHeads] in
+                r.chunks += try audio.withUnsafeBufferPointer { (p) throws(RecognizerError) -> [HeadsBuffer] in
                     try e.push(UnsafeBufferPointer(rebasing: p[lo..<(lo + n)]))
                 }
                 at += n
@@ -397,7 +397,7 @@ final class TakeRunner {
     /// `chunks` in order.
     struct Output {
         var truncateTo: Int?
-        var chunks: [TajweedHeads] = []
+        var chunks: [HeadsBuffer] = []
         /// Hand the take's chunks out again from this index on (a confirmed blank disagreement: the CPU's chunks
         /// replace those the accelerator heard nothing in, with the same indexes).
         var redeliverFrom: Int?
@@ -454,7 +454,7 @@ final class TakeRunner {
         /// The RMS above which pushed audio counts as having energy (about -40 dBFS).
         var energyRMS: Float = 0.01
         /// Token edits between the CPU and the accelerator over the suspicious chunks that still agree (the build's
-        /// golden tolerance, `token_diffs`; 0 when the manifest gives none).
+        /// raw golden tolerance, `log_probs.token_edits`; 0 when the signed manifest gives none).
         var blankTokenTolerance = 0
         /// At most one blank verification per this much audio, seconds.
         var verifyEverySeconds = PromotionPolicy.verifyEverySeconds
@@ -599,7 +599,7 @@ final class TakeRunner {
         let later = laterLimitMs
         let first = coldNext ? policy.firstChunkMs : later
         let timeout = (first + later * Double(expected - 1)) / 1000
-        let r = a.run(timeout: timeout, grace: policy.hangGraceMs / 1000) { (b: any AcceleratorBackend) throws(RecognizerError) -> [TajweedHeads] in
+        let r = a.run(timeout: timeout, grace: policy.hangGraceMs / 1000) { (b: any AcceleratorBackend) throws(RecognizerError) -> [HeadsBuffer] in
             try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try b.push(p) }
         }
         return try judge(r, audio: s, finishing: false, firstLimit: first, laterLimit: later)
@@ -625,20 +625,20 @@ final class TakeRunner {
         let first = coldNext ? policy.firstChunkMs : later
         // the flush runs about four chunks (1.05 s of zeros and the fbank's tail)
         let r = a.run(timeout: (first + later * 5) / 1000, grace: policy.hangGraceMs / 1000) {
-            (b: any AcceleratorBackend) throws(RecognizerError) -> [TajweedHeads] in
+            (b: any AcceleratorBackend) throws(RecognizerError) -> [HeadsBuffer] in
             try b.finish()
         }
         return try judge(r, audio: [], finishing: true, firstLimit: first, laterLimit: later)
     }
 
-    private func cpuPush(_ s: [Float]) throws(RecognizerError) -> [TajweedHeads] {
+    private func cpuPush(_ s: [Float]) throws(RecognizerError) -> [HeadsBuffer] {
         guard let cpu else { throw .sessionClosed }
         let out = try timed { () throws(RecognizerError) in try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try cpu.push(p) } }
         chunks += out.count
         return out
     }
 
-    private func timed(_ body: () throws(RecognizerError) -> [TajweedHeads]) throws(RecognizerError) -> [TajweedHeads] {
+    private func timed(_ body: () throws(RecognizerError) -> [HeadsBuffer]) throws(RecognizerError) -> [HeadsBuffer] {
         let t0 = CFAbsoluteTimeGetCurrent()
         let out = try body()
         if !out.isEmpty {
@@ -716,10 +716,10 @@ final class TakeRunner {
         guard r.error == nil, let engine = r.engine else { return nil }
         let lo = v.first - v.from, hi = lo + v.count
         guard lo >= 0, r.chunks.count >= hi else { return nil }
-        var window = TajweedHeads()
+        var window = HeadsBuffer()
         for c in r.chunks[lo..<hi] { window.append(c) }
-        let d = Divergence(expected: window.greedy, tokens: v.accTokens, expectedSites: [], sites: [], expectedWords: [], words: [])
-        let agreed = d.tokensDiffer <= policy.blankTokenTolerance
+        let d = Divergence(expected: window.greedy, tokens: v.accTokens)
+        let agreed = (d.tokenEdits ?? 0) <= policy.blankTokenTolerance
         lastVerification = (r.openMs, r.replayMs, r.chunks.count, agreed)
         if agreed {
             // the CPU heard nothing either (a madd, a held vowel): the engine goes (closed), the take stays
@@ -731,9 +731,9 @@ final class TakeRunner {
 
     /// A confirmed disagreement: the take continues on the verification's CPU engine, which catches up with the audio
     /// since its replay ended; the chunks from the first suspicious one are the CPU's and are handed out again.
-    private func switchConfirmed(_ v: BlankVerification, engine: any CPUStreamEngine, replayed: [TajweedHeads], divergence d: Divergence,
+    private func switchConfirmed(_ v: BlankVerification, engine: any CPUStreamEngine, replayed: [HeadsBuffer], divergence d: Divergence,
                                  audio s: [Float], finishing: Bool) throws(RecognizerError) -> Output {
-        let why = "the CPU engine heard \(d.tokensExpected) tokens in \(v.count) chunks where the accelerator heard none"
+        let why = "the CPU engine heard \(d.tokensExpected ?? 0) tokens in \(v.count) chunks where the accelerator heard none"
         // more audio since than the ring keeps (never with a 30 s ring and a verification of seconds): the usual switch
         guard v.end >= ring.oldest else {
             return try fail(.blank, why, at: v.first, good: [], audio: s, finishing: finishing, elapsedMs: nil, limitMs: laterLimitMs,
@@ -748,7 +748,7 @@ final class TakeRunner {
         // CPU chunk i is the take's chunk v.from + i; a whole-take replay replaces the whole take (exact)
         let kept = v.from == 0 ? 0 : v.first
         let skip = kept - v.from
-        let add: [TajweedHeads] = skip < out.count ? Array(out[skip...]) : []
+        let add: [HeadsBuffer] = skip < out.count ? Array(out[skip...]) : []
         let stall = (CFAbsoluteTimeGetCurrent() - t0) * 1000
         failover = Failover(cause: .blank, detail: why, chunk: v.first, replayFrom: v.from, stallMs: stall, cold: true, elapsedMs: nil,
                             deadlineMs: laterLimitMs, errorDomain: nil, errorCode: nil, divergence: d)
@@ -762,7 +762,7 @@ final class TakeRunner {
     }
 
     /// The switch: chunk `k` failed (chunks before it are good: the take's first `chunks` plus `good` from this call).
-    private func fail(_ cause: FailoverCause, _ why: String, at k: Int, good: [TajweedHeads], audio s: [Float], finishing: Bool,
+    private func fail(_ cause: FailoverCause, _ why: String, at k: Int, good: [HeadsBuffer], audio s: [Float], finishing: Bool,
                       elapsedMs: Double?, limitMs: Double, ns: NSError?, divergence: Divergence? = nil) throws(RecognizerError) -> Output {
         let t0 = CFAbsoluteTimeGetCurrent()
         accelerator = nil
@@ -785,7 +785,7 @@ final class TakeRunner {
         if finishing { out += try engine.finish() }
         // CPU chunk i is the take's chunk from + i
         let kept = from == 0 ? 0 : min(k, before)
-        var add: [TajweedHeads] = from == 0 ? [] : Array(good.prefix(max(0, k - before)))
+        var add: [HeadsBuffer] = from == 0 ? [] : Array(good.prefix(max(0, k - before)))
         let skip = (from == 0 ? 0 : k - from)
         if skip < out.count { add += out[skip...] }
         let stall = (CFAbsoluteTimeGetCurrent() - t0) * 1000

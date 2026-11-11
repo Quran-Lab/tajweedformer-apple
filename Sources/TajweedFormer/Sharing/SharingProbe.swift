@@ -1,21 +1,21 @@
 import Foundation
 
-/// For device runs of the example app only (`@_spi(Probe) import TajweedFormer`): the sharing writer
+/// For measurements on a device (tests reach it with `@testable import`): the sharing writer
 /// exactly as a shared session uses it (resampler, libopus, one-second pages, the segment plan),
 /// writing into `folder` with no outbox and no network. Not part of the public API.
-@_spi(Probe) public final class SharingProbe {
-    public struct Segment: Sendable, Codable {
-        public let name: String
-        public let bytes: Int
-        public let granule: Int64
+final class SharingProbe {
+    struct Segment: Sendable, Codable {
+        let name: String
+        let bytes: Int
+        let granule: Int64
     }
 
     private let writer: OggOpusWriter
     private var segments: [Segment] = []
     /// CPU seconds spent in `append` and `finish` (thread time).
-    public private(set) var cpuSeconds = 0.0
+    private(set) var cpuSeconds = 0.0
 
-    public init(folder: URL, inputRate: Double) throws {
+    init(folder: URL, inputRate: Double) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let box = Box()
         writer = try OggOpusWriter(segmentURL: { folder.appendingPathComponent(ShareFiles.name($0)).appendingPathExtension("opus") },
@@ -26,16 +26,16 @@ import Foundation
     private final class Box { var closed: [OggSegment] = [] }
     private let box: Box
 
-    public var preSkip: Int { writer.preSkip }
+    var preSkip: Int { writer.preSkip }
 
-    public func append(_ samples: [Float]) throws {
+    func append(_ samples: [Float]) throws {
         let t = Self.threadCPU()
         try writer.append(samples)
         cpuSeconds += Self.threadCPU() - t
     }
 
     /// Ends the stream; returns every segment's size and last granule position.
-    public func finish() throws -> [Segment] {
+    func finish() throws -> [Segment] {
         let t = Self.threadCPU()
         try writer.finish()
         cpuSeconds += Self.threadCPU() - t

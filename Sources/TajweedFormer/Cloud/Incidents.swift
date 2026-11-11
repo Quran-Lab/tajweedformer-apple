@@ -36,9 +36,11 @@ struct IncidentDetail: Codable, Equatable, Sendable {
     var lowPower: Bool?
     var stallMs: Int?
     var attempt: Int?
+    /// The model build (40 hex), next to the report's `revision`, which is the model version (SDK 3.0.0).
+    var build: String?
 
     enum CodingKeys: String, CodingKey {
-        case stage, cause, chunk, clip, divergence, chip, accelerator, context, thermal, attempt
+        case stage, cause, chunk, clip, divergence, chip, accelerator, context, thermal, attempt, build
         case errorDomain = "error_domain", errorCode = "error_code", elapsedMs = "elapsed_ms", deadlineMs = "deadline_ms"
         case deviceModel = "device_model", osBuild = "os_build", computeUnits = "compute_units", lowPower = "low_power"
         case stallMs = "stall_ms"
@@ -180,14 +182,8 @@ extension QuranLabCloud {
         var r = issue(kind: i.kind.rawValue, code: i.code, app: app, backend: nil, revision: i.revision)
         r.message = IncidentText.strip(i.message)
         func ms(_ v: Double?) -> Double? { v.map { (max(0, min(600_000, $0)) * 10).rounded() / 10 } }
-        var div = i.divergence
-        if var d = div {
-            d.tokensExpected = max(0, min(100_000, d.tokensExpected))
-            d.tokensDiffer = max(0, min(100_000, d.tokensDiffer))
-            d.sitesDiffer = max(0, min(100_000, d.sitesDiffer))
-            d.wordsDiffer = max(0, min(100_000, d.wordsDiffer))
-            div = d
-        }
+        let div = i.divergence?.bounded
+        let build = i.build.flatMap { $0.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil ? $0 : nil }
         r.detail = IncidentDetail(
             stage: i.stage, cause: i.cause,
             errorDomain: IncidentText.token(i.errorDomain, extra: "_.:-", max: 64),
@@ -202,7 +198,7 @@ extension QuranLabCloud {
             accelerator: "ane", computeUnits: "cpuAndNeuralEngine", context: i.context,
             thermal: i.thermal, lowPower: i.lowPower,
             stallMs: i.stallMs.map { Int(max(0, min(600_000, $0)).rounded()) },
-            attempt: i.attempt.map { max(1, min(100, $0)) })
+            attempt: i.attempt.map { max(1, min(100, $0)) }, build: build)
         return r
     }
 

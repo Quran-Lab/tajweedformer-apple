@@ -1,29 +1,88 @@
 import Foundation
 
 /// Where stored files come from: a byte range of a stored file (`layers.zfw.gz`).
-public protocol ModelFileSource: Sendable {
+protocol ModelFileSource: Sendable {
     /// Bytes `lower...upper` of the stored file `path` (inclusive). May return the whole file when the server
     /// ignores ranges; the installer slices it.
     func bytes(_ path: String, lower: Int64, upper: Int64, size: Int64) async throws(RecognizerError) -> Data
 }
 
 /// What an install did, for analytics (`downloads`) and the host.
-public struct InstallReport: Sendable, Hashable {
+struct InstallReport: Sendable, Hashable {
     /// Bytes fetched in this call (a resumed file counts only what was fetched now).
-    public var downloadedBytes: Int64 = 0
+    var downloadedBytes: Int64 = 0
     /// Bytes the profile stores on the server, all files (what a fresh install downloads).
-    public var profileBytes: Int64 = 0
+    var profileBytes: Int64 = 0
     /// Decoded bytes the profile keeps on disk.
-    public var diskBytes: Int64 = 0
+    var diskBytes: Int64 = 0
     /// At least one file continued a partial download from an earlier launch.
-    public var resumed = false
+    var resumed = false
     /// Why the accelerator files (CoreML package, keeps, self-test set) are not usable, when they are not; the CPU set
     /// is complete on its own.
-    public var appleUnavailable: String?
+    var appleUnavailable: String?
     /// The program was rebuilt on the device from its delta and the CPU weights (QLPD1), not downloaded.
-    public var programFromDelta = false
+    var programFromDelta = false
     /// Why the delta was not used (the full program was downloaded instead), when it was not.
-    public var programDeltaFallback: String?
+    var programDeltaFallback: String?
+}
+
+/// Counts the bytes of an install for `client.prefetch`'s progress: the stored bytes done (files already on disk, the
+/// part of a file kept from an earlier run, every piece as it arrives) and the total of the CPU set.
+final class ProgressMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done: Int64 = 0
+    private var total: Int64 = 0
+    private let report: @Sendable (Int64, Int64) -> Void
+
+    init(_ report: @escaping @Sendable (Int64, Int64) -> Void) { self.report = report }
+
+    func start(total t: Int64) {
+        lock.lock()
+        total = t
+        done = 0
+        lock.unlock()
+    }
+
+    func add(_ n: Int64) {
+        lock.lock()
+        done = max(0, min(total, done + n))
+        let d = done, t = total
+        lock.unlock()
+        report(d, t)
+    }
+}
+
+/// Hands an install's progress to whoever listens now. An install reports to it from its start; a listener that comes
+/// later (`client.prefetch` called while the launch's own update check is already downloading) is told at once where
+/// the install stands, and then every step. One listener at a time; the last report is forgotten when the install ends.
+final class ProgressRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var listener: (@Sendable (Int64, Int64) -> Void)?
+    private var last: (done: Int64, total: Int64)?
+
+    /// Sets (or, with nil, removes) the listener. A running install's last report goes to a new listener at once.
+    func listen(_ l: (@Sendable (Int64, Int64) -> Void)?) {
+        lock.lock()
+        listener = l
+        let now = last
+        lock.unlock()
+        if let l, let now { l(now.done, now.total) }
+    }
+
+    func report(_ done: Int64, _ total: Int64) {
+        lock.lock()
+        last = (done, total)
+        let l = listener
+        lock.unlock()
+        l?(done, total)
+    }
+
+    /// The install is over (finished or failed).
+    func ended() {
+        lock.lock()
+        last = nil
+        lock.unlock()
+    }
 }
 
 /// Brings a profile of a model folder onto disk: every file by HTTP Range into `<stored path>.part` (resumable across
@@ -33,19 +92,21 @@ public struct InstallReport: Sendable, Hashable {
 /// CPU first: `install` brings the CPU set (the exact engine runs from it alone), then, only when the profile asks for
 /// them, the accelerator files. The SDK's own first install asks for the CPU set only; the promotion pipeline fetches
 /// the accelerator files later with `installAccelerator`, on an unmetered network, after the first session.
-public struct ModelInstaller: Sendable {
+struct ModelInstaller: Sendable {
     let source: any ModelFileSource
     let rangeSize: Int64
     let freeSpace: @Sendable (URL) -> Int64
+    /// Told the bytes of the CPU set as they are done, when a caller wants progress.
+    var meter: ProgressMeter?
 
-    public init(source: any ModelFileSource, rangeSize: Int64 = 8 << 20,
+    init(source: any ModelFileSource, rangeSize: Int64 = 8 << 20,
                 freeSpace: @escaping @Sendable (URL) -> Int64 = { ModelInstaller.defaultFreeSpace($0) }) {
         self.source = source
         self.rangeSize = max(64 << 10, rangeSize)
         self.freeSpace = freeSpace
     }
 
-    public static func defaultFreeSpace(_ url: URL) -> Int64 {
+    static func defaultFreeSpace(_ url: URL) -> Int64 {
         var dir = url
         while !FileManager.default.fileExists(atPath: dir.path), dir.pathComponents.count > 1 { dir.deleteLastPathComponent() }
         let v = try? dir.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
@@ -56,12 +117,13 @@ public struct ModelInstaller: Sendable {
     /// Installs `profile` of `manifest` into `folder` (which may hold files of an earlier, interrupted install): the
     /// CPU set, then the profile's accelerator files when it has any (a failure there leaves the CPU set working and
     /// is reported in `appleUnavailable`). Writes the manifest there last.
-    public func install(_ manifest: ModelManifest, profile: DownloadProfile, into folder: URL) async throws(RecognizerError) -> InstallReport {
+    func install(_ manifest: ModelManifest, profile: DownloadProfile, into folder: URL) async throws(RecognizerError) -> InstallReport {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var report = InstallReport()
         let cpu = profile.cpuFiles(manifest)
+        meter?.start(total: DownloadProfile.bytes(cpu))
         try checkSpace(cpu, in: folder)
-        for f in cpu { try await ensure(f, in: folder, report: &report) }
+        for f in cpu { try await ensure(f, in: folder, report: &report, counted: true) }
         try manifest.write(to: folder)
         if !profile.appleFiles(manifest).isEmpty {
             do throws(RecognizerError) {
@@ -80,10 +142,10 @@ public struct ModelInstaller: Sendable {
     }
 
     /// The accelerator files of `profile` (package, keep table, self-test set) into a folder that holds the CPU set,
-    /// each verified like any download; then the other build's files and any correction left by an earlier SDK are
-    /// deleted (one build on the device). The compiled package is kept out of backups (the device makes it again).
+    /// each verified like any download; then any correction left by an earlier SDK is deleted. The other CoreML
+    /// build, when the folder holds it, stays. The compiled package is kept out of backups (the device makes it again).
     /// On a failure the files fetched so far stay (the next attempt resumes); a file that does not verify is deleted.
-    public func installAccelerator(_ manifest: ModelManifest, profile: DownloadProfile,
+    func installAccelerator(_ manifest: ModelManifest, profile: DownloadProfile,
                                    into folder: URL) async throws(RecognizerError) -> InstallReport {
         var report = InstallReport()
         let apple = profile.appleFiles(manifest)
@@ -173,24 +235,33 @@ public struct ModelInstaller: Sendable {
 
     /// One file on disk, decoded and verified: kept if already there and matching, else downloaded (resuming a
     /// `.part`), checked, inflated, checked. One retry after a mismatch.
-    func ensure(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport) async throws(RecognizerError) {
+    func ensure(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport, counted: Bool = false) async throws(RecognizerError) {
         let fm = FileManager.default
         let dst = folder.appendingPathComponent(f.localPath)
-        if Self.present(f, in: folder), let (_, sha) = try? ModelManifest.digest(dst), sha == f.localSHA256 { return }
+        let meter = counted ? self.meter : nil
+        if Self.present(f, in: folder), let (_, sha) = try? ModelManifest.digest(dst), sha == f.localSHA256 {
+            meter?.add(f.size)
+            return
+        }
         try? fm.removeItem(at: dst)
         var attempt = 0
         while true {
             attempt += 1
+            let before = report.downloadedBytes
+            var kept: Int64 = 0
             do throws(RecognizerError) {
-                try await fetch(f, in: folder, report: &report)
+                try await fetch(f, in: folder, report: &report, meter: meter, kept: &kept)
                 return
             } catch {
                 guard case .checksumMismatch = error, attempt < 2 else { throw error }
+                // the file starts again: what was counted for it goes back
+                meter?.add(-(kept + report.downloadedBytes - before))
             }
         }
     }
 
-    private func fetch(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport) async throws(RecognizerError) {
+    private func fetch(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport, meter: ProgressMeter?,
+                       kept: inout Int64) async throws(RecognizerError) {
         let fm = FileManager.default
         let part = folder.appendingPathComponent(f.path + ".part")
         let dst = folder.appendingPathComponent(f.localPath)
@@ -202,6 +273,8 @@ public struct ModelInstaller: Sendable {
             have = 0
         } else if have > 0 {
             report.resumed = true
+            kept = have
+            meter?.add(have)
         }
         guard let h = try? FileHandle(forWritingTo: part) else { throw .storageFailed("cannot open \(f.path).part") }
         do {
@@ -213,6 +286,7 @@ public struct ModelInstaller: Sendable {
                 try h.write(contentsOf: piece)
                 have += Int64(piece.count)
                 report.downloadedBytes += Int64(piece.count)
+                meter?.add(Int64(piece.count))
             }
             try h.synchronize()
             try h.close()
@@ -251,10 +325,10 @@ public struct ModelInstaller: Sendable {
 }
 
 /// Stored files from a local folder (a staged copy of the server folder): for tests and offline installs.
-public struct DirectoryFileSource: ModelFileSource {
-    public let root: URL
-    public init(root: URL) { self.root = root }
-    public func bytes(_ path: String, lower: Int64, upper: Int64, size: Int64) async throws(RecognizerError) -> Data {
+struct DirectoryFileSource: ModelFileSource {
+    let root: URL
+    init(root: URL) { self.root = root }
+    func bytes(_ path: String, lower: Int64, upper: Int64, size: Int64) async throws(RecognizerError) -> Data {
         guard let h = try? FileHandle(forReadingFrom: root.appendingPathComponent(path)) else { throw .modelMissing(path) }
         defer { try? h.close() }
         do {

@@ -1,0 +1,304 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "TajweedDiagnosis: the report of client.diagnose(), TajweedFormer SDK 3.0.0",
+ "description": "The same JSON from the four SDKs. No audio, no text, no identifier of a device, an install, a learner or an app. Safe to paste into an issue.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "sdk",
+  "key",
+  "config",
+  "model",
+  "context",
+  "backend",
+  "microphone",
+  "storage",
+  "lastError",
+  "droppedChunks",
+  "connection"
+ ],
+ "properties": {
+  "sdk": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "version",
+    "latest"
+   ],
+   "properties": {
+    "version": {
+     "type": "string",
+     "pattern": "^(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,5})$"
+    },
+    "latest": {
+     "anyOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "string",
+       "pattern": "^(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,5})$"
+      }
+     ]
+    }
+   }
+  },
+  "key": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "accepted",
+    "reason"
+   ],
+   "properties": {
+    "accepted": {
+     "type": [
+      "boolean",
+      "null"
+     ]
+    },
+    "reason": {
+     "enum": [
+      null,
+      "invalid_key",
+      "sdk_too_old",
+      "server_rejected"
+     ]
+    }
+   },
+   "if": {
+    "properties": {
+     "accepted": {
+      "const": false
+     }
+    }
+   },
+   "then": {
+    "properties": {
+     "reason": {
+      "type": "string"
+     }
+    }
+   },
+   "else": {
+    "properties": {
+     "reason": {
+      "type": "null"
+     }
+    }
+   }
+  },
+  "config": {
+   "enum": [
+    "fresh",
+    "stale",
+    "none"
+   ]
+  },
+  "model": {
+   "anyOf": [
+    {
+     "type": "null"
+    },
+    {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "version",
+      "build",
+      "verified"
+     ],
+     "properties": {
+      "version": {
+       "type": "string",
+       "pattern": "^(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,5})$"
+      },
+      "build": {
+       "type": "string",
+       "pattern": "^[0-9a-f]{40}$"
+      },
+      "verified": {
+       "type": "boolean"
+      }
+     }
+    }
+   ]
+  },
+  "context": {
+   "anyOf": [
+    {
+     "type": "null"
+    },
+    {
+     "type": "string",
+     "pattern": "^c[0-9]+_l[0-9]+$"
+    }
+   ]
+  },
+  "backend": {
+   "anyOf": [
+    {
+     "type": "null"
+    },
+    {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "kind",
+      "name",
+      "stage",
+      "reason"
+     ],
+     "properties": {
+      "kind": {
+       "enum": [
+        "cpu",
+        "accelerator"
+       ]
+      },
+      "name": {
+       "type": "string",
+       "pattern": "^(cpu|wasm|coreml|coreml-compact|npu:[a-z0-9_]+)$"
+      },
+      "stage": {
+       "enum": [
+        "cpu",
+        "downloading",
+        "compiling",
+        "testing",
+        "promoted",
+        "demoted"
+       ]
+      },
+      "reason": {
+       "anyOf": [
+        {
+         "type": "null"
+        },
+        {
+         "type": "string",
+         "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        }
+       ]
+      }
+     },
+     "if": {
+      "properties": {
+       "kind": {
+        "const": "cpu"
+       }
+      }
+     },
+     "then": {
+      "properties": {
+       "name": {
+        "enum": [
+         "cpu",
+         "wasm"
+        ]
+       }
+      }
+     },
+     "else": {
+      "properties": {
+       "name": {
+        "pattern": "^(coreml|coreml-compact|npu:[a-z0-9_]+)$"
+       }
+      }
+     }
+    }
+   ]
+  },
+  "microphone": {
+   "enum": [
+    "granted",
+    "denied",
+    "notAsked",
+    "none"
+   ]
+  },
+  "storage": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "models",
+    "sharingQueueBytes"
+   ],
+   "properties": {
+    "models": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "version",
+       "build",
+       "bytes"
+      ],
+      "properties": {
+       "version": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,3})\\.(0|[1-9][0-9]{0,5})$"
+       },
+       "build": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+       },
+       "bytes": {
+        "type": "integer",
+        "minimum": 0
+       }
+      }
+     }
+    },
+    "sharingQueueBytes": {
+     "type": "integer",
+     "minimum": 0
+    }
+   }
+  },
+  "lastError": {
+   "enum": [
+    null,
+    "invalid_argument",
+    "invalid_key",
+    "sdk_too_old",
+    "server_rejected",
+    "client_exists",
+    "model_unavailable",
+    "needs_connection",
+    "network_not_permitted",
+    "download_failed",
+    "storage_full",
+    "storage_failed",
+    "model_missing",
+    "model_invalid",
+    "signature_invalid",
+    "checksum_mismatch",
+    "model_incompatible",
+    "runtime_unsupported",
+    "reference_missing",
+    "session_open",
+    "session_closed",
+    "cancelled",
+    "engine_failed",
+    "microphone_denied",
+    "microphone_unavailable",
+    "interrupted",
+    "sharing_unavailable"
+   ]
+  },
+  "droppedChunks": {
+   "type": "integer",
+   "minimum": 0
+  },
+  "connection": {
+   "enum": [
+    "unmetered",
+    "metered",
+    "none",
+    "unknown"
+   ]
+  }
+ }
+}

@@ -1,0 +1,809 @@
+{
+ "about": "SDK 3.0.0 telemetry (make_telemetry.py holds the rules and the reference). `takes`: takes with known outputs (greedy ids per head: one per 40 ms frame, timing_log_probs one per 20 ms frame, given for every take because the SDK always computes it for speech and silence; the input audio; the compute time of each chunk in microseconds; how the take ended; the heads selected) and `cohorts`: what the cohorts of the day carry for them, per (context, backend) in first-seen order: the key (revision = the model version, build), `sessions`, `aborted` and the 6.2 counters. `example_payload`: one whole delta as 3.0 sends it; its first cohort's 6.2 fields are those of `cohorts[0]`, its app-reported fields come from `example_reports`, and its other fields are example values in the shapes of PLATFORM_CLIENT.md section 6; its `downloads` and `promotions` entries carry the version in `revision` and the build id in `build`, as the cohort does. `report_recited` and `report_checks`: the 6.3 APIs. Seconds are compared to 1e-9.",
+ "version": "4.0.0",
+ "build": "8b9e3beb169a41b234eacc93252d7bcc141f0b27",
+ "ctc_heads": ["log_probs", "inter1_log_probs", "inter4_log_probs", "id_log_probs", "timing_log_probs"],
+ "takes": [
+  {
+   "name": "take 1: finished",
+   "context": "c16_l64",
+   "backend": "cpu",
+   "end": "finish",
+   "samples": 54400,
+   "sample_rate": 16000,
+   "selected": ["log_probs", "inter1_log_probs", "timing_log_probs", "gem", "attr_qalqalah", "conf"],
+   "heads": {
+    "log_probs": [0, 0, 0, 0, 0, 0, 3, 32, 0, 13, 13, 0, 0, 25, 32, 0, 24, 34, 34, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22, 33, 0, 0, 24, 0, 27, 33, 33, 0, 0, 0, 28, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "inter1_log_probs": [0, 0, 0, 0, 0, 0, 3, 32, 1, 13, 13, 0, 0, 25, 32, 0, 24, 34, 34, 1, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22, 33, 0, 0, 24, 0, 27, 33, 33, 0, 0, 0, 28, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "timing_log_probs": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 32, 32, 0, 0, 13, 13, 13, 13, 0, 0, 0, 0, 25, 25, 32, 32, 0, 0, 24, 24, 34, 34, 34, 34, 0, 0, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22, 22, 33, 33, 0, 0, 0, 0, 24, 24, 0, 0, 27, 27, 33, 33, 33, 33, 0, 0, 0, 0, 0, 0, 28, 28, 31, 31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   },
+   "chunk_compute_us": [6100, 5900, 6400, 5800, 6000, 6250, 5950, 6050, 6150, 5850, 6490]
+  },
+  {
+   "name": "take 2: ended on silence, microphone at 48 kHz",
+   "context": "c16_l64",
+   "backend": "cpu",
+   "end": "ended:silence",
+   "samples": 48017,
+   "sample_rate": 48000,
+   "selected": ["log_probs", "inter1_log_probs", "timing_log_probs", "gem", "attr_qalqalah", "conf"],
+   "heads": {
+    "log_probs": [0, 0, 0, 22, 33, 0, 24, 0, 0, 27, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "inter1_log_probs": [0, 0, 0, 22, 33, 0, 24, 0, 0, 27, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "timing_log_probs": [0, 0, 0, 0, 0, 0, 22, 22, 33, 33, 0, 0, 24, 24, 0, 0, 0, 0, 27, 27, 33, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   },
+   "chunk_compute_us": [6020, 5980, 6005, 5333]
+  },
+  {
+   "name": "take 3: cancelled (counts nothing here)",
+   "context": "c16_l64",
+   "backend": "cpu",
+   "end": "cancel",
+   "samples": 32000,
+   "sample_rate": 16000,
+   "selected": ["log_probs", "inter1_log_probs", "timing_log_probs", "gem", "attr_qalqalah", "conf"],
+   "heads": {
+    "log_probs": [0, 0, 0, 22, 33, 0, 24, 0, 0, 27, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "inter1_log_probs": [0, 0, 0, 22, 33, 0, 24, 0, 0, 27, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "timing_log_probs": [0, 0, 0, 0, 0, 0, 22, 22, 33, 33, 0, 0, 24, 24, 0, 0, 0, 0, 27, 27, 33, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   },
+   "chunk_compute_us": [6000, 6000, 6000, 6000]
+  },
+  {
+   "name": "take 4: another context, only log_probs selected",
+   "context": "c8_l64",
+   "backend": "cpu",
+   "end": "finish",
+   "samples": 16000,
+   "sample_rate": 16000,
+   "selected": ["log_probs"],
+   "heads": {
+    "log_probs": [0, 0, 0, 22, 33, 0, 24, 0, 0, 27, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "inter1_log_probs": [0, 0, 0, 22, 33, 0, 24, 0, 0, 27, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "timing_log_probs": [0, 0, 0, 0, 0, 0, 22, 22, 33, 33, 0, 0, 24, 24, 0, 0, 0, 0, 27, 27, 33, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   },
+   "chunk_compute_us": [3100, 2900, 3000, 3050, 2950, 3000, 349]
+  },
+  {
+   "name": "take 5: ended by an error (counts nothing here)",
+   "context": "c8_l64",
+   "backend": "cpu",
+   "end": "ended:error",
+   "samples": 16000,
+   "sample_rate": 16000,
+   "selected": ["log_probs"],
+   "heads": {
+    "log_probs": [0, 0, 0, 22, 33, 0, 24, 0, 0, 27, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "timing_log_probs": [0, 0, 0, 0, 0, 0, 22, 22, 33, 33, 0, 0, 24, 24, 0, 0, 0, 0, 27, 27, 33, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   },
+   "chunk_compute_us": [3000]
+  },
+  {
+   "name": "take 6: a take without a token",
+   "context": "c8_l64",
+   "backend": "cpu",
+   "end": "ended:sourceEnd",
+   "samples": 8000,
+   "sample_rate": 16000,
+   "selected": ["log_probs"],
+   "heads": {
+    "log_probs": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "timing_log_probs": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   },
+   "chunk_compute_us": [3000, 3000, 3000]
+  }
+ ],
+ "cohorts": [
+  {
+   "revision": "4.0.0",
+   "build": "8b9e3beb169a41b234eacc93252d7bcc141f0b27",
+   "context": "c16_l64",
+   "backend": "cpu",
+   "sessions": 3,
+   "aborted": 1,
+   "takes": 2,
+   "audio_s": 4.4,
+   "speech_s": 1.32,
+   "silence_s": 3.08,
+   "tokens": {
+    "log_probs": 20,
+    "inter1_log_probs": 22,
+    "timing_log_probs": 20
+   },
+   "compute_s": 0.09
+  },
+  {
+   "revision": "4.0.0",
+   "build": "8b9e3beb169a41b234eacc93252d7bcc141f0b27",
+   "context": "c8_l64",
+   "backend": "cpu",
+   "sessions": 3,
+   "aborted": 1,
+   "takes": 2,
+   "audio_s": 1.5,
+   "speech_s": 0.2,
+   "silence_s": 1.28,
+   "tokens": {
+    "log_probs": 5
+   },
+   "compute_s": 0.027
+  }
+ ],
+ "cohort_fields_removed": ["preset", "word_level", "word_bucket", "site_overrides", "checks_on", "classes", "session_flag_pct", "madd", "words"],
+ "example_reports": {
+  "recited": [
+   [1, 1, 7],
+   [36, 1, 14],
+   [112, 1, 4],
+   [1, 1, 7]
+  ],
+  "checks": [
+   ["vowel_sub", 300, 2],
+   ["madd", 40, 3],
+   ["qalqalah", 12, 0],
+   ["word", 140, 5]
+  ]
+ },
+ "example_payload": {
+  "v": 2,
+  "day": "2026-11-11",
+  "product": "android",
+  "platform": "android",
+  "sdk_version": "3.0.0",
+  "app_version": "3.2",
+  "device": {
+   "class": "Pixel8",
+   "soc": "tensor_g3",
+   "os_major": 15,
+   "ram_tier": "8_16"
+  },
+  "cohorts": [
+   {
+    "revision": "4.0.0",
+    "build": "8b9e3beb169a41b234eacc93252d7bcc141f0b27",
+    "context": "c16_l64",
+    "backend": "cpu",
+    "sessions": 3,
+    "minutes": 0.11,
+    "chunks": 19,
+    "aborted": 1,
+    "fallbacks": {
+     "non_finite": 0,
+     "deadline": 0,
+     "ane_unavailable": 0,
+     "npu_unavailable": 0,
+     "model_load": 0,
+     "thermal": 0,
+     "memory": 0,
+     "other": 0
+    },
+    "self_test": {
+     "pass": 0,
+     "fail": 0
+    },
+    "latency_ms": {
+     "le_5": 0,
+     "le_10": 19,
+     "le_20": 0,
+     "le_40": 0,
+     "le_80": 0,
+     "le_160": 0,
+     "le_320": 0,
+     "gt_320": 0
+    },
+    "rtf": {
+     "le_0_1": 19,
+     "le_0_25": 0,
+     "le_0_5": 0,
+     "le_1": 0,
+     "gt_1": 0
+    },
+    "cold_start_ms": {
+     "le_250": 0,
+     "le_500": 1,
+     "le_1000": 0,
+     "le_2000": 0,
+     "le_4000": 0,
+     "gt_4000": 0
+    },
+    "model_load_ms": {
+     "le_250": 0,
+     "le_500": 1,
+     "le_1000": 0,
+     "le_2000": 0,
+     "le_4000": 0,
+     "gt_4000": 0
+    },
+    "thermal": {
+     "transitions": 0,
+     "throttled_sessions": 0
+    },
+    "margin": {
+     "le_0_5": 0,
+     "le_1": 1,
+     "le_2": 2,
+     "le_4": 5,
+     "le_8": 9,
+     "gt_8": 3
+    },
+    "confidence": {
+     "le_0_5": 0,
+     "le_0_7": 1,
+     "le_0_8": 1,
+     "le_0_9": 3,
+     "le_0_95": 6,
+     "gt_0_95": 9
+    },
+    "takes": 2,
+    "audio_s": 4.4,
+    "speech_s": 1.32,
+    "silence_s": 3.08,
+    "tokens": {
+     "log_probs": 20,
+     "inter1_log_probs": 22,
+     "timing_log_probs": 20
+    },
+    "compute_s": 0.09
+   }
+  ],
+  "downloads": [
+   {
+    "revision": "4.0.0",
+    "build": "8b9e3beb169a41b234eacc93252d7bcc141f0b27",
+    "profile": "android-cpu",
+    "bytes": 59310442,
+    "success": 1,
+    "failed": 0,
+    "resumed": 1
+   }
+  ],
+  "report_id": "6f1c0e9a4b2d47e8a1c3f5d7b9e0a2c4",
+  "launches": 2,
+  "ayahs": 32,
+  "surah_ayahs": {
+   "1": 14,
+   "36": 14,
+   "112": 4
+  },
+  "coverage": {
+   "1": 14,
+   "36": 14,
+   "112": 4
+  },
+  "words": 140,
+  "rule_checks": {
+   "vowel_sub": 300,
+   "madd": 40,
+   "qalqalah": 12,
+   "word": 140
+  },
+  "rule_flags": {
+   "vowel_sub": 2,
+   "madd": 3,
+   "word": 5
+  },
+  "reported": ["ayahs", "surah_ayahs", "coverage", "words", "rule_checks", "rule_flags"],
+  "promotions": [
+   {
+    "backend": "npu:tensor_g3",
+    "revision": "4.0.0",
+    "build": "8b9e3beb169a41b234eacc93252d7bcc141f0b27",
+    "context": "c16_l64",
+    "attempts": 1,
+    "promoted": 1,
+    "compile_ms": {
+     "le_15000": 1
+    },
+    "speedup": {
+     "le_3": 1
+    }
+   }
+  ],
+  "share_asked": 1,
+  "share_yes": 1
+ },
+ "nothing_reported": {
+  "about": "A day on which the app called neither API: none of the six fields, and the `reported` field is absent (not an empty list).",
+  "fields": {}
+ },
+ "reported_order": ["ayahs", "surah_ayahs", "coverage", "words", "rule_checks", "rule_flags"],
+ "report_recited": {
+  "about": "`valid` and `refused` are single calls [surah, ayahFrom, ayahTo]; `refused_untyped` only applies where the language lets such a value reach the call (JavaScript; C and typed Kotlin and Swift cannot). `takes`: one UTC day, the takes in order; a step is [\"recited\", surah, ayahFrom, ayahTo] or [\"end\", how]; `results` has one entry per recited step; `day_after` is the day's app-reported fields after the take.",
+  "valid": [
+   [1, 1, 1],
+   [1, 1, 7],
+   [1, 7, 7],
+   [2, 286, 286],
+   [103, 1, 3],
+   [114, 6, 6],
+   [9, 129, 129]
+  ],
+  "refused": [
+   [0, 1, 1],
+   [115, 1, 1],
+   [-1, 1, 1],
+   [1, 0, 1],
+   [1, 3, 2],
+   [1, 1, 8],
+   [1, 8, 8],
+   [2, 1, 287],
+   [103, 4, 4],
+   [114, 1, 7],
+   [108, 0, 0],
+   [57, -3, 5]
+  ],
+  "refused_untyped": [
+   [1.5, 1, 1],
+   [1, 1.0, 2.5],
+   ["1", 1, 1],
+   [null, 1, 1],
+   [1, 1, null],
+   [true, 1, 1]
+  ],
+  "refused_code": "invalid_argument",
+  "takes": [
+   {
+    "name": "one report before the take ends",
+    "steps": [
+     ["recited", 1, 2, 2],
+     ["end", "finish"]
+    ],
+    "results": ["ok"],
+    "day_after": {
+     "ayahs": 1,
+     "surah_ayahs": {
+      "1": 1
+     },
+     "coverage": {
+      "1": 1
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "a second report replaces the first",
+    "steps": [
+     ["recited", 2, 1, 5],
+     ["recited", 2, 255, 257],
+     ["end", "finish"]
+    ],
+    "results": ["ok", "ok"],
+    "day_after": {
+     "ayahs": 4,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 3
+     },
+     "coverage": {
+      "1": 1,
+      "2": 3
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "a refused call leaves the earlier report",
+    "steps": [
+     ["recited", 36, 1, 12],
+     ["recited", 36, 80, 84],
+     ["end", "ended:silence"]
+    ],
+    "results": ["ok", "invalid_argument"],
+    "day_after": {
+     "ayahs": 16,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 3,
+      "36": 12
+     },
+     "coverage": {
+      "1": 1,
+      "2": 3,
+      "36": 12
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "a report after the take ended",
+    "steps": [
+     ["end", "finish"],
+     ["recited", 112, 1, 4]
+    ],
+    "results": ["ok"],
+    "day_after": {
+     "ayahs": 20,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "112": 4
+     },
+     "coverage": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "112": 4
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "a second report after the first was counted does nothing",
+    "steps": [
+     ["recited", 114, 1, 6],
+     ["end", "finish"],
+     ["recited", 113, 1, 5]
+    ],
+    "results": ["ok", "ok"],
+    "day_after": {
+     "ayahs": 26,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "112": 4,
+      "114": 6
+     },
+     "coverage": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "112": 4,
+      "114": 6
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "two reports after the end: the first counts",
+    "steps": [
+     ["end", "ended:sourceEnd"],
+     ["recited", 67, 1, 30],
+     ["recited", 67, 1, 10]
+    ],
+    "results": ["ok", "ok"],
+    "day_after": {
+     "ayahs": 56,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "coverage": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "a cancelled take counts no report",
+    "steps": [
+     ["recited", 18, 1, 10],
+     ["end", "cancel"],
+     ["recited", 18, 1, 10]
+    ],
+    "results": ["ok", "ok"],
+    "day_after": {
+     "ayahs": 56,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "coverage": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "a take ended by an error counts no report",
+    "steps": [
+     ["recited", 55, 1, 13],
+     ["end", "ended:error"]
+    ],
+    "results": ["ok"],
+    "day_after": {
+     "ayahs": 56,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "coverage": {
+      "1": 1,
+      "2": 3,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "a whole surah, the last ayah included",
+    "steps": [
+     ["recited", 2, 1, 286],
+     ["end", "finish"]
+    ],
+    "results": ["ok"],
+    "day_after": {
+     "ayahs": 342,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 289,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "coverage": {
+      "1": 1,
+      "2": 289,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   },
+   {
+    "name": "no report",
+    "steps": [
+     ["end", "finish"]
+    ],
+    "results": [],
+    "day_after": {
+     "ayahs": 342,
+     "surah_ayahs": {
+      "1": 1,
+      "2": 289,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "coverage": {
+      "1": 1,
+      "2": 289,
+      "36": 12,
+      "67": 30,
+      "112": 4,
+      "114": 6
+     },
+     "reported": ["ayahs", "surah_ayahs", "coverage"]
+    }
+   }
+  ]
+ },
+ "report_checks": {
+  "about": "`valid` and `refused` are single calls [rule, checked, flagged]. `sequence`: one UTC day, the calls in order with each result, and the day's fields after them. `rules_a_day`: 33 distinct rules, then four more calls: the 33rd rule is dropped (the call still returns normally), a rule already counted keeps counting, a call with checked 0 takes no place, and `word` is a 34th rule and is dropped too.",
+  "rule_pattern": "^[a-z][a-z0-9_]{0,23}$",
+  "checked_max": 100000,
+  "rules_per_day": 32,
+  "valid": [
+   ["vowel_sub", 31, 1],
+   ["madd", 12, 0],
+   ["word", 140, 4],
+   ["a", 0, 0],
+   ["x23456789012345678901234", 1, 1],
+   ["my_rule_2", 100000, 100000],
+   ["qalqalah", 5, 5]
+  ],
+  "refused": [
+   ["", 1, 0],
+   ["Vowel", 1, 0],
+   ["1rule", 1, 0],
+   ["_rule", 1, 0],
+   ["rule-x", 1, 0],
+   ["rule x", 1, 0],
+   ["x234567890123456789012345", 1, 0],
+   ["r\u00e9gle", 1, 0],
+   ["madd ", 1, 0],
+   ["madd", -1, 0],
+   ["madd", 1, -1],
+   ["madd", 1, 2],
+   ["madd", 100001, 0],
+   ["madd", 0, 1]
+  ],
+  "refused_untyped": [
+   ["madd", 1.5, 0],
+   ["madd", 2, 0.5],
+   [null, 1, 0],
+   [7, 1, 0],
+   ["madd", "1", 0],
+   ["madd", true, 0]
+  ],
+  "refused_code": "invalid_argument",
+  "sequence": {
+   "calls": [
+    {
+     "call": ["vowel_sub", 31, 1],
+     "result": "ok"
+    },
+    {
+     "call": ["vowel_sub", 29, 0],
+     "result": "ok"
+    },
+    {
+     "call": ["madd", 12, 3],
+     "result": "ok"
+    },
+    {
+     "call": ["word", 140, 4],
+     "result": "ok"
+    },
+    {
+     "call": ["cons_sub", 280, 0],
+     "result": "ok"
+    },
+    {
+     "call": ["qalqalah", 0, 0],
+     "result": "ok"
+    },
+    {
+     "call": ["Madd", 1, 0],
+     "result": "invalid_argument"
+    },
+    {
+     "call": ["madd", 1, 2],
+     "result": "invalid_argument"
+    },
+    {
+     "call": ["word", 60, 1],
+     "result": "ok"
+    }
+   ],
+   "day_after": {
+    "words": 200,
+    "rule_checks": {
+     "vowel_sub": 60,
+     "madd": 12,
+     "word": 200,
+     "cons_sub": 280
+    },
+    "rule_flags": {
+     "vowel_sub": 1,
+     "madd": 3,
+     "word": 5
+    },
+    "reported": ["words", "rule_checks", "rule_flags"]
+   }
+  },
+  "rules_a_day": {
+   "calls": [
+    ["rule_01", 10, 1],
+    ["rule_02", 10, 1],
+    ["rule_03", 10, 1],
+    ["rule_04", 10, 1],
+    ["rule_05", 10, 1],
+    ["rule_06", 10, 1],
+    ["rule_07", 10, 1],
+    ["rule_08", 10, 1],
+    ["rule_09", 10, 1],
+    ["rule_10", 10, 1],
+    ["rule_11", 10, 1],
+    ["rule_12", 10, 1],
+    ["rule_13", 10, 1],
+    ["rule_14", 10, 1],
+    ["rule_15", 10, 1],
+    ["rule_16", 10, 1],
+    ["rule_17", 10, 1],
+    ["rule_18", 10, 1],
+    ["rule_19", 10, 1],
+    ["rule_20", 10, 1],
+    ["rule_21", 10, 1],
+    ["rule_22", 10, 1],
+    ["rule_23", 10, 1],
+    ["rule_24", 10, 1],
+    ["rule_25", 10, 1],
+    ["rule_26", 10, 1],
+    ["rule_27", 10, 1],
+    ["rule_28", 10, 1],
+    ["rule_29", 10, 1],
+    ["rule_30", 10, 1],
+    ["rule_31", 10, 1],
+    ["rule_32", 10, 1],
+    ["rule_33", 10, 1],
+    ["rule_05", 5, 0],
+    ["rule_33", 7, 7],
+    ["empty_rule", 0, 0],
+    ["word", 9, 0]
+   ],
+   "results": ["ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok"],
+   "day_after": {
+    "rule_checks": {
+     "rule_01": 10,
+     "rule_02": 10,
+     "rule_03": 10,
+     "rule_04": 10,
+     "rule_05": 15,
+     "rule_06": 10,
+     "rule_07": 10,
+     "rule_08": 10,
+     "rule_09": 10,
+     "rule_10": 10,
+     "rule_11": 10,
+     "rule_12": 10,
+     "rule_13": 10,
+     "rule_14": 10,
+     "rule_15": 10,
+     "rule_16": 10,
+     "rule_17": 10,
+     "rule_18": 10,
+     "rule_19": 10,
+     "rule_20": 10,
+     "rule_21": 10,
+     "rule_22": 10,
+     "rule_23": 10,
+     "rule_24": 10,
+     "rule_25": 10,
+     "rule_26": 10,
+     "rule_27": 10,
+     "rule_28": 10,
+     "rule_29": 10,
+     "rule_30": 10,
+     "rule_31": 10,
+     "rule_32": 10
+    },
+    "rule_flags": {
+     "rule_01": 1,
+     "rule_02": 1,
+     "rule_03": 1,
+     "rule_04": 1,
+     "rule_05": 1,
+     "rule_06": 1,
+     "rule_07": 1,
+     "rule_08": 1,
+     "rule_09": 1,
+     "rule_10": 1,
+     "rule_11": 1,
+     "rule_12": 1,
+     "rule_13": 1,
+     "rule_14": 1,
+     "rule_15": 1,
+     "rule_16": 1,
+     "rule_17": 1,
+     "rule_18": 1,
+     "rule_19": 1,
+     "rule_20": 1,
+     "rule_21": 1,
+     "rule_22": 1,
+     "rule_23": 1,
+     "rule_24": 1,
+     "rule_25": 1,
+     "rule_26": 1,
+     "rule_27": 1,
+     "rule_28": 1,
+     "rule_29": 1,
+     "rule_30": 1,
+     "rule_31": 1,
+     "rule_32": 1
+    },
+    "reported": ["rule_checks", "rule_flags"]
+   }
+  }
+ }
+}
