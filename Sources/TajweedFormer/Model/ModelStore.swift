@@ -6,34 +6,39 @@ import Foundation
 /// it), a `current` pointer file naming the one in use and `previous` the one before. A download goes to
 /// `.download-<cdn revision>` (kept across launches, so it resumes), is verified, then renamed into place and the
 /// pointer switched with an atomic write: a crash at any point leaves the old revision in use.
+///
+/// Since 3.1.0 the store opens only a build this Client downloaded itself (the install record, `InstallRecord`):
+/// a revision folder without a valid record of this device is not opened, it is deleted, and the build is
+/// downloaded. The app bundle is no longer a source of a model (`QuranLabModels/<model id>/` was, to 3.0.1).
 struct ModelStore: Sendable {
     let root: URL
     let verifier: ManifestVerifier
     let updates: UpdatePolicy
+    /// Where the device key of the install record lives.
+    let installKeys: any InstallKeyStoring
 
     init(config: QuranLab.Configuration) {
         root = config.storageDirectory.appendingPathComponent("models")
         verifier = .standard
         updates = config.options.updates
+        installKeys = KeychainInstallKeyStore()
     }
 
-    init(root: URL, verifier: ManifestVerifier, updates: UpdatePolicy = .automatic) {
+    init(root: URL, verifier: ManifestVerifier, updates: UpdatePolicy = .automatic,
+         installKeys: any InstallKeyStoring = KeychainInstallKeyStore()) {
         self.root = root
         self.verifier = verifier
         self.updates = updates
+        self.installKeys = installKeys
     }
 
-    /// The store the SDK uses by default.
-    static var standard: ModelStore { ModelStore(config: QuranLab.configuration) }
+    /// The store of the Client in force: its server client's (with that client's key store), else one over the
+    /// configuration.
+    static var standard: ModelStore { QuranLab.cloud?.store ?? ModelStore(config: QuranLab.configuration) }
 
     func resolve(_ id: ModelID, sources: [ModelSource], context: String?) async throws(RecognizerError) -> ModelFolder {
         var firstFailure: RecognizerError?
-        var order = sources
-        // with updates on, the store's copy (the newest the updater installed) wins over the copy bundled at install
-        if updates != .manual, let c = order.firstIndex(of: .cache), let b = order.firstIndex(of: .bundle), b < c {
-            order.remove(at: c)
-            order.insert(.cache, at: b)
-        }
+        let order = sources
         if order.contains(.cache) { _ = try? activatePending(id) }
         for source in order {
             do throws(RecognizerError) {
@@ -56,11 +61,10 @@ struct ModelStore: Sendable {
         switch source {
         case .directory(let url):
             return usable(try await Self.verified(url, id, verifier))
-        case .bundle:
-            guard let res = Bundle.main.resourceURL else { return nil }
-            return usable(try await Self.verified(res.appendingPathComponent("QuranLabModels").appendingPathComponent(id.name), id, verifier))
         case .cache:
-            guard let dir = cachedDirectory(id) else { return nil }
+            // only a build this Client downloaded itself: anything else in the store is deleted here, and the caller
+            // downloads the build
+            guard let dir = try ownedDirectory(id, discard: true) else { return nil }
             return usable(try await Self.verified(dir, id, verifier))
         case .cdn:
             guard let cloud = QuranLab.cloud else { return nil }
@@ -87,6 +91,83 @@ struct ModelStore: Sendable {
         guard let revision, Self.safeName(revision) else { return nil }
         let dir = base(id).appendingPathComponent(revision)
         return FileManager.default.fileExists(atPath: dir.path) ? dir : nil
+    }
+
+    // MARK: the install record
+
+    /// How a revision folder of this store stands to this Client: its own when it holds a valid install record of
+    /// this device for the build its manifest.json is. The key store is asked first.
+    func standing(of dir: URL) -> InstallStanding {
+        if case .failed(let why) = installKeys.load() { return .keyStoreFailed(why) }
+        guard let build = InstallRecord.buildOnDisk(dir) else { return .notOwn("the folder has no manifest") }
+        return InstallRecord.standing(of: dir, build: build, keys: installKeys)
+    }
+
+    /// The cached revision's folder when it is this Client's own finished download; nil when there is none. A
+    /// folder that is not the Client's is deleted with `discard` (its pointer files with it), never opened. A key
+    /// store that fails throws `storageFailed`: nothing is opened and nothing is deleted.
+    func ownedDirectory(_ id: ModelID, discard: Bool) throws(RecognizerError) -> URL? {
+        // one at a time with `putInPlace`: a folder is judged and deleted in one step, so the download that the
+        // launch's update check has just put in place is never the one deleted
+        Self.ownership.lock()
+        defer { Self.ownership.unlock() }
+        guard let dir = cachedDirectory(id) else { return nil }
+        switch standing(of: dir) {
+        case .own(.installed):
+            return dir
+        case .keyStoreFailed(let why):
+            throw .storageFailed(InstallRecord.keyStoreMessage(why))
+        case .own(.downloading), .notOwn:
+            if discard { self.discard(id, folder: dir) }
+            return nil
+        }
+    }
+
+    /// Deletes a revision folder that is not the Client's, and the pointer files that name it.
+    func discard(_ id: ModelID, folder: URL) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: folder)
+        let b = base(id)
+        for p in ["current", "previous", "pending"] where pointer(b, p) == folder.lastPathComponent {
+            try? fm.removeItem(at: b.appendingPathComponent(p))
+        }
+    }
+
+    /// The start of a download into `folder` (the download folder of a build): a folder that holds this device's
+    /// record of `build` goes on where it stopped; any other folder there is not the Client's and is deleted first,
+    /// none of its files reused. Then the record is written with the state `downloading`, before the first file is
+    /// asked for.
+    func beginDownload(_ folder: URL, build: String) throws(RecognizerError) {
+        if FileManager.default.fileExists(atPath: folder.path) {
+            switch InstallRecord.standing(of: folder, build: build, keys: installKeys) {
+            case .own:
+                return
+            case .keyStoreFailed(let why):
+                throw .storageFailed(InstallRecord.keyStoreMessage(why))
+            case .notOwn:
+                try? FileManager.default.removeItem(at: folder)
+            }
+        }
+        try InstallRecord.write(.downloading, build: build, in: folder, keys: installKeys)
+    }
+
+    /// Every file of the download profile is on disk and verified: the record says `installed`.
+    func finishDownload(_ folder: URL, build: String) throws(RecognizerError) {
+        try InstallRecord.write(.installed, build: build, in: folder, keys: installKeys)
+    }
+
+    /// Judging a folder of the store and putting a download in place, one at a time in the process.
+    private static let ownership = NSLock()
+
+    /// A finished download becomes a revision of the store: its record says `installed`, the folder is renamed
+    /// into place, and it becomes the current revision (`current`) or the pending one.
+    func putInPlace(_ folder: URL, id: ModelID, cdnRevision: String, build: String, current: Bool) throws(RecognizerError) -> ModelFolder {
+        Self.ownership.lock()
+        defer { Self.ownership.unlock() }
+        try finishDownload(folder, build: build)
+        let model = try place(folder, id: id, cdnRevision: cdnRevision)
+        if current { try activate(id, revision: model.revision) } else { try markPending(id, revision: model.revision) }
+        return model
     }
 
     static func safeName(_ s: String) -> Bool {

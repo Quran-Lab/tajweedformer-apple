@@ -110,8 +110,8 @@
    "expect": {
     "code": "server_rejected",
     "reason": "app_blocked",
-    "message": "Quran Lab has blocked this app (app_blocked).",
-    "fix": "Open the app's page on sdk.quranlab.ai for the reason, or write to Quran Lab from the account that owns the app."
+    "message": "Quran Lab does not serve this app at the moment: it is blocked by Quran Lab or paused by its developer (app_blocked).",
+    "fix": "Open the app's page on sdk.quranlab.ai: unpause the app there, or read the reason for the block and write to Quran Lab from the account that owns the app."
    }
   },
   {

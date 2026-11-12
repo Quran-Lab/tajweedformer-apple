@@ -79,6 +79,14 @@ try session.reportRecited(surah: 1, ayahFrom: 2, ayahTo: 2)
 try client.analytics.reportChecks(rule: "vowel_sub", checked: 31, flagged: 1)
 ```
 
+## From 3.0 to 3.1.0
+
+One call is removed: `TajweedModel.open(_:)`. A model comes from Quran Lab's server through the Client, so replace
+`try await TajweedModel.open(folder)` with `try await client.model()` on a `TajweedClient(key:)` (and
+`try await client.prefetch()` to have the model on the device before the first take), and take the model folder out
+of the app's resources: the SDK no longer reads `QuranLabModels/` in the app bundle. Nothing else in an app's code
+changes. An install that updates from 3.0 downloads its model once more at the first launch after the update.
+
 ## Staying on 2.x
 
 SDK 2.0.2 keeps working until Quran Lab retires SDK 2.x, which happens when 3.0 is released or shortly after;

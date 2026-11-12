@@ -33,7 +33,7 @@ enum QuranLab {
         /// Where the SDK keeps models, the backend verdicts and its queues; nil means `Application Support/QuranLab`
         /// (on macOS `Application Support/<bundle id>/QuranLab`).
         var storageDirectory: URL?
-        /// Quran Lab's servers. Nil: the SDK never contacts a server (models from the bundle, a directory or the store).
+        /// Quran Lab's servers. Nil: the SDK never contacts a server (tests: a model from a directory).
         var cloud: CloudOptions?
         /// Ignored since 2.0.1: whether the SDK offers recording sharing (its own consent sheet, then every session in
         /// full for a learner who said "Share") is Quran Lab's decision per app, in the signed config.
@@ -47,7 +47,7 @@ enum QuranLab {
         /// whose `backend` names `coreml-compact`.
         var neuralEngine: Bool
 
-        init(modelSource: [ModelSource] = [.bundle, .cache, .cdn],
+        init(modelSource: [ModelSource] = [.cache, .cdn],
                     updates: UpdatePolicy = .automatic,
                     analytics: AnalyticsLevel = .on,
                     analyticsSink: (any AnalyticsSink)? = nil,

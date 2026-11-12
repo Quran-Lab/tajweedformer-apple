@@ -28,6 +28,9 @@ actor ModelUpdater {
     nonisolated let coreML: Bool
     private let record: @Sendable (AnalyticsEvent) -> Void
     private let report: @Sendable (RecognizerError, String) -> Void
+    /// The refusal that stops the model now, when one is remembered (SPEC 15.3): nothing is put on the device
+    /// while it holds.
+    private let stopped: @Sendable () -> ModelGate.Refusal?
     private let rangeSize: Int64
     private var running: [String: Task<Outcome, Never>] = [:]
     /// Who wants the bytes of an install as they are done (`client.prefetch`). Every install reports to the relay, so
@@ -42,7 +45,9 @@ actor ModelUpdater {
          rangeSize: Int64 = 8 << 20,
          networkAllowed: @escaping @Sendable (_ firstInstall: Bool) async -> Bool,
          record: @escaping @Sendable (AnalyticsEvent) -> Void = { _ in },
-         report: @escaping @Sendable (RecognizerError, String) -> Void = { _, _ in }) {
+         report: @escaping @Sendable (RecognizerError, String) -> Void = { _, _ in },
+         stopped: @escaping @Sendable () -> ModelGate.Refusal? = { nil }) {
+        self.stopped = stopped
         self.store = store
         self.client = client
         self.inferenceContext = inferenceContext
@@ -66,6 +71,13 @@ actor ModelUpdater {
         return out
     }
 
+    /// Asks the CDN for the manifest of a build and reads nothing from the answer: the request itself is the
+    /// question whether the CDN serves this key (SPEC 15.3). The CDN client tells the model gate what it answered.
+    nonisolated func ask(_ id: ModelID, revision: String) async {
+        guard let client = client() else { return }
+        _ = try? await client.send(client.fileURL(id, revision: revision, path: ModelManifest.fileName))
+    }
+
     /// The context to install: the caller's, else the config's when the manifest has it, else the manifest's default.
     private func resolve(_ context: String?, _ m: ModelManifest) -> String {
         if let context { return context }
@@ -74,8 +86,28 @@ actor ModelUpdater {
     }
 
     private func run(_ id: ModelID, _ cdnRevision: String, _ version: String?, _ context: String?, _ activate: Bool) async -> Outcome {
-        let current = store.currentRevision(id)
-        let currentDir = current.map { store.base(id).appendingPathComponent($0) }
+        // The device's key store first (SPEC 15.2): when it fails, nothing is opened, nothing is deleted and nothing
+        // is downloaded; the next call tries again.
+        if case .failed(let why) = store.installKeys.load() { return .failed(.storageFailed(InstallRecord.keyStoreMessage(why))) }
+        // A Client the API has refused downloads nothing: the refusal is the answer. (A refusal of a model request
+        // does not stop the request here: the CDN is asked, and its answer decides.)
+        if let stop = stopped(), stop.from == .api { return .failed(stop.error) }
+        var current = store.currentRevision(id)
+        var currentDir = current.map { store.base(id).appendingPathComponent($0) }
+        // A model in the store that this Client did not download itself (no valid install record of this device) is
+        // not opened and nothing is added to it: it is deleted, and the build is downloaded as on a first install.
+        if let dir = currentDir {
+            switch store.standing(of: dir) {
+            case .own(.installed):
+                break
+            case .keyStoreFailed(let why):
+                return .failed(.storageFailed(InstallRecord.keyStoreMessage(why)))
+            case .own(.downloading), .notOwn:
+                store.discard(id, folder: dir)
+                current = nil
+                currentDir = nil
+            }
+        }
         let isCurrent = current.map { store.sourceRevision(id, revision: $0) == cdnRevision || $0 == cdnRevision } ?? false
         if isCurrent, let dir = currentDir, let m = try? ModelFolder.open(directory: dir, verifier: store.verifier, expecting: id),
            m.isUsable(context: resolve(context, m.manifest)) {
@@ -105,9 +137,18 @@ actor ModelUpdater {
                 model = try ModelFolder.open(directory: dir, verifier: store.verifier, expecting: id)
             } else {
                 let folder = store.downloadFolder(id, cdnRevision: cdnRevision)
+                // the install record, state `downloading`, before the first file is asked for; a download folder
+                // without this device's record of this build is deleted first, none of its files reused
+                try store.beginDownload(folder, build: manifest.build)
                 report = try await installer.install(manifest, profile: profile, into: folder)
-                model = try store.place(folder, id: id, cdnRevision: cdnRevision)
-                if activate || current == nil { try store.activate(id, revision: model.revision) } else { try store.markPending(id, revision: model.revision) }
+                // a refusal that arrived while the files were on their way: nothing is put in place, and what was
+                // downloaded goes
+                if let stop = stopped() {
+                    try? FileManager.default.removeItem(at: folder)
+                    throw stop.error
+                }
+                // every file of the profile is verified: the record says `installed`, and travels with the folder
+                model = try store.putInPlace(folder, id: id, cdnRevision: cdnRevision, build: manifest.build, current: activate || current == nil)
             }
             record(.download(revision: manifest.version.isEmpty ? cdnRevision : manifest.version, build: cdnRevision, profile: profileName,
                              bytes: report.downloadedBytes, success: true, resumed: report.resumed))

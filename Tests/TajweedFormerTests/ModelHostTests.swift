@@ -101,7 +101,9 @@ final class ModelHostTests: XCTestCase {
     func testTheManifestComesFromTheDefaultWithTheAppKey() async throws {
         let seen = try await manifestRequest(CloudFixtures.config(recommended: Self.recommended), cdnURL: nil)
         XCTAssertEqual(seen.url.absoluteString, "https://cdn.quranlab.ai/models/Quran-Lab/tajweedformer-v4/rev-c/sdk/v4.0/manifest.json")
+        // 3.1.0: the key, and the install's token (the one the server issued just before)
         XCTAssertEqual(seen.headers["x-qlab-key"], CloudFixtures.key)
+        XCTAssertEqual(seen.headers["authorization"], "Bearer qlt_v1.eyJ2IjoxfQ.sig")
     }
 
     func testTheManifestComesFromTheSignedBase() async throws {
@@ -126,7 +128,7 @@ final class ModelHostTests: XCTestCase {
 
     func client(_ body: Data) throws -> CDNClient {
         StubProtocol.reset { _ in StubProtocol.Reply(body: body) }
-        return CDNClient(http: HTTPClient(session: StubProtocol.session()), base: ModelHost.defaultBase, key: "k",
+        return CDNClient(http: HTTPClient(session: StubProtocol.session()), base: ModelHost.defaultBase, auth: .fixed(key: "k", token: "t"),
                          verifier: ManifestVerifier(trustedKeys: [try Fixtures.v4miniKey()], requireSignature: true))
     }
 

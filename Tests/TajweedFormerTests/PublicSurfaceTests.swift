@@ -122,10 +122,11 @@ final class PublicSurfaceTests: XCTestCase {
 
     // MARK: the error catalogue
 
-    /// The SHA-256 of the contract's errors.json this package embeds (sdk_3.0.0/errors.json, version 1.3.9 of the
-    /// shared files: 26 codes, the reasons of `server_rejected`, docs on sdk.quranlab.ai). Recorded when the copy was
-    /// made; the copy is never edited.
-    static let catalogueSHA256 = "9d692efed682a65f5b1d2fb0afbe0df37aad790884a0cb9cf5479ca77889e631"
+    /// The SHA-256 of the contract's errors.json this package embeds (sdk_3.0.0/errors.json, version 1.7.0 of the
+    /// shared files: 26 codes, the reasons of `server_rejected` with the two of a model request, the fix of
+    /// `model_missing` without a folder to open, docs on sdk.quranlab.ai). Recorded when the copy was made; the copy
+    /// is never edited.
+    static let catalogueSHA256 = "04b264b9d820f865a0bfd4d695e17a07b2ae6b1be318324c91f3177d322cd510"
 
     func embedded() throws -> Data { try Data(contentsOf: try XCTUnwrap(ErrorCatalogue.resource)) }
 

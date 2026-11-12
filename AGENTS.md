@@ -60,18 +60,18 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
   no tajweed settings (SDK 2.x did; see [docs/migrating-to-3.md](docs/migrating-to-3.md)). It hosts only V4.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon. The Neural Engine backend needs iOS 18 or macOS 15; on older
   systems the exact CPU engine runs.
-- **Status:** released; this is version 3.0.1. CI builds every push for iOS and macOS and runs the tests on macOS.
+- **Status:** released; this is version 3.1.0. CI builds every push for iOS and macOS and runs the tests on macOS.
   The whole path through the public API (the key and the signed config, the download, the verified model, the
   promotion pipeline, takes on the CPU engine and on the Neural Engine) has run on an Apple silicon Mac against
   Quran Lab's servers with `scripts/prove-on-mac.sh` (version 3.0.0); that proof has not been run on an iPhone.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.0.1. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.0. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.0.1"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.0"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -86,6 +86,8 @@ dependencies: [
 | **Permissions** | `NSMicrophoneUsageDescription` in Info.plist: without it the system ends the app at the first use of the microphone. A sandboxed or hardened Mac app also needs the `com.apple.security.device.audio-input` entitlement. |
 | **Capabilities** | None for recognition. If your app offers recording sharing, add the App Attest capability: uploads need an attested install. Without it the SDK still runs, unattested. |
 | **Download** | The first launch downloads the model: 56.5 MB, once (73.5 MB on disk), on any network. On iOS 18 and macOS 15 the Neural Engine's build follows in the background on Wi-Fi: 76.1 MB more. |
+| **Model** | A model comes only from Quran Lab's server, through the Client: `try await client.model()`, or `client.prefetch()` ahead of use; the Client opens only a model it downloaded itself on this device, and an app that updates from an SDK before 3.1.0 downloads the model once more. When Quran Lab refuses the key or the app (a revoked key, a paused or blocked app), the SDK stops running the model and removes the downloaded model from the device. Once the key is accepted again the model is downloaded again. What the system cached by itself stays: the compiled form that Core ML keeps for the Neural Engine of a package the SDK loaded. |
+| **Keychain** | The SDK keeps one key per install in the Keychain (this device only) and marks with it the model it downloaded. A Mac app without a provisioning profile (an unsigned or ad hoc signed binary, a command line tool) is refused by that keychain: there the key lives in the Mac's login keychain, in an item named for the app's bundle id, and can travel to another Mac with the keychain. |
 | **Takes** | A Model has one open Session (one take) at a time; the next take is a new Session. A take holds at most 20 minutes of audio. |
 
 ## Quick start
@@ -210,7 +212,14 @@ network in Low Data Mode or no network (call it again later). Where the system d
 (`diagnose().connection` is `unknown`) the option cannot be honoured, and it downloads.
 `client.storage` says what is on disk (bytes per model build, and of the sharing queue), and
 `client.removeModels()` removes the model files, never the learner's sharing choice or the upload queue.
-`TajweedModel.open(_:)` opens a folder already on disk, verified the same way.
+
+A model comes from Quran Lab's server, through the Client: `client.model()` and `client.prefetch()` are the calls
+that bring one to a device, and no call opens a model folder the app supplies. The Client opens only a build it
+downloaded itself on this device. A model folder in its storage that it did not download (put there in advance, or
+copied from another device) is not opened: it is deleted, and the build is downloaded.
+After that download a learner without a connection keeps working. Every request for a model file carries the
+developer key and the install's token. An install that updates from 3.0 downloads its model once more at the first
+launch after the update (`needs_connection` when that launch has no network).
 
 ## Backends and the CPU fallback
 
@@ -294,6 +303,14 @@ knows, for its own page on sdk.quranlab.ai:
 `TajweedClientOptions(analytics: .off)` turns telemetry off in code; Quran Lab's config can turn it off for every
 install of an app.
 
+When Quran Lab refuses the key or the app (a revoked key, a paused or blocked app), the SDK stops running the model
+and removes the downloaded model from the device. Once the key is accepted again the model is downloaded again.
+`client.model()` and `client.prefetch()` throw the refusal's error meanwhile (`invalid_key`, or `server_rejected`
+with its reason), also at a later launch without a network. A Model that is already open when the refusal arrives
+keeps running until the app closes it, and its files are removed then. The learner's sharing choice and the
+recordings that are not sent yet stay. What stays on Apple platforms after the removal is what the system cached
+by itself: the compiled form that Core ML keeps for the Neural Engine of a package the SDK loaded.
+
 `await client.diagnose()` is one report of where the SDK stands, safe to paste into an issue (`.json`): the SDK's
 version and the newest one, whether the key is accepted, the config, the model's version and build, the context,
 the backend, the microphone permission, what is on disk, the last error's code, the dropped chunks and the
@@ -354,6 +371,12 @@ audio outside takes and need not call it.
   collects nothing linked to a person and uses no tracking.
 - **App Attest.** Recognition needs no capability. Uploads of shared recordings need an attested install: add the
   App Attest capability if your app offers sharing. Without it the SDK still runs, unattested.
+- **The install key.** The SDK keeps one key per install in the Keychain (this device only, readable after first
+  unlock) and marks with it the model builds it downloaded; when the Keychain does not answer, `client.model()`
+  throws `storage_failed` and the next call tries again. On a Mac, an app without a provisioning profile (an
+  unsigned or ad hoc signed binary, a command line tool) is refused by that keychain, and there the key lives in
+  the Mac's login keychain, in an item named for the app's bundle id, which can travel to another Mac with the
+  keychain.
 - **Apple silicon only.** arm64 devices, the arm64 simulator and arm64 Macs; iOS 15 and macOS 12 or later; Xcode 16
   (Swift tools 6.0).
 - **One Client per process.** A second `TajweedClient` while the first is not closed throws `client_exists`.

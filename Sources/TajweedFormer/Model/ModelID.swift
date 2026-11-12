@@ -56,13 +56,13 @@ enum RecommendedModel {
     }
 }
 
-/// Where the SDK looks for a model, tried in the order given.
+/// Where the SDK looks for a model, tried in the order given. Internal: an app cannot name a source. A Client uses
+/// the store and the CDN and nothing else; since 3.1.0 the app bundle is no source (`QuranLabModels/<model>/` was).
 enum ModelSource: Sendable, Hashable {
-    /// A folder holding manifest.json and the decoded files it lists.
+    /// A folder holding manifest.json and the decoded files it lists. For the SDK's own tests: no Client reads it.
     case directory(URL)
-    /// The app bundle: `QuranLabModels/<model>/` in the main bundle's resources.
-    case bundle
-    /// The SDK's own store: `<storage>/models/<model>/<revision>/`, the revision named by the `current` pointer.
+    /// The SDK's own store: `<storage>/models/<model>/<revision>/`, the revision named by the `current` pointer,
+    /// when it is a build this Client downloaded itself (the install record).
     case cache
     /// Quran Lab's CDN: the download profile of this device, installed into the store.
     case cdn
