@@ -10,11 +10,20 @@ import Foundation
 /// stream). Uploads go whenever
 /// there is a connection, on a background URLSession on iOS (they continue while the app is
 /// suspended), in order, and retry with backoff; a re-sent segment is the same key and bytes.
-public actor ContributionOutbox {
+///
+/// Since 2.0.3 a recording may hold several takes. Its segments upload as before while it waits for the next take;
+/// once it has closed and every segment is up, the item is uploaded, and a recording of two or more takes then sends
+/// its take list (`POST /v1/uploads/{id}/takes`, the body of `takes.json`). That call never changes the item's
+/// status: it is retried with the same backoff until it is accepted or dropped, across relaunches.
+actor ContributionOutbox {
     static let itemName = "item.json"
+    /// The most item changes that wait unread on `updates()`.
+    static let waitingUpdates = 64
 
     struct Record: Codable {
         enum State: String, Codable { case active, uploaded, failed }
+        /// Where the take list of a recording of two or more takes stands (2.0.3).
+        enum Takes: String, Codable { case pending, sent, dropped }
         var id: String
         var seq = 0
         var state: State = .active
@@ -30,6 +39,19 @@ public actor ContributionOutbox {
         var lastError: String?
         /// Local only: when the next retry is due.
         var nextAttempt: Date?
+        /// The take list of a recording of two or more takes (2.0.3; optional: items of older builds lack it): nil when
+        /// there is none to send, pending from the moment the item is uploaded until the list is sent or dropped.
+        var takes: Takes?
+        var takesAttempts: Int?
+        /// The bad-request issue of this list was reported (once per list; optional: items of older builds lack it).
+        var takesIssueReported: Bool?
+        /// Local only: when the next try of the take list is due.
+        var takesNextAttempt: Date?
+
+        /// Something is still to send: segments, or the take list of an uploaded recording.
+        var waiting: Bool { state == .active || takes == .pending }
+        /// When the next try is due.
+        var due: Date? { state == .active ? nextAttempt : takesNextAttempt }
     }
 
     enum Transport {
@@ -57,6 +79,10 @@ public actor ContributionOutbox {
     private var againIgnoringBackoff = false
     private var wake: Task<Void, Never>?
     private var watchers: [UUID: AsyncStream<Contribution>.Continuation] = [:]
+    /// Times a server answered 404 to a take list (the line for the developer is written once).
+    private(set) var takesRouteNotes = 0
+    /// Bad-request issues reported for take lists by this outbox (one per refused list).
+    private(set) var takesIssues = 0
 
     init(storage: URL, http: HTTPClient, apiURL: URL, tokens: TokenProvider?, config: ConfigStore, options: CloudOptions,
          app: AppIdentity, clock: @escaping @Sendable () -> Date, ladder: BitrateLadder = BitrateLadder()) {
@@ -86,19 +112,20 @@ public actor ContributionOutbox {
     // MARK: public
 
     /// Every session, oldest first.
-    public var items: [Contribution] {
+    var items: [Contribution] {
         scan()
         return records.values.sorted { $0.seq < $1.seq }.map(snapshot)
     }
 
-    public func item(_ id: String) -> Contribution? {
+    func item(_ id: String) -> Contribution? {
         scan()
         return records[id].map(snapshot)
     }
 
-    /// Every change to an item, as it happens.
-    public func updates() -> AsyncStream<Contribution> {
-        let (stream, c) = AsyncStream<Contribution>.makeStream()
+    /// Every change to an item, as it happens. At most 64 changes wait for a reader; the oldest waiting one is dropped
+    /// (`items` has every item's state now).
+    func updates() -> AsyncStream<Contribution> {
+        let (stream, c) = AsyncStream<Contribution>.makeStream(bufferingPolicy: .bufferingNewest(Self.waitingUpdates))
         let key = UUID()
         watchers[key] = c
         c.onTermination = { [weak self] _ in Task { await self?.unwatch(key) } }
@@ -107,7 +134,7 @@ public actor ContributionOutbox {
 
     /// Takes a session out before the server has it: its files go and nothing is sent. Once its
     /// upload has started it cannot be cancelled.
-    public func cancel(_ id: String) throws(RecognizerError) {
+    func cancel(_ id: String) throws(RecognizerError) {
         scan()
         guard let r = records[id] else { throw .contributionUnavailable("no outbox item \(id)") }
         guard r.state == .active, !r.started, !ShareCapture.active.withLock({ $0.contains(id) }) else {
@@ -118,7 +145,7 @@ public actor ContributionOutbox {
 
     /// Starts an upload pass now (it also runs at launch, when a segment closes and when a retry is
     /// due). Returns at once.
-    public nonisolated func resume() {
+    nonisolated func resume() {
         Task.detached(priority: .utility) { await self.drain() }
     }
 
@@ -132,11 +159,31 @@ public actor ContributionOutbox {
     func cancelQueued() {
         scan()
         for r in records.values where r.state == .active && !ShareCapture.active.withLock({ $0.contains(r.id) }) { remove(r.id) }
+        // a take list still to send goes too (its recording stays uploaded)
+        for r in records.values where r.takes == .pending { endTakes(r.id, .dropped) }
+    }
+
+    /// Whether the pending take list of an item waits for a later pass (its last try was answered or failed).
+    func takesWaits(_ id: String) -> Bool { records[id]?.takes == .pending && records[id]?.takesNextAttempt != nil }
+
+    /// Where the take list of an item stands (nil: none to send).
+    func takesState(_ id: String) -> Record.Takes? {
+        scan()
+        return records[id]?.takes
     }
 
     /// One upload pass, after any pass already running (a request during a pass runs one more).
     /// `ignoringBackoff` is for tests.
+    /// The Client that owns this outbox was closed: no pass runs from here on (what is queued stays on disk for the
+    /// next Client's outbox).
+    nonisolated func shutdown() { closedFlag.withLock { $0 = true } }
+
+    nonisolated var isClosed: Bool { closedFlag.withLock { $0 } }
+
+    private nonisolated let closedFlag = Locked(false)
+
     func drain(ignoringBackoff: Bool = false) async {
+        if isClosed { return }
         if running != nil {
             again = true
             // the pass that runs for this request honours it, whichever caller starts that pass
@@ -160,9 +207,10 @@ public actor ContributionOutbox {
 
     private func pass(ignoringBackoff: Bool) async {
         scan()
+        expireTakes()
         guard let tokens, Contributions.isActive else { return }
         let now = clock()
-        let due = records.values.filter { $0.state == .active && (ignoringBackoff || ($0.nextAttempt ?? .distantPast) <= now) }
+        let due = records.values.filter { $0.waiting && (ignoringBackoff || ($0.due ?? .distantPast) <= now) }
             .sorted { $0.seq < $1.seq }.map(\.id)
         guard !due.isEmpty else { return }
         if config.current?.flags.contributions != true {
@@ -171,17 +219,28 @@ public actor ContributionOutbox {
         }
         for id in due {
             if Task.isCancelled { return }
+            // an uploaded recording whose take list waits: a token that cannot be had never changes its status
+            let listOnly = records[id]?.state == .uploaded
             let token: APIToken
             do throws(CloudError) {
                 token = try await tokens.token()
             } catch {
+                if listOnly {
+                    retryTakes(id)
+                    if error.retryable { return }
+                    continue
+                }
                 if error.retryable { retry(id, "token: \(error)"); return }
                 fail(id, code: "token", message: "\(error)")
                 continue
             }
             let tier = config.current.map { UploadTrust.tier($0, platform: AppIdentity.currentPlatform) } ?? "attested"
             guard token.attested || tier == "capped" else {
-                fail(id, code: "attestation_required", message: "this install has no App Attest backed token")
+                if listOnly {
+                    retryTakes(id)
+                } else {
+                    fail(id, code: "attestation_required", message: "this install has no App Attest backed token")
+                }
                 continue
             }
             if !(await step(id, token: token.token)) { return }
@@ -194,6 +253,8 @@ public actor ContributionOutbox {
         let markers = ShareFiles.markers(folder)
         let end = ShareFiles.read(ShareFiles.End.self, folder.appendingPathComponent(ShareFiles.end))
         guard var rec = records[id] else { return true }
+        // uploaded, its take list still to send
+        if rec.state != .active { return await sendTakes(id, token: token) }
         // the server hears of a session only once it has a segment (a short failed session never
         // reaches it)
         if !rec.started {
@@ -201,7 +262,9 @@ public actor ContributionOutbox {
             rec.attempts += 1
             save(rec)
             guard let urls = await call(id, client.startRequest(id: id, session: session, token: token)) else { return !isOffline(id) }
-            rec = records[id]!
+            // the item can go while the call is out (sharing turned off, cancel(_:)): nothing is left to send for it
+            guard let now = records[id] else { return true }
+            rec = now
             rec.started = true
             rec.urls = merge(rec.urls, urls)
             save(rec)
@@ -248,14 +311,109 @@ public actor ContributionOutbox {
         rec.lastError = nil
         rec.nextAttempt = nil
         rec.urls = nil
+        // 2.0.3: a recording of several takes sends its take list next; the session is uploaded whatever comes of it
+        if ShareFiles.takes(folder) != nil { rec.takes = .pending }
         save(rec)
-        // the item, the markers, the end and the session JSON stay (they give the status its numbers)
+        // the item, the markers, the end, the session JSON and the take list stay (they give the status its numbers)
         for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        where name != Self.itemName && name != ShareFiles.end && name != ShareFiles.session
+        where name != Self.itemName && name != ShareFiles.end && name != ShareFiles.session && name != ShareFiles.takesFile
             && !(name.hasPrefix("seg-") && name.hasSuffix(".json")) {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
         }
+        return await sendTakes(id, token: token)
+    }
+
+    /// The take list of an uploaded recording of two or more takes (2.0.3): `POST /v1/uploads/{id}/takes` with the body
+    /// of `takes.json`, once the recording has closed and its segments are up. The session stays uploaded whatever the
+    /// answer: 2xx, the list is sent; 404 (a server without the route, or one that does not know the upload) and 410
+    /// drop it; 401 renews the token and tries again; 408, 429, 5xx and no answer keep it for a later pass with the
+    /// outbox's backoff (the same body again; the server replaces the list). 400 keeps it too (SDK 3.0.0; 2.0.3
+    /// dropped it): the server could refuse a correct list while its duration was stale, so the list is retried on
+    /// the backoff until it is accepted, sharing goes off or seven days pass, and the bad-request issue is reported
+    /// once for the list.
+    /// The bitrate ladder does not hear of this call: it is not audio. False when the pass should stop (offline).
+    private func sendTakes(_ id: String, token: String) async -> Bool {
+        guard var rec = records[id], rec.state == .uploaded, rec.takes == .pending else { return true }
+        guard let list = ShareFiles.takes(folder(id)) else {
+            endTakes(id, nil)
+            return true
+        }
+        // the contributor the recording was shared under (the session JSON's)
+        let contributor = sessionField(id, "contributor") ?? Contributor.id(storage: storage)
+        rec.takesAttempts = (rec.takesAttempts ?? 0) + 1
+        save(rec)
+        let resp: HTTPClient.Response
+        do throws(CloudError) {
+            resp = try await http.send(client.takesRequest(id: id, takes: list, contributor: contributor, token: token))
+        } catch {
+            retryTakes(id)
+            return false
+        }
+        guard records[id]?.takes == .pending else { return true }
+        switch resp.status {
+        case 200..<300:
+            endTakes(id, .sent)
+        case 401:
+            await tokens?.invalidate()
+            retryTakes(id, immediately: (records[id]?.takesAttempts ?? 0) < 3)
+        case 408, 425, 429, 500...:
+            retryTakes(id)
+        case 400:
+            if records[id]?.takesIssueReported != true {
+                QuranLab.report(.serverRejected(status: 400, code: "bad_request", message: ""), backend: nil, revision: nil,
+                                kind: "other", code: "bad_request:uploads_takes")
+                takesIssues += 1
+                if var r = records[id] {
+                    r.takesIssueReported = true
+                    save(r)
+                }
+            }
+            retryTakes(id)
+        case 404:
+            if takesRouteNotes == 0 {
+                SDKLatest.debugOnly("the server answered 404 to POST /v1/uploads/{id}/takes: the take boundaries of a recording "
+                                    + "are not sent (the recording is uploaded)")
+            }
+            takesRouteNotes += 1
+            endTakes(id, .dropped)
+        default:
+            let o = (try? JSONSerialization.jsonObject(with: resp.body)) as? [String: Any]
+            // sharing switched off for the app: the list waits, as segments do; 410 (the upload was deleted) and any
+            // other refusal drop it
+            if o?["error"] as? String == "contributions_disabled" { retryTakes(id) } else { endTakes(id, .dropped) }
+        }
         return true
+    }
+
+    /// The take list call is over: sent, dropped, or (nil) there was none to send.
+    private func endTakes(_ id: String, _ state: Record.Takes?) {
+        guard var rec = records[id] else { return }
+        rec.takes = state
+        rec.takesNextAttempt = nil
+        save(rec)
+    }
+
+    /// The take list waits for a later pass, with the outbox's backoff (30 s doubling to 6 h, with jitter).
+    private func retryTakes(_ id: String, immediately: Bool = false) {
+        guard var rec = records[id] else { return }
+        let n = max(1, rec.takesAttempts ?? 0)
+        let delay = immediately ? 0 : min(30 * pow(2, Double(min(n - 1, 16))), 6 * 3600) * Double.random(in: 0.8...1.2)
+        rec.takesNextAttempt = clock().addingTimeInterval(delay)
+        save(rec)
+    }
+
+    /// A take list that could not be sent for 7 days is dropped (its recording stays uploaded).
+    private func expireTakes() {
+        let oldest = Day.string(clock().addingTimeInterval(-7 * 86_400))
+        for r in records.values where r.state == .uploaded && r.takes == .pending {
+            if let day = sessionField(r.id, "day"), day < oldest { endTakes(r.id, .dropped) }
+        }
+    }
+
+    /// A string field of an item's session JSON.
+    private func sessionField(_ id: String, _ key: String) -> String? {
+        (try? Data(contentsOf: folder(id).appendingPathComponent(ShareFiles.session)))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?[key] as? String
     }
 
     /// A Worker call that answers with URLs; nil when it did not (the item is retried or failed).
@@ -381,7 +539,8 @@ public actor ContributionOutbox {
     }
 
     private func note(_ id: String, _ why: String) {
-        guard var rec = records[id], rec.lastError != why else { return }
+        // an uploaded item whose take list waits keeps its status as it is
+        guard var rec = records[id], rec.state == .active, rec.lastError != why else { return }
         rec.lastError = why
         save(rec)
     }
@@ -390,7 +549,7 @@ public actor ContributionOutbox {
     private func scheduleWake() {
         wake?.cancel()
         wake = nil
-        guard let next = records.values.filter({ $0.state == .active }).compactMap(\.nextAttempt).min() else { return }
+        guard let next = records.values.filter({ $0.waiting }).compactMap({ $0.due }).min() else { return }
         let delay = max(1, next.timeIntervalSince(clock()))
         wake = Task.detached(priority: .utility) { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))
@@ -453,7 +612,8 @@ public actor ContributionOutbox {
         return Contribution(id: r.id, segments: markers.count, bytes: markers.reduce(0) { $0 + $1.bytes },
                             durationMs: end?.durationMs ?? 0, day: day, completed: end?.completed, status: status,
                             attempts: r.attempts, lastError: r.lastError,
-                            segmentBitrates: markers.map { (m: ShareFiles.Marker) -> Int in m.bitrate ?? OpusSettings.shared.bitrate })
+                            segmentBitrates: markers.map { (m: ShareFiles.Marker) -> Int in m.bitrate ?? OpusSettings.shared.bitrate },
+                            takes: ShareFiles.takes(f)?.count ?? 1)
     }
 
     private func save(_ rec: Record) {

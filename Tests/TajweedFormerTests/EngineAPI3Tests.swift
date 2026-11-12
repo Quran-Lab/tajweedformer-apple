@@ -3,12 +3,13 @@ import XCTest
 import TajweedFormerCore
 @testable import TajweedFormer
 
-/// The SDK against zf_tajweed.h API 3: the head bits, the open options' layout, and the decoded layer's top-2 from
-/// the engine. These need only the xcframework (no model).
+/// The SDK against zf_tajweed.h API 4 (inference only): the head bits, the open options' layout, and the decoded
+/// layer's top-2 from the engine. These need only the xcframework (no model).
 final class EngineAPI3Tests: XCTestCase {
     func testHeadBitsAreTheEngines() {
-        XCTAssertEqual(zf_tajweed_api_version(), 3)
-        let c: [(TajweedHead, Int)] = [
+        XCTAssertEqual(zf_tajweed_api_version(), 4)
+        XCTAssertEqual(String(cString: zf_tajweed_version()), SDKInfo.version, "the engine and the SDK are one release")
+        let c: [(HeadID, Int)] = [
             (.logProbs, Int(ZF_TAJWEED_HEAD_LOG_PROBS)), (.inter1LogProbs, Int(ZF_TAJWEED_HEAD_INTER1)),
             (.inter4LogProbs, Int(ZF_TAJWEED_HEAD_INTER4)), (.idLogProbs, Int(ZF_TAJWEED_HEAD_ID)),
             (.timingLogProbs, Int(ZF_TAJWEED_HEAD_TIMING)), (.gem, Int(ZF_TAJWEED_HEAD_GEM)),
@@ -16,7 +17,7 @@ final class EngineAPI3Tests: XCTestCase {
             (.qalqalah, Int(ZF_TAJWEED_HEAD_QALQALAH)), (.face, Int(ZF_TAJWEED_HEAD_FACE)),
             (.boundary, Int(ZF_TAJWEED_HEAD_BOUNDARY)), (.conf, Int(ZF_TAJWEED_HEAD_CONF)),
         ]
-        XCTAssertEqual(c.count, TajweedHead.allCases.count)
+        XCTAssertEqual(c.count, HeadID.allCases.count)
         for (h, bit) in c {
             XCTAssertEqual(Int(h.engineBit), bit, h.rawValue)
             // the engine's own name, period and width for the bit
@@ -26,14 +27,16 @@ final class EngineAPI3Tests: XCTestCase {
             XCTAssertEqual(Int(ms), h.frameMs, h.rawValue)
             XCTAssertEqual(Int(cols), h.width, h.rawValue)
         }
-        XCTAssertEqual(Int(HeadSelection(TajweedHead.scorer).engineMask), Int(ZF_TAJWEED_HEADS_SCORER))
+        XCTAssertEqual(Int(HeadSelection(HeadID.defaults.subtracting([.conf])).engineMask), Int(ZF_TAJWEED_HEADS_DEFAULT),
+                       "the SDK's default selection is the engine's five and conf")
         XCTAssertEqual(Int(HeadSelection.all.engineMask), Int(ZF_TAJWEED_HEADS_ALL))
     }
 
-    /// The mapping alone (no engine needed for the numbers): the selection, the scorer's heads and log_probs.
+    /// The mapping alone (no engine needed for the numbers): the selection, and log_probs whatever it is.
     func testHeadMaskMapping() {
         XCTAssertEqual(HeadSelection.default.engineMask, 0b1001_0011_0011, "log_probs, inter1, timing, gem, qalqalah, conf")
-        XCTAssertEqual(HeadSelection([]).engineMask, 0b0001_0011_0011, "the scorer's heads are always kept")
+        XCTAssertEqual(HeadSelection([]).engineMask, 0b1, "log_probs is always computed, and nothing else is forced")
+        XCTAssertEqual(HeadSelection([.gem]).engineMask, 0b10_0001)
         XCTAssertEqual(HeadSelection.adding([.ghunna]).engineMask, 0b1001_1011_0011)
         XCTAssertEqual(HeadSelection.all.engineMask, (1 << 12) - 1)
     }
@@ -55,7 +58,7 @@ final class EngineAPI3Tests: XCTestCase {
     /// zf_tajweed_top2 through the SDK: ties go to the lower id, the runner-up is the best of the others, the margin
     /// is the engine's.
     func testTop2ComesFromTheEngine() {
-        let v = TajweedHeads.vocab
+        let v = HeadsBuffer.vocab
         var lp = [Float](repeating: -10, count: 3 * v)
         lp[0 * v + 0] = -0.1; lp[0 * v + 5] = -2.5                 // blank first, runner-up 5
         lp[1 * v + 7] = -0.4; lp[1 * v + 3] = -0.4                 // a tie: the lower id wins, the other is the runner-up
@@ -67,8 +70,8 @@ final class EngineAPI3Tests: XCTestCase {
         XCTAssertEqual(f[1].margin, 0)
         XCTAssertEqual(f[2].top1LogProb, -0.01)
         // the decoded layer uses them
-        var h = TajweedHeads(chunk: ["log_probs": lp, "conf": [Float](repeating: 3, count: 6)])
-        h.append(TajweedHeads())
+        var h = HeadsBuffer(chunk: ["log_probs": lp, "conf": [Float](repeating: 3, count: 6)])
+        h.append(HeadsBuffer())
         let d = DecodedTake(heads: h, vocabulary: Vocabulary(symbols: (0..<v).map { "t\($0)" }, blank: 0))
         XCTAssertEqual(d.tokens.map(\.id), [3, 37])
         XCTAssertEqual(d.frames.count, 3)
@@ -121,7 +124,7 @@ final class EngineAPI3Tests: XCTestCase {
         }
         let ghunna: [Float] = [0.1, 0.4, 0.1, 0.3, 0.1]
         let c = try TajweedRanking.rank(ghunna, head: .ghunna, k: 5,
-                                        names: TajweedHead.ghunna.classNames(vocabulary: Vocabulary(symbols: ["x"], blank: 0)))
+                                        names: HeadID.ghunna.classNames(vocabulary: Vocabulary(symbols: ["x"], blank: 0)))
         XCTAssertEqual(c.entries(frame: 0).map(\.name), ["plain", "ikhfa", "none", "geminate", "idgham"])
         XCTAssertEqual(c.entries(frame: 0).map(\.id), Self.argsort(ghunna))
     }

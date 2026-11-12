@@ -48,7 +48,7 @@ final class AppleProfileTests: XCTestCase {
         let other = profile.compact ? "coreml/tajweedformer_v4.mlmodelc" : "coreml-compact/tajweedformer_v4.mlmodelc"
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent(other).path), "\(name): never both builds")
         Fixtures.configure(storage: Fixtures.storage())
-        let model = try TajweedModel.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+        let model = try ModelFolder.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
         XCTAssertTrue(model.isUsable(context: ctx))
         let build = try XCTUnwrap(model.coreML(context: ctx))
         XCTAssertEqual(build.compact, profile.compact)
@@ -64,7 +64,7 @@ final class AppleProfileTests: XCTestCase {
 
         // the package's functions on this machine (a hosted runner has no Neural Engine: CoreML runs on its CPU)
         guard #available(macOS 15.0, iOS 18.0, *) else { return }
-        let auto = try TajweedRecognizer(model: model, backend: .automatic)
+        let auto = try TajweedRecognizer(model: model, backend: .automatic, compact: profile.compact)
         try await auto.prepare()
         let first = await auto.activeBackend
         XCTAssertEqual(first, .exact, "CPU first")

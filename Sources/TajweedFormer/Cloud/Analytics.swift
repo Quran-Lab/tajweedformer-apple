@@ -1,7 +1,7 @@
 import Foundation
 
 /// Why a session or recognizer is not on the Neural Engine, as the server counts them.
-public enum FallbackReason: String, Sendable, CaseIterable, Codable {
+enum FallbackReason: String, Sendable, CaseIterable, Codable {
     /// A head came out NaN or infinite.
     case nonFinite = "non_finite"
     /// A chunk took more than three times its audio.
@@ -21,7 +21,6 @@ enum Histogram {
     static let latency = (["le_5", "le_10", "le_20", "le_40", "le_80", "le_160", "le_320", "gt_320"], [5.0, 10, 20, 40, 80, 160, 320])
     static let rtf = (["le_0_1", "le_0_25", "le_0_5", "le_1", "gt_1"], [0.1, 0.25, 0.5, 1])
     static let startup = (["le_250", "le_500", "le_1000", "le_2000", "le_4000", "gt_4000"], [250.0, 500, 1000, 2000, 4000])
-    static let flagPct = (["le_1", "le_2", "le_5", "le_10", "le_20", "gt_20"], [1.0, 2, 5, 10, 20])
     static let margin = (["le_0_5", "le_1", "le_2", "le_4", "le_8", "gt_8"], [0.5, 1, 2, 4, 8])
     static let confidence = (["le_0_5", "le_0_7", "le_0_8", "le_0_9", "le_0_95", "gt_0_95"], [0.5, 0.7, 0.8, 0.9, 0.95])
     static let compileMs = (["le_1000", "le_5000", "le_15000", "le_30000", "le_60000", "le_120000", "gt_120000"],
@@ -38,94 +37,111 @@ enum Histogram {
     static func index(_ v: Double, _ bounds: [Double]) -> Int { bounds.firstIndex { v <= $0 } ?? bounds.count }
 }
 
-/// What a cohort is: one per distinct revision, context, backend, preset and word level of a day.
-public struct TelemetryCohort: Sendable, Hashable, Codable {
-    public var revision: String
-    public var context: String
+/// What a cohort is (SDK 3.0.0): one per model version and build, context and backend of a day.
+struct TelemetryCohort: Sendable, Hashable, Codable {
+    /// The model version, `4.0.0`.
+    var revision: String
+    /// The build id (40 hex); empty when it is not known.
+    var build: String
+    var context: String
     /// `cpu`, `ane` (what actually ran).
-    public var backend: String
-    /// The site preset in force, or `custom` when any raw site threshold is set.
-    public var preset: String
-    /// `strict`, `general`, `beginner`, `custom` or `off`.
-    public var wordLevel: String
-    /// Only for `custom`: `le_3` ... `gt_7`.
-    public var wordBucket: String
-    public var siteOverrides: Int
+    var backend: String
 
-    var key: String { [revision, context, backend, preset, wordLevel, wordBucket].joined(separator: "|") }
-}
-
-/// One finished session, as telemetry counts it: no audio, no text, no ids, no times finer than the day.
-public struct SessionTelemetry: Sendable, Hashable {
-    public var cohort: TelemetryCohort
-    public var audioSeconds: Double
-    /// Processing time per chunk, and each chunk's audio length (for the real-time factor).
-    public var chunkSeconds: [Double]
-    public var chunkAudioSeconds: Double
-    public var checksOn: [String]
-    public var throttled: Bool
-    public var thermalTransitions: Int
-    /// Milliseconds from the recognizer's creation to its first chunk, for the first session of a launch.
-    public var coldStartMs: Double?
-}
-
-/// One scored take: per class sites and flags, madd counts, words, the surah, and the decoded tokens' margins and
-/// confidences (histograms only).
-public struct ScoreTelemetry: Sendable, Hashable {
-    public struct SiteCount: Sendable, Hashable {
-        public var sites = 0
-        public var flagged = 0
-        public init(sites: Int = 0, flagged: Int = 0) { self.sites = sites; self.flagged = flagged }
+    init(revision: String, build: String = "", context: String, backend: String) {
+        self.revision = revision
+        self.build = build
+        self.context = context
+        self.backend = backend
     }
-    public var cohort: TelemetryCohort
-    public var surah: Int
-    /// By calibration class name.
-    public var classes: [String: SiteCount] = [:]
-    /// Madd verdict counts (2, 4, 6) and how many were flagged.
-    public var maddCounts: [Int: Int] = [:]
-    public var maddFlagged = 0
-    public var wordsScored = 0
-    public var wordsFlagged = 0
-    /// Qalqalah and gemination verdicts whose check ran, and how many were flagged (2.0.1).
-    public var qalqalahChecked = 0
-    public var qalqalahFlagged = 0
-    public var geminationChecked = 0
-    public var geminationFlagged = 0
-    public var margins: [Double] = []
-    public var confidences: [Double] = []
 
-    public init(cohort: TelemetryCohort, surah: Int) {
-        self.cohort = cohort
-        self.surah = surah
+    /// Counts saved by SDK 2.x have no build.
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        revision = try c.decode(String.self, forKey: .revision)
+        build = try c.decodeIfPresent(String.self, forKey: .build) ?? ""
+        context = try c.decode(String.self, forKey: .context)
+        backend = try c.decode(String.self, forKey: .backend)
+    }
+
+    var key: String { [revision, build, context, backend].joined(separator: "|") }
+}
+
+/// One take that ended, as telemetry counts it: no audio, no text, no ids, no times finer than the day. Everything
+/// in it is measured by the SDK from the model's own outputs.
+struct SessionTelemetry: Sendable, Hashable {
+    var cohort: TelemetryCohort
+    var audioSeconds: Double
+    /// Processing time per chunk, and each chunk's audio length (for the real-time factor).
+    var chunkSeconds: [Double]
+    var chunkAudioSeconds: Double
+    var throttled = false
+    var thermalTransitions = 0
+    /// Milliseconds from the recognizer's creation to its first chunk, for the first session of a launch.
+    var coldStartMs: Double?
+    /// The take ended with its Heads (`finish()`, or an end by itself that is not an error). A take that was cancelled
+    /// or failed counts as a session and as aborted, and adds nothing to the fields below.
+    var counts = true
+    /// The take's input audio, floor(1000 * samples / rate) ms.
+    var audioMs = 0
+    /// The take's speech and silence frames of 40 ms: its active and inactive frames (`SpeechTracker.active`).
+    var speechFrames = 0
+    var silenceFrames = 0
+    /// The greedy tokens of each selected CTC head over the take.
+    var tokens: [String: Int] = [:]
+    /// The compute time of the take's chunks, whole microseconds.
+    var computeMicroseconds = 0
+    /// The decoded layer's tokens: each one's margin and confidence (histograms only).
+    var margins: [Double] = []
+    var confidences: [Double] = []
+
+    /// What a take that counts adds to the SDK-measured counters: its input audio, its speech and silence frames (the
+    /// active and inactive frames of `SpeechTracker`, from `log_probs` and `timing_log_probs`, which every Session
+    /// computes whatever the app selected), the greedy tokens of each selected CTC head, its compute time. `ids` gives
+    /// a head's greedy id per frame.
+    mutating func count(audioMs: Int, selected: [String], computeMicroseconds: Int, ids: (String) -> [Int]) {
+        counts = true
+        self.audioMs = audioMs
+        let top = ids(HeadID.logProbs.rawValue)
+        speechFrames = SpeechTracker.speechFrames(SpeechTracker.active(logProbs: top, timing: ids(HeadID.timingLogProbs.rawValue)))
+        silenceFrames = top.count - speechFrames
+        for h in selected {
+            let n = SpeechTracker.tokens(h == HeadID.logProbs.rawValue ? top : ids(h))
+            if n > 0 { tokens[h] = n }
+        }
+        self.computeMicroseconds = computeMicroseconds
     }
 }
 
 /// Every event the SDK counts. A host can receive them too (`QuranLab.Options.analyticsSink`).
-public enum AnalyticsEvent: Sendable, Hashable {
+enum AnalyticsEvent: Sendable, Hashable {
     case modelLoaded(revision: String, milliseconds: Double, cohort: TelemetryCohort)
     case selfTest(passed: Bool, cohort: TelemetryCohort)
     /// A recognizer left (or never reached) the Neural Engine.
     case fallback(FallbackReason, cohort: TelemetryCohort)
     case sessionFinished(SessionTelemetry)
     case sessionAborted(cohort: TelemetryCohort)
-    case scored(ScoreTelemetry)
-    case download(revision: String, profile: String, bytes: Int64, success: Bool, resumed: Bool)
+    /// A model download: `revision` is the model version when it is known (else the build), `build` the build id.
+    case download(revision: String, build: String, profile: String, bytes: Int64, success: Bool, resumed: Bool)
     /// The Neural Engine's promotion pipeline and in-session failovers (telemetry `promotions`).
     case promotion(PromotionTelemetry)
 }
 
 /// Receives every analytics event besides the SDK's own daily aggregates. Called on the recognition path: return
 /// at once.
-public protocol AnalyticsSink: Sendable {
+protocol AnalyticsSink: Sendable {
     func record(_ event: AnalyticsEvent)
 }
 
-/// On-device telemetry v2 with the 2.0.1 deltas: sums and histograms per UTC day and cohort, the surah coverage, the
-/// downloads and the 2.0.1 counters. Recording is a lock and a few additions into the day's open counts (saved on a
-/// utility queue). At each send point (`flush`) the open counts of each day are sealed into a delta: the v2 body of what
-/// was counted since that day's previous delta, with a fresh random `report_id`, saved before it is sent. A retry sends
-/// the same bytes with the same id (the server counts it once). Counts go to the UTC day they happened in, so a delta
-/// never spans midnight; unsent deltas are kept 7 days and sent oldest first.
+/// On-device telemetry v2 as SDK 3.0.0 sends it: sums and histograms per UTC day and cohort, the downloads, the
+/// promotions, and the counters the app reports itself (`reportRecited`, `reportChecks`). Recording is a lock and a
+/// few additions into the day's open counts (saved on a utility queue). At each send point (`flush`) the open counts
+/// of each day are sealed into a delta: the v2 body of what was counted since that day's previous delta, with a fresh
+/// random `report_id`, saved before it is sent. A retry sends the same bytes with the same id (the server counts it
+/// once). Counts go to the UTC day they happened in, so a delta never spans midnight; unsent deltas are kept 7 days
+/// and sent oldest first.
+///
+/// The body is a closed schema on the server: an unknown field refuses the whole delta. `payload` is the one function
+/// that writes it, and it builds `reported` from the fields it wrote.
 /// Tried and rejected: one payload per completed day (2.0.0: a day's sessions reached the portal a day late);
 /// re-sending the whole day so far at each send point (the server would count every send).
 final class AnalyticsStore: Sendable {
@@ -139,13 +155,15 @@ final class AnalyticsStore: Sendable {
         var coldStart = [Int](repeating: 0, count: 6)
         var modelLoad = [Int](repeating: 0, count: 6)
         var thermalTransitions = 0, throttledSessions = 0
-        var checksOn: [String: Int] = [:]
-        var classes: [String: [Int]] = [:]
-        var sessionFlagPct = [Int](repeating: 0, count: 6)
         var margin = [Int](repeating: 0, count: 6)
         var confidence = [Int](repeating: 0, count: 6)
-        var madd = [0, 0, 0, 0]   // c2, c4, c6, flagged
-        var words = [0, 0]        // scored, flagged
+        // SDK 3.0.0 (optional so days saved by 2.x decode)
+        var takes: Int?
+        var audioMs: Int?
+        var speechMs: Int?
+        var silenceMs: Int?
+        var tokens: [String: Int]?
+        var computeMicroseconds: Int?
 
         init(_ c: TelemetryCohort) { cohort = c }
 
@@ -158,13 +176,16 @@ final class AnalyticsStore: Sendable {
             for i in coldStart.indices { coldStart[i] += o.coldStart[i] }
             for i in modelLoad.indices { modelLoad[i] += o.modelLoad[i] }
             thermalTransitions += o.thermalTransitions; throttledSessions += o.throttledSessions
-            for (k, v) in o.checksOn { checksOn[k, default: 0] += v }
-            for (k, v) in o.classes { var x = classes[k] ?? [0, 0]; x[0] += v[0]; x[1] += v[1]; classes[k] = x }
-            for i in sessionFlagPct.indices { sessionFlagPct[i] += o.sessionFlagPct[i] }
             for i in margin.indices { margin[i] += o.margin[i] }
             for i in confidence.indices { confidence[i] += o.confidence[i] }
-            for i in madd.indices { madd[i] += o.madd[i] }
-            for i in words.indices { words[i] += o.words[i] }
+            takes = (takes ?? 0) + (o.takes ?? 0)
+            audioMs = (audioMs ?? 0) + (o.audioMs ?? 0)
+            speechMs = (speechMs ?? 0) + (o.speechMs ?? 0)
+            silenceMs = (silenceMs ?? 0) + (o.silenceMs ?? 0)
+            computeMicroseconds = (computeMicroseconds ?? 0) + (o.computeMicroseconds ?? 0)
+            var t = tokens ?? [:]
+            for (k, v) in o.tokens ?? [:] { t[k, default: 0] += v }
+            tokens = t
         }
     }
 
@@ -172,7 +193,7 @@ final class AnalyticsStore: Sendable {
         var bytes: Int64 = 0, success = 0, failed = 0, resumed = 0
     }
 
-    /// One `promotions` entry: a backend, revision and context.
+    /// One `promotions` entry: a backend, model version, build and context.
     struct Promotion: Codable, Equatable {
         var backend: String
         var revision: String
@@ -189,6 +210,8 @@ final class AnalyticsStore: Sendable {
         var demoted = 0
         /// Blank suspicions the CPU engine confirmed as correct (2.0.2; optional so days saved by 2.0.1 decode).
         var blankConfirmedOK: Int?
+        /// The build id next to the version in `revision` (SDK 3.0.0; optional so days saved by 2.x decode).
+        var build: String?
 
         var activity: Int { attempts + failovers + demoted + reasons.values.reduce(0, +) + (blankConfirmedOK ?? 0) }
     }
@@ -197,10 +220,11 @@ final class AnalyticsStore: Sendable {
     struct Day: Codable, Equatable {
         var day: String
         var cohorts: [String: Cohort] = [:]
+        /// App-reported (SDK 3.0.0): the ayahs recited per surah, the same values as `surahAyahs` (kept for readers of 2.x).
         var coverage: [String: Int] = [:]
-        var downloads: [String: Download] = [:]   // "revision|profile"
-        // 2.0.1
+        var downloads: [String: Download] = [:]   // "revision|build|profile"
         var launches = 0
+        // app-reported (SDK 3.0.0): `reportRecited` and `reportChecks`
         var ayahs = 0
         var surahAyahs: [String: Int] = [:]
         var words = 0
@@ -209,7 +233,7 @@ final class AnalyticsStore: Sendable {
         var shareAsked = 0
         var shareYes = 0
         var shareNo = 0
-        var promotions: [String: Promotion] = [:]   // "backend|revision|context"
+        var promotions: [String: Promotion] = [:]   // "backend|revision|build|context"
 
         var isEmpty: Bool {
             cohorts.isEmpty && coverage.isEmpty && downloads.isEmpty && launches == 0 && ayahs == 0 && surahAyahs.isEmpty && words == 0
@@ -229,9 +253,12 @@ final class AnalyticsStore: Sendable {
         var open: [String: Day] = [:]
         var sealed: [Sealed] = []
         var seq = 0
+        /// The rules the app reported checks for, by UTC day: at most 32 a day, kept with the day across its deltas
+        /// (optional so a state saved by 2.x decodes).
+        var rules: [String: [String]]?
     }
 
-    /// The 2.0.1 counters besides sessions and scores.
+    /// The counters besides sessions.
     enum Counter: Sendable {
         /// A cold start or a return to the foreground.
         case launch
@@ -265,6 +292,9 @@ final class AnalyticsStore: Sendable {
         var cohort: TelemetryCohort
         var pid: Int32
     }
+
+    /// The most distinct rules an app reports checks for in a UTC day; a later one is dropped.
+    static let rulesPerDay = 32
 
     private let file: JSONFile<State>
     private let openFile: JSONFile<OpenSession>
@@ -314,12 +344,12 @@ final class AnalyticsStore: Sendable {
         record(.sessionAborted(cohort: o.cohort))
     }
 
-    private func mutate(_ body: (inout Day) -> Void) {
+    private func mutate(_ body: (inout Day, inout State) -> Void) {
         guard enabled else { return }
         let d = TelemetryDay.string(clock())
         state.withLock { s in
             var x = s.open[d] ?? Day(day: d)
-            body(&x)
+            body(&x, &s)
             s.open[d] = x
         }
         let file = self.file, state = self.state
@@ -327,9 +357,8 @@ final class AnalyticsStore: Sendable {
     }
 
     private func cohort(_ c: TelemetryCohort, _ body: (inout Cohort) -> Void) {
-        mutate { d in
+        mutate { d, _ in
             var x = d.cohorts[c.key] ?? Cohort(c)
-            x.cohort.siteOverrides = c.siteOverrides
             body(&x)
             d.cohorts[c.key] = x
         }
@@ -344,7 +373,7 @@ final class AnalyticsStore: Sendable {
     }
 
     func count(_ c: Counter) {
-        mutate { d in
+        mutate { d, _ in
             switch c {
             case .launch: d.launches += 1
             case .shareAsked: d.shareAsked += 1
@@ -365,69 +394,50 @@ final class AnalyticsStore: Sendable {
                     c.latency[Histogram.index(t * 1000, Histogram.latency.1)] += 1
                     if s.chunkAudioSeconds > 0 { c.rtf[Histogram.index(t / s.chunkAudioSeconds, Histogram.rtf.1)] += 1 }
                 }
-                for k in s.checksOn { c.checksOn[k, default: 0] += 1 }
                 if s.throttled { c.throttledSessions += 1 }
                 c.thermalTransitions += s.thermalTransitions
                 if let ms = s.coldStartMs { c.coldStart[Histogram.index(ms, Histogram.startup.1)] += 1 }
+                guard s.counts else {
+                    // a take that was cancelled or failed
+                    c.aborted += 1
+                    return
+                }
+                c.takes = (c.takes ?? 0) + 1
+                c.audioMs = (c.audioMs ?? 0) + s.audioMs
+                c.speechMs = (c.speechMs ?? 0) + s.speechFrames * SpeechTracker.frameMs
+                c.silenceMs = (c.silenceMs ?? 0) + s.silenceFrames * SpeechTracker.frameMs
+                c.computeMicroseconds = (c.computeMicroseconds ?? 0) + s.computeMicroseconds
+                var t = c.tokens ?? [:]
+                for (k, v) in s.tokens where v > 0 { t[k, default: 0] += v }
+                c.tokens = t
+                for m in s.margins { c.margin[Histogram.index(m, Histogram.margin.1)] += 1 }
+                for v in s.confidences { c.confidence[Histogram.index(v, Histogram.confidence.1)] += 1 }
             }
         case .sessionAborted(let co):
-            cohort(co) { $0.aborted += 1 }
+            cohort(co) { c in
+                c.sessions += 1
+                c.aborted += 1
+            }
         case .modelLoaded(_, let ms, let co):
             cohort(co) { $0.modelLoad[Histogram.index(ms, Histogram.startup.1)] += 1 }
         case .selfTest(let passed, let co):
             cohort(co) { c in if passed { c.selfTestPass += 1 } else { c.selfTestFail += 1 } }
         case .fallback(let reason, let co):
             cohort(co) { $0.fallbacks[reason.rawValue, default: 0] += 1 }
-        case .scored(let s):
-            cohort(s.cohort) { c in
-                var sites = 0, flagged = 0
-                for (k, v) in s.classes {
-                    var x = c.classes[k] ?? [0, 0]
-                    x[0] += v.sites; x[1] += v.flagged
-                    c.classes[k] = x
-                    sites += v.sites; flagged += v.flagged
-                }
-                if sites > 0 { c.sessionFlagPct[Histogram.index(100 * Double(flagged) / Double(sites), Histogram.flagPct.1)] += 1 }
-                c.madd[0] += s.maddCounts[2] ?? 0
-                c.madd[1] += s.maddCounts[4] ?? 0
-                c.madd[2] += s.maddCounts[6] ?? 0
-                c.madd[3] += s.maddFlagged
-                c.words[0] += s.wordsScored
-                c.words[1] += s.wordsFlagged
-                for m in s.margins { c.margin[Histogram.index(m, Histogram.margin.1)] += 1 }
-                for v in s.confidences { c.confidence[Histogram.index(v, Histogram.confidence.1)] += 1 }
-            }
-            mutate { d in
-                if (1...114).contains(s.surah) {
-                    d.coverage[String(s.surah), default: 0] += 1
-                    d.surahAyahs[String(s.surah), default: 0] += 1
-                }
-                d.ayahs += 1
-                d.words += s.wordsScored
-                // what was checked and flagged, by rule: each site class, then madd, qalqalah, gemination and words
-                var rules: [(String, Int, Int)] = []
-                for (k, v) in s.classes { rules.append((k, v.sites, v.flagged)) }
-                rules.append(("madd", s.maddCounts.values.reduce(0, +), s.maddFlagged))
-                rules.append(("qalqalah", s.qalqalahChecked, s.qalqalahFlagged))
-                rules.append(("gemination", s.geminationChecked, s.geminationFlagged))
-                rules.append(("word", s.wordsScored, s.wordsFlagged))
-                for (k, checked, flagged) in rules where checked > 0 {
-                    d.ruleChecks[k, default: 0] += checked
-                    if flagged > 0 { d.ruleFlags[k, default: 0] += min(flagged, checked) }
-                }
-            }
-        case .download(let rev, let profile, let bytes, let ok, let resumed):
-            mutate { d in
-                var x = d.downloads["\(rev)|\(profile)"] ?? Download()
+        case .download(let rev, let build, let profile, let bytes, let ok, let resumed):
+            let k = "\(rev)|\(build)|\(profile)"
+            mutate { d, _ in
+                var x = d.downloads[k] ?? Download()
                 x.bytes += bytes
                 if ok { x.success += 1 } else { x.failed += 1 }
                 if resumed { x.resumed += 1 }
-                d.downloads["\(rev)|\(profile)"] = x
+                d.downloads[k] = x
             }
         case .promotion(let t):
-            let k = "\(t.backend)|\(t.revision)|\(t.context)"
-            mutate { d in
+            let k = "\(t.backend)|\(t.revision)|\(t.build)|\(t.context)"
+            mutate { d, _ in
                 var p = d.promotions[k] ?? Promotion(backend: t.backend, revision: t.revision, context: t.context)
+                if !t.build.isEmpty { p.build = t.build }
                 switch t.kind {
                 case .attempt(let promoted, let stage, let reason, let compileMs, let speedup):
                     p.attempts += 1
@@ -452,6 +462,40 @@ final class AnalyticsStore: Sendable {
         }
     }
 
+    /// The app's own judge results (app-reported): how often a rule was checked and how often flagged. A call with
+    /// `checked` 0 counts nothing and takes no place among the day's rules. At most 32 distinct rules a UTC day, kept
+    /// with the day across its deltas: a call for a 33rd counts nothing. `word` also counts the day's words.
+    func reportChecks(rule: String, checked: Int, flagged: Int) {
+        guard checked > 0 else { return }
+        mutate { d, s in
+            var seen = s.rules?[d.day] ?? []
+            if !seen.contains(rule) {
+                guard seen.count < Self.rulesPerDay else { return }
+                seen.append(rule)
+                var all = s.rules ?? [:]
+                // only the days that can still be counted are kept
+                all = all.filter { $0.key >= d.day }
+                all[d.day] = seen
+                s.rules = all
+            }
+            d.ruleChecks[rule, default: 0] += checked
+            if flagged > 0 { d.ruleFlags[rule, default: 0] += flagged }
+            if rule == "word" { d.words += checked }
+        }
+    }
+
+    /// Where the learner recited in a take that ended with its Heads (app-reported): the ayahs of the range, in the
+    /// day's `ayahs`, `surah_ayahs` and `coverage` (the same values; `coverage` is kept for readers of 2.x).
+    func reportRecited(surah: Int, ayahFrom: Int, ayahTo: Int) {
+        let n = ayahTo - ayahFrom + 1
+        guard (1...114).contains(surah), n > 0 else { return }
+        mutate { d, _ in
+            d.ayahs += n
+            d.surahAyahs[String(surah), default: 0] += n
+            d.coverage[String(surah), default: 0] += n
+        }
+    }
+
     /// Counted and not sealed yet, by day, for tests and for a host that shows what is sent.
     var pending: [Day] { state.withLock { Array($0.open.values) }.sorted { $0.day < $1.day } }
 
@@ -472,37 +516,37 @@ final class AnalyticsStore: Sendable {
         return u.allSatisfy { (c: UInt8) -> Bool in (97...122).contains(c) || (48...57).contains(c) || c == 95 }
     }
 
+    static func isBuild(_ s: String) -> Bool { s.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil }
+
     /// 16 random bytes, 32 lower-case hex: drawn per delta, never per install or user.
     static func reportID() -> String {
         var g = SystemRandomNumberGenerator()
         return (0..<16).map { (_: Int) -> String in String(format: "%02x", UInt8.random(in: 0...255, using: &g)) }.joined()
     }
 
-    /// The v2 body of one delta (closed schema: exactly these fields, the 2.0.1 ones left out when zero, `report_id`
-    /// always). Cohorts beyond 16 are merged into the 16 largest by sessions (the extras' counts go to the largest).
+    /// The six fields the app reports itself, in the order `reported` lists them.
+    static let appReported = ["ayahs", "surah_ayahs", "coverage", "words", "rule_checks", "rule_flags"]
+
+    /// The v2 body of one delta as SDK 3.0.0 sends it (a closed schema on the server: exactly these fields; zero
+    /// counts and empty objects left out; `report_id` always). Cohorts beyond 16 are merged into the 16 largest by
+    /// sessions (the extras' counts go to the largest). `reported` lists exactly those of the six app-reported fields
+    /// that this body carries, and is absent when it carries none: it is built here, from the body, so the two cannot
+    /// disagree.
     func payload(_ d: Day, reportID: String) -> [String: Any] {
         var cs = d.cohorts.values.sorted { ($0.sessions, $0.cohort.key) > ($1.sessions, $1.cohort.key) }
         if cs.count > 16 {
             for extra in cs[16...] { cs[0].merge(extra) }
             cs = Array(cs[..<16])
         }
-        let checks = ["letters", "vowels", "length", "madd", "gemination", "qalqalah", "lazim"]
         var cohorts: [[String: Any]] = []
         for c in cs {
-            var classes: [String: Any] = [:]
-            for (k, v) in c.classes { classes[k] = ["sites": Self.clip(v[0]), "flagged": Self.clip(v[1])] }
             var fallbacks: [String: Int] = [:]
             for r in FallbackReason.allCases { fallbacks[r.rawValue] = Self.clip(c.fallbacks[r.rawValue] ?? 0) }
-            var on: [String: Int] = [:]
-            for k in checks { on[k] = Self.clip(c.checksOn[k] ?? 0) }
             var o: [String: Any] = [:]
             o["revision"] = String(c.cohort.revision.prefix(64))
+            if Self.isBuild(c.cohort.build) { o["build"] = c.cohort.build }
             o["context"] = c.cohort.context
             o["backend"] = c.cohort.backend
-            o["preset"] = c.cohort.preset
-            o["word_level"] = c.cohort.wordLevel
-            o["word_bucket"] = c.cohort.wordBucket
-            o["site_overrides"] = max(0, min(8, c.cohort.siteOverrides))
             o["sessions"] = Self.clip(c.sessions)
             o["minutes"] = (c.minutes * 1000).rounded() / 1000
             o["chunks"] = Self.clip(c.chunks)
@@ -514,44 +558,45 @@ final class AnalyticsStore: Sendable {
             o["cold_start_ms"] = Self.hist(Histogram.startup.0, c.coldStart)
             o["model_load_ms"] = Self.hist(Histogram.startup.0, c.modelLoad)
             o["thermal"] = ["transitions": Self.clip(c.thermalTransitions), "throttled_sessions": Self.clip(c.throttledSessions)]
-            o["checks_on"] = on
-            o["classes"] = classes
-            o["session_flag_pct"] = Self.hist(Histogram.flagPct.0, c.sessionFlagPct)
             o["margin"] = Self.hist(Histogram.margin.0, c.margin)
             o["confidence"] = Self.hist(Histogram.confidence.0, c.confidence)
-            o["madd"] = ["c2": Self.clip(c.madd[0]), "c4": Self.clip(c.madd[1]), "c6": Self.clip(c.madd[2]), "flagged": Self.clip(c.madd[3])]
-            o["words"] = ["scored": Self.clip(c.words[0]), "flagged": Self.clip(c.words[1])]
+            for (k, v) in Self.inferenceCounters(c) { o[k] = v }
             cohorts.append(o)
         }
         var device: [String: Any] = ["class": context.deviceClass, "os_major": context.osMajor, "ram_tier": context.ramTier]
         if let soc = context.soc { device["soc"] = soc }
         var downloads: [[String: Any]] = []
         for (k, v) in d.downloads.sorted(by: { $0.key < $1.key }) {
-            let p = k.split(separator: "|", maxSplits: 1).map(String.init)
+            let p = k.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
             var o: [String: Any] = ["revision": String(p[0].prefix(64)), "bytes": v.bytes]
-            o["profile"] = p.count > 1 ? p[1] : "apple"
+            if p.count > 2, Self.isBuild(p[1]) { o["build"] = p[1] }
+            o["profile"] = p.count > 2 ? p[2] : p.count > 1 ? p[1] : "apple"
             o["success"] = Self.clip(v.success)
             o["failed"] = Self.clip(v.failed)
             o["resumed"] = Self.clip(v.resumed)
             downloads.append(o)
         }
         var p: [String: Any] = ["v": 2, "day": d.day, "product": "apple", "platform": context.platform, "sdk_version": context.sdkVersion,
-                                "app_version": context.appVersion, "device": device, "cohorts": cohorts,
-                                "coverage": d.coverage.mapValues(Self.clip), "downloads": downloads]
-        // 2.0.1: the delta's id, and the counters (each left out when zero or empty)
+                                "app_version": context.appVersion, "device": device, "cohorts": cohorts, "downloads": downloads]
         p["report_id"] = reportID
         if d.launches > 0 { p["launches"] = Self.clip(d.launches) }
+        // the app-reported counters, each left out when zero or empty
         if d.ayahs > 0 { p["ayahs"] = Self.clip(d.ayahs) }
-        var surahs: [String: Int] = [:]
-        for (k, v) in d.surahAyahs {
-            if let n = Int(k), (1...114).contains(n), v > 0 { surahs[String(n)] = min(1_000_000, v) }
+        func surahs(_ m: [String: Int]) -> [String: Int] {
+            var out: [String: Int] = [:]
+            for (k, v) in m {
+                if let n = Int(k), (1...114).contains(n), v > 0 { out[String(n)] = min(1_000_000, v) }
+            }
+            return out
         }
-        if !surahs.isEmpty { p["surah_ayahs"] = surahs }
+        let perSurah = surahs(d.surahAyahs), coverage = surahs(d.coverage)
+        if !perSurah.isEmpty { p["surah_ayahs"] = perSurah }
+        if !coverage.isEmpty { p["coverage"] = coverage }
         if d.words > 0 { p["words"] = Self.clip(d.words) }
         // at most 32 rules, the most checked first; a flag count never above its check count
         let rules = d.ruleChecks.filter { (e: (key: String, value: Int)) -> Bool in e.value > 0 && Self.ruleKey(e.key) }
             .sorted { (a: (key: String, value: Int), b: (key: String, value: Int)) -> Bool in a.value != b.value ? a.value > b.value : a.key < b.key }
-            .prefix(32)
+            .prefix(Self.rulesPerDay)
         var ruleChecks: [String: Int] = [:], ruleFlags: [String: Int] = [:]
         for e in rules {
             ruleChecks[e.key] = Self.clip(e.value)
@@ -560,12 +605,33 @@ final class AnalyticsStore: Sendable {
         }
         if !ruleChecks.isEmpty { p["rule_checks"] = ruleChecks }
         if !ruleFlags.isEmpty { p["rule_flags"] = ruleFlags }
+        let reported = Self.appReported.filter { p[$0] != nil }
+        if !reported.isEmpty { p["reported"] = reported }
         if d.shareAsked > 0 { p["share_asked"] = Self.clip(d.shareAsked) }
         if d.shareYes > 0 { p["share_yes"] = Self.clip(d.shareYes) }
         if d.shareNo > 0 { p["share_no"] = Self.clip(d.shareNo) }
         let promotions = Self.promotions(d.promotions)
         if !promotions.isEmpty { p["promotions"] = promotions }
         return p
+    }
+
+    /// The SDK-measured counters of SDK 3.0.0 for one cohort, each left out when zero: `takes`, `audio_s`, `speech_s`,
+    /// `silence_s` (whole milliseconds, sent as seconds), `tokens` per CTC head, and `compute_s` (whole microseconds,
+    /// rounded to milliseconds, sent as seconds).
+    static func inferenceCounters(_ c: Cohort) -> [String: Any] {
+        var o: [String: Any] = [:]
+        func seconds(_ ms: Int) -> Double { Double(ms) / 1000 }
+        if let n = c.takes, n > 0 { o["takes"] = clip(n) }
+        if let ms = c.audioMs, ms > 0 { o["audio_s"] = seconds(ms) }
+        if let ms = c.speechMs, ms > 0 { o["speech_s"] = seconds(ms) }
+        if let ms = c.silenceMs, ms > 0 { o["silence_s"] = seconds(ms) }
+        let tokens = (c.tokens ?? [:]).filter { $0.value > 0 }.mapValues(clip)
+        if !tokens.isEmpty { o["tokens"] = tokens }
+        if let us = c.computeMicroseconds, us > 0 {
+            let ms = (us + 500) / 1000
+            if ms > 0 { o["compute_s"] = seconds(ms) }
+        }
+        return o
     }
 
     /// The `promotions` array: at most 8 entries (the busiest), zero counts and empty objects left out, an entry with
@@ -582,6 +648,7 @@ final class AnalyticsStore: Sendable {
             .sorted { (a: Promotion, b: Promotion) -> Bool in a.activity != b.activity ? a.activity > b.activity : (a.revision, a.context) < (b.revision, b.context) }
         for e in ranked.prefix(8) {
             var o: [String: Any] = ["backend": e.backend, "revision": String(e.revision.prefix(64)), "context": e.context]
+            if let b = e.build, isBuild(b) { o["build"] = b }
             if e.attempts > 0 { o["attempts"] = clip(e.attempts) }
             if e.promoted > 0 { o["promoted"] = clip(e.promoted) }
             let fields: [(String, [String: Int])] = [
@@ -597,7 +664,6 @@ final class AnalyticsStore: Sendable {
         }
         return out
     }
-
     /// Seals the open counts of every day into deltas (each its own day, a fresh report id), saved before anything is
     /// sent; deltas and counts older than 7 days go unsent. Returns how many were sealed.
     @discardableResult
@@ -793,11 +859,11 @@ final class IssueQueue: Sendable {
         case .checksumMismatch: return ("checksum_mismatch", "checksum_mismatch")
         case .signatureInvalid: return ("signature_invalid", "signature_invalid")
         case .manifestInvalid: return ("model_load", "manifest_invalid")
+        case .modelIncompatible: return ("model_load", "model_incompatible")
         case .unsupportedAudioFormat: return ("audio_input", "unsupported_audio_format")
         case .neuralEngineUnavailable: return ("fallback", "ane_unavailable")
         case .engineFailed(let code, _): return ("engine_failed", "engine:\(code)")
         case .storageFailed: return ("other", "storage_failed")
-        case .tajweedUnavailable: return ("model_load", "tajweed_unavailable")
         case .sessionActive, .sessionClosed, .cancelled, .serviceUnavailable,
              .offline, .serverRejected, .insufficientStorage, .updateDeferred,
              .contributionUnavailable, .microphoneUnavailable, .invalidArgument:

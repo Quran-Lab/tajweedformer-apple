@@ -5,30 +5,30 @@ import TajweedFormerCore
 /// inter1, inter4, id, timing: 38 entries, k 1 to 38, 38 being the whole ranked list) and the class heads (gem 2,
 /// attr_tafkheem 3, attr_ghunna 5, attr_qalqalah 3, attr_face 4). Highest value first, equal values by the lower id
 /// (a stable argsort), as the engine ranks them; the numbers come from the engine for heads of either backend.
-public struct TajweedRanking: Sendable, Hashable {
+struct TajweedRanking: Sendable, Hashable {
     /// One ranked entry of a frame.
-    public struct Entry: Sendable, Hashable {
+    struct Entry: Sendable, Hashable {
         /// Token id (token heads) or class index (class heads).
-        public let id: Int
+        let id: Int
         /// Its name: the tokens.txt unit, or the class name.
-        public let name: String
+        let name: String
         /// The head's value: a log-prob for token heads, a probability for class heads.
-        public let value: Float
+        let value: Float
         /// Its value minus the next-ranked entry's (also when that one is beyond k); 0 for the last entry of the row.
-        public let margin: Float
+        let margin: Float
     }
 
-    public let head: TajweedHead
-    public let k: Int
+    let head: HeadID
+    let k: Int
     /// Frames at the head's rate (40 ms for the CTC heads, 20 ms for the others).
-    public let frames: Int
+    let frames: Int
     let ids: [Int32]
     let values: [Float]
     let margins: [Float]
     let names: [String]
 
     /// Frame `t`'s k entries, best first.
-    public func entries(frame t: Int) -> [Entry] {
+    func entries(frame t: Int) -> [Entry] {
         guard t >= 0, t < frames else { return [] }
         return (0..<k).map { j in
             let i = t * k + j, id = Int(ids[i])
@@ -37,18 +37,18 @@ public struct TajweedRanking: Sendable, Hashable {
     }
 
     /// Every frame's entries.
-    public var all: [[Entry]] { (0..<frames).map { entries(frame: $0) } }
+    var all: [[Entry]] { (0..<frames).map { entries(frame: $0) } }
 
     /// Whether `head` can be ranked (boundary and conf are single logits).
-    public static func isRanked(_ head: TajweedHead) -> Bool { head != .boundary && head != .conf }
+    static func isRanked(_ head: HeadID) -> Bool { head != .boundary && head != .conf }
 
-    static func check(_ head: TajweedHead, k: Int) throws(RecognizerError) {
+    static func check(_ head: HeadID, k: Int) throws(RecognizerError) {
         guard isRanked(head) else { throw .invalidArgument("\(head.rawValue) is a single logit: it has no ranking") }
         guard (1...head.width).contains(k) else { throw .invalidArgument("k \(k) is outside 1...\(head.width) for \(head.rawValue)") }
     }
 
     /// The model-free ranking of `values` ([frames, head.width] row major, from any backend): `zf_tajweed_topk`.
-    static func rank(_ values: [Float], head: TajweedHead, k: Int, names: [String]) throws(RecognizerError) -> TajweedRanking {
+    static func rank(_ values: [Float], head: HeadID, k: Int, names: [String]) throws(RecognizerError) -> TajweedRanking {
         try check(head, k: k)
         let cols = head.width
         guard !values.isEmpty else { throw .invalidArgument("\(head.rawValue) was not computed for this take (select it with HeadSelection)") }
@@ -72,7 +72,7 @@ public struct TajweedRanking: Sendable, Hashable {
 extension TajweedExactEngine {
     /// The stream's ranking of a head it keeps, over the take so far (`zf_tajweed_stream_topk`); nil when the stream
     /// does not keep that head.
-    func ranking(_ head: TajweedHead, k: Int, frames: Int, names: [String]) throws(RecognizerError) -> TajweedRanking? {
+    func ranking(_ head: HeadID, k: Int, frames: Int, names: [String]) throws(RecognizerError) -> TajweedRanking? {
         try TajweedRanking.check(head, k: k)
         guard heads & head.engineBit != 0, frames > 0 else { return nil }
         var ids = [Int32](repeating: 0, count: frames * k)

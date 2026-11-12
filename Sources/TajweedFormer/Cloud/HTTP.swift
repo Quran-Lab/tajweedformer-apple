@@ -2,37 +2,37 @@ import Foundation
 
 /// Where the SDK's servers are and what it trusts. The defaults are production; tests and the
 /// local stack point them elsewhere.
-public struct CloudOptions: Sendable {
+struct CloudOptions: Sendable {
     /// qlab-api.
-    public var apiURL: URL
+    var apiURL: URL
     /// Where model files are served. Nil, the default: the `base` of the signed remote config, else
     /// `https://cdn.quranlab.ai/models`. Set, it wins over the config.
-    public var cdnURL: URL?
+    var cdnURL: URL?
     /// Raw 32-byte Ed25519 public keys that config responses and model manifests may be signed with.
-    public var signingKeys: [Data]
+    var signingKeys: [Data]
     /// Send error reports (independent of `analytics`). The remote config can also turn them off.
-    public var issueReports: Bool
+    var issueReports: Bool
     /// Download model updates only on Wi-Fi or wired networks (not cellular, not Low Data Mode).
-    public var updatesOnWiFiOnly: Bool
+    var updatesOnWiFiOnly: Bool
     /// The Apple team id, for App Attest. Nil means read it from the app's keychain access group.
-    public var appleTeamID: String?
+    var appleTeamID: String?
     /// Nil means `AppIdentity.main`.
-    public var app: AppIdentity?
+    var app: AppIdentity?
     /// Nil means a session made for the SDK. Tests pass one with a stub URLProtocol.
-    public var urlSession: URLSession?
+    var urlSession: URLSession?
     /// Parallel range requests per model download.
-    public var parallelDownloads: Int
+    var parallelDownloads: Int
     /// Bytes per range request.
-    public var rangeSize: Int64
+    var rangeSize: Int64
     /// Upload shared sessions on a background URLSession, so an upload goes on while the app is
     /// suspended (on by default on iOS; the host forwards `handleEventsForBackgroundURLSession`
     /// to `QuranLab.handleBackgroundEvents`). Ignored when `urlSession` is set. Off by default on
     /// macOS: a Mac app is not suspended, so uploads run in the app's process while it runs, and
     /// whatever is left waits on disk for the next launch (a background session there would only
     /// add a daemon hop, and AppKit has no event to relaunch the app for its results).
-    public var backgroundUploads: Bool
+    var backgroundUploads: Bool
 
-    public init(apiURL: URL = URL(string: "https://api.quranlab.ai")!,
+    init(apiURL: URL = URL(string: "https://api.quranlab.ai")!,
                 cdnURL: URL? = nil,
                 signingKeys: [Data] = [ManifestVerifier.quranLabPublicKey],
                 issueReports: Bool = true,
@@ -57,9 +57,9 @@ public struct CloudOptions: Sendable {
     }
 
     #if os(iOS)
-    public static let backgroundUploadsByDefault = true
+    static let backgroundUploadsByDefault = true
     #else
-    public static let backgroundUploadsByDefault = false
+    static let backgroundUploadsByDefault = false
     #endif
 }
 
@@ -67,8 +67,11 @@ public struct CloudOptions: Sendable {
 enum CloudError: Error, Equatable, Sendable {
     /// No connection, a timeout, or a 5xx: worth retrying later.
     case offline(String)
-    /// The server said no (4xx) with its error code: retrying the same request will not help.
-    case rejected(status: Int, code: String, message: String)
+    /// The server said no (4xx) with its error code: retrying the same request will not help. `reason` is the
+    /// answer's `reason`, when it has one: the check that refused (the API answers an origin, key-type or
+    /// allow-list refusal as a 401 `invalid_key` and names the check there). What the SDK does with the network
+    /// follows `status` and `code`; the error an app gets reads `reason` first.
+    case rejected(status: Int, code: String, message: String, reason: String? = nil)
     /// A response that does not verify or parse.
     case invalid(String)
     /// No developer key configured.
@@ -77,7 +80,7 @@ enum CloudError: Error, Equatable, Sendable {
     var retryable: Bool {
         switch self {
         case .offline: return true
-        case .rejected(let s, _, _): return s == 429 || s == 401
+        case .rejected(let s, _, _, _): return s == 429 || s == 401
         default: return false
         }
     }
@@ -85,7 +88,7 @@ enum CloudError: Error, Equatable, Sendable {
     var recognizerError: RecognizerError {
         switch self {
         case .offline(let why): return .offline(why)
-        case .rejected(let s, let code, let m): return .serverRejected(status: s, code: code, message: m)
+        case .rejected(let s, let code, let m, let reason): return .serverRejected(status: s, code: code, message: m, reason: reason)
         case .invalid(let why): return .serverRejected(status: 0, code: "invalid_response", message: why)
         case .noKey: return .serviceUnavailable("no developer key configured (QuranLab.configure(key:))")
         }
@@ -140,8 +143,22 @@ struct HTTPClient: Sendable {
         if (200..<300).contains(r.status) { return r }
         if r.status >= 500 { throw .offline("HTTP \(r.status)") }
         let o = (try? JSONSerialization.jsonObject(with: r.body)) as? [String: Any]
-        throw .rejected(status: r.status, code: o?["error"] as? String ?? "http_\(r.status)",
-                        message: o?["message"] as? String ?? "")
+        throw .rejected(status: r.status, code: o?["error"] as? String ?? "http_\(r.status)", message: Self.message(o),
+                        reason: Self.reason(o))
+    }
+
+    /// The message of a refusal. The SDK version a `sdk_too_old` answer names (`min_sdk`) goes in front of it, as
+    /// `min_sdk x.y.z`, so the error's fix can name it.
+    static func message(_ o: [String: Any]?) -> String {
+        let text = o?["message"] as? String ?? ""
+        if let v = o?["min_sdk"] as? String, ModelVersion.isVersion(v) { return "min_sdk \(v) " + text }
+        return text
+    }
+
+    /// The `reason` of a refusal's body: the check that refused, when the server names one (absent or null: none).
+    static func reason(_ o: [String: Any]?) -> String? {
+        guard let r = o?["reason"] as? String, !r.isEmpty else { return nil }
+        return r
     }
 
     static func jsonRequest(_ url: URL, method: String = "POST", body: [String: Any]?,

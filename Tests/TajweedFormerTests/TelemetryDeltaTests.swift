@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import TajweedFormer
 
-/// SDK 2.0.1 telemetry: deltas sealed with a report id (a retry resends the same bytes), never across midnight, sent
-/// every 15 minutes in use, at the background and at launch; the new counters from scored results and from the
-/// sharing sheet (the SDK's and the app's own); the server's answers; registration once per UTC day.
+/// Telemetry deltas: sealed with a report id (a retry resends the same bytes), never across midnight, sent every 15
+/// minutes in use, at the background and at launch; the counters the app reports itself and those of the sharing
+/// sheet (the SDK's and the app's own); the server's answers; registration once per UTC day.
 final class TelemetryDeltaTests: XCTestCase {
     /// 2026-09-21 00:00:00 UTC.
     static let midnight = Date(timeIntervalSince1970: 1_789_948_800)
@@ -81,49 +81,59 @@ final class TelemetryDeltaTests: XCTestCase {
 
     // MARK: the counters
 
-    /// From scored results: ayahs, per-surah ayahs, words, and per rule what was checked and flagged (qalqalah and
-    /// gemination included, flags never above checks, valid keys only, at most 32).
-    func testTheNewFieldsFromScoredResults() throws {
+    /// From the app's own reports (SDK 3.0.0 scores nothing): ayahs and per-surah ayahs from `reportRecited`, words and
+    /// per rule what was checked and flagged from `reportChecks` (flags never above checks, at most 32 rules a UTC day,
+    /// kept with the day across its deltas).
+    func testTheAppReportedCounters() throws {
         let a = Self.store(CloudFixtures.storage(), clock: { Self.midnight })
-        var s = ScoreTelemetry(cohort: AnalyticsAndIssueTests.cpu, surah: 36)
-        s.classes["vowel_sub"] = .init(sites: 12, flagged: 2)
-        s.classes["insertion"] = .init(sites: 3, flagged: 0)
-        s.maddCounts = [2: 4, 6: 1]
-        s.maddFlagged = 1
-        s.qalqalahChecked = 2
-        s.qalqalahFlagged = 1
-        s.geminationChecked = 3
-        s.wordsScored = 7
-        s.wordsFlagged = 2
-        a.record(.scored(s))
-        a.record(.scored(ScoreTelemetry(cohort: AnalyticsAndIssueTests.cpu, surah: 36)))
-        a.record(.scored(ScoreTelemetry(cohort: AnalyticsAndIssueTests.cpu, surah: 0)))
+        a.reportRecited(surah: 36, ayahFrom: 1, ayahTo: 2)
+        a.reportRecited(surah: 36, ayahFrom: 5, ayahTo: 5)
+        a.reportRecited(surah: 0, ayahFrom: 1, ayahTo: 1)   // the public call refuses it; the store counts nothing
+        a.reportChecks(rule: "vowel_sub", checked: 12, flagged: 2)
+        a.reportChecks(rule: "insertion", checked: 3, flagged: 0)
+        a.reportChecks(rule: "madd", checked: 5, flagged: 1)
+        a.reportChecks(rule: "qalqalah", checked: 2, flagged: 1)
+        a.reportChecks(rule: "gemination", checked: 3, flagged: 0)
+        a.reportChecks(rule: "word", checked: 7, flagged: 2)
         let p = a.payload(try XCTUnwrap(a.pending.first), reportID: AnalyticsStore.reportID())
-        XCTAssertEqual(p["ayahs"] as? Int, 3, "one per scored result")
-        XCTAssertEqual(p["surah_ayahs"] as? [String: Int], ["36": 2], "surahs 1 to 114 only")
+        XCTAssertEqual(p["ayahs"] as? Int, 3)
+        XCTAssertEqual(p["surah_ayahs"] as? [String: Int], ["36": 3], "surahs 1 to 114 only")
+        XCTAssertEqual(p["coverage"] as? [String: Int], ["36": 3], "the same values, for readers of 2.x")
         XCTAssertEqual(p["words"] as? Int, 7)
         XCTAssertEqual(p["rule_checks"] as? [String: Int], ["vowel_sub": 12, "insertion": 3, "madd": 5, "qalqalah": 2, "gemination": 3, "word": 7])
         XCTAssertEqual(p["rule_flags"] as? [String: Int], ["vowel_sub": 2, "madd": 1, "qalqalah": 1, "word": 2])
+        XCTAssertEqual(p["reported"] as? [String], AnalyticsStore.appReported)
         XCTAssertNil(p["launches"], "zero counters are left out")
         XCTAssertNil(p["share_asked"])
 
-        // many rules: valid keys only, the 32 most checked, every flag key among the checks with no larger count
+        // 32 distinct rules a day: a 33rd counts nothing, a rule of the day still counts
         let b = Self.store(CloudFixtures.storage(), clock: { Self.midnight })
-        var many = ScoreTelemetry(cohort: AnalyticsAndIssueTests.cpu, surah: 1)
-        for i in 0..<40 { many.classes[String(format: "rule_%02d", i)] = .init(sites: 100 + i, flagged: i) }
-        many.classes["Bad-Key"] = .init(sites: 1_000, flagged: 1)
-        b.record(.scored(many))
+        for i in 0..<32 { b.reportChecks(rule: String(format: "rule_%02d", i), checked: 100 + i, flagged: i) }
+        b.reportChecks(rule: "rule_32", checked: 500, flagged: 1)
+        b.reportChecks(rule: "rule_00", checked: 1, flagged: 0)
         let q = b.payload(try XCTUnwrap(b.pending.first), reportID: AnalyticsStore.reportID())
         let checks = try XCTUnwrap(q["rule_checks"] as? [String: Int])
         let flags = try XCTUnwrap(q["rule_flags"] as? [String: Int])
         XCTAssertEqual(checks.count, 32)
-        XCTAssertNil(checks["Bad-Key"])
-        XCTAssertNil(checks["rule_00"], "the least checked go")
+        XCTAssertNil(checks["rule_32"], "the 33rd rule of the day")
+        XCTAssertEqual(checks["rule_00"], 101)
         for (k, f) in flags { XCTAssertLessThanOrEqual(f, try XCTUnwrap(checks[k], k), k) }
         for k in checks.keys { XCTAssertTrue(AnalyticsStore.ruleKey(k), k) }
         XCTAssertLessThan(try JSONSerialization.data(withJSONObject: q).count, 32 * 1024)
+        // the day's rules stay with the day when a delta is sealed
+        XCTAssertEqual(b.seal(), 1)
+        b.reportChecks(rule: "rule_33", checked: 9, flagged: 0)
+        XCTAssertTrue(b.pending.allSatisfy { $0.ruleChecks.isEmpty }, "still the 33rd rule of that day")
+        b.reportChecks(rule: "rule_05", checked: 2, flagged: 0)
+        XCTAssertEqual(b.pending.first?.ruleChecks, ["rule_05": 2])
+        // a key the server would refuse never reaches the body
+        let c = Self.store(CloudFixtures.storage(), clock: { Self.midnight })
+        c.reportChecks(rule: "Bad-Key", checked: 1_000, flagged: 1)
+        c.reportChecks(rule: "madd", checked: 4, flagged: 9)
+        let r = c.payload(try XCTUnwrap(c.pending.first), reportID: AnalyticsStore.reportID())
+        XCTAssertEqual(r["rule_checks"] as? [String: Int], ["madd": 4])
+        XCTAssertEqual(r["rule_flags"] as? [String: Int], ["madd": 4], "a flag count never above its check count")
     }
-
     /// share_asked, share_yes and share_no from the SDK's sheet and from the app's own UI; the settings switch is not
     /// a sheet answer.
     func testShareCountersFromTheSheetAndTheAppsOwnUI() async throws {

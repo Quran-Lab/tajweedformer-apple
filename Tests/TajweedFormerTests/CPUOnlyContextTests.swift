@@ -24,9 +24,9 @@ final class CPUOnlyContextTests: XCTestCase {
         return dir
     }
 
-    func open(_ dir: URL) throws -> TajweedModel {
+    func open(_ dir: URL) throws -> ModelFolder {
         try Fixtures.manifest(for: dir).write(to: dir)
-        return try TajweedModel.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+        return try ModelFolder.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
     }
 
     func testC8IsSelectableAndTheDefaultStaysC16() throws {
@@ -37,12 +37,13 @@ final class CPUOnlyContextTests: XCTestCase {
         XCTAssertTrue(model.usableContexts.contains(Self.c8))
         XCTAssertNotNil(model.engineDirectory(context: Self.c8))
 
-        func context(remote: String? = nil, app: String? = nil) throws -> String {
-            try TajweedSettings.resolve(calibration: model.calibration, remote: remote.flatMap { JSONValue(data: Data($0.utf8)) },
-                                        app: TajweedOptions(context: app), debugBuild: false, backend: .int8).context
+        func context(config: String? = nil, app: String? = nil) throws -> String {
+            try RemoteConfig.context(app: app, inference: config, contexts: model.manifest.contexts,
+                                     defaultContext: model.manifest.defaultContext).context
         }
         XCTAssertEqual(try context(app: Self.c8), Self.c8, "chosen by the app")
-        XCTAssertEqual(try context(remote: #"{"v":1,"context":"c8_l64"}"#), Self.c8, "chosen in the portal")
+        XCTAssertEqual(try context(config: Self.c8), Self.c8, "chosen in the signed config (inference.context)")
+        XCTAssertEqual(try context(config: "c16_l64", app: Self.c8), Self.c8, "the app's choice wins")
         XCTAssertEqual(try context(), "c16_l64", "the default")
     }
 

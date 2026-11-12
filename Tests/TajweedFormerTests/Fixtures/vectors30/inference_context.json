@@ -1,0 +1,419 @@
+{
+ "about": "SDK 3.0.0 context precedence (make_inference_context.py holds the rule). Per case: `app` (the Session option, null when the app chose nothing), `config` (the parsed signed config, null when there is none), `manifest` (its contexts and default_context) and `expect`: the context in force and where it came from, or the error code.",
+ "cases": [
+  {
+   "name": "nothing chosen: the manifest's default",
+   "app": null,
+   "config": {
+    "v": 1
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "no config at all: the manifest's default",
+   "app": null,
+   "config": null,
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "the config's inference.context",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": "c8_l64"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c8_l64",
+    "source": "config"
+   }
+  },
+  {
+   "name": "the app's choice wins over the config",
+   "app": "c24_l72",
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": "c8_l64"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c24_l72",
+    "source": "app"
+   }
+  },
+  {
+   "name": "the app's choice with no inference in the config",
+   "app": "c24_l256",
+   "config": {
+    "v": 1
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c24_l256",
+    "source": "app"
+   }
+  },
+  {
+   "name": "the app chooses the default itself",
+   "app": "c16_l64",
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": "c8_l64"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "app"
+   }
+  },
+  {
+   "name": "the config names a context this build does not have: ignored",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": "c24_l72"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c8_l64"
+    ],
+    "default_context": "c8_l64"
+   },
+   "expect": {
+    "context": "c8_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "the config names an unknown context: ignored",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": "c32_l64"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "the config's context is not a string: ignored",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": 16
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "the config's context is null: ignored",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": null
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "inference is not an object: ignored",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": "c8_l64"
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "inference without a context: ignored",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": {}
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "an unknown key next to context is ignored, the context is used",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": "c8_l64",
+     "later": 1
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c8_l64",
+    "source": "config"
+   }
+  },
+  {
+   "name": "tajweed.context is not read by 3.0",
+   "app": null,
+   "config": {
+    "v": 1,
+    "tajweed": {
+     "v": 1,
+     "context": "c24_l72"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "tajweed.context next to inference.context: only inference counts",
+   "app": null,
+   "config": {
+    "v": 1,
+    "tajweed": {
+     "v": 1,
+     "context": "c24_l72"
+    },
+    "inference": {
+     "context": "c8_l64"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c8_l64",
+    "source": "config"
+   }
+  },
+  {
+   "name": "the app chooses a context this build does not have: an error",
+   "app": "c24_l72",
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": "c16_l64"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c8_l64"
+    ],
+    "default_context": "c8_l64"
+   },
+   "expect": {
+    "error": "invalid_argument"
+   }
+  },
+  {
+   "name": "the app chooses an unknown name: an error",
+   "app": "fast",
+   "config": {
+    "v": 1
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "error": "invalid_argument"
+   }
+  },
+  {
+   "name": "a build whose default is not c16_l64",
+   "app": null,
+   "config": {
+    "v": 1
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c8_l64"
+    ],
+    "default_context": "c8_l64"
+   },
+   "expect": {
+    "context": "c8_l64",
+    "source": "manifest"
+   }
+  },
+  {
+   "name": "context names are compared exactly",
+   "app": null,
+   "config": {
+    "v": 1,
+    "inference": {
+     "context": "C8_L64"
+    }
+   },
+   "manifest": {
+    "contexts": [
+     "c16_l64",
+     "c24_l72",
+     "c24_l256",
+     "c8_l64"
+    ],
+    "default_context": "c16_l64"
+   },
+   "expect": {
+    "context": "c16_l64",
+    "source": "manifest"
+   }
+  }
+ ]
+}

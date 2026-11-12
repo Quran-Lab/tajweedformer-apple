@@ -4,8 +4,8 @@ import Foundation
 /// registration, the signed config, the telemetry and issue queues, model installs and updates, and recording
 /// sharing. Made by `QuranLab.configure`. Nothing here sits in the recognition path: the recognizer only records
 /// counters (a lock and an addition) and reads the cached config.
-public final class QuranLabCloud: Sendable {
-    public let options: CloudOptions
+final class QuranLabCloud: Sendable {
+    let options: CloudOptions
     let key: String?
     let app: AppIdentity
     let storage: URL
@@ -19,9 +19,9 @@ public final class QuranLabCloud: Sendable {
     /// Accelerator incidents: the first of each kind per revision, kept until accepted, and the daily dedupe.
     let incidents: IncidentLedger
     let store: ModelStore
-    public let updater: ModelUpdater
+    let updater: ModelUpdater
     /// Shared sessions waiting to upload, and the receipts of those that went.
-    public let outbox: ContributionOutbox
+    let outbox: ContributionOutbox
     let clock: @Sendable () -> Date
     /// When the last telemetry delta was sealed (every send point resets the 15 minutes).
     private let lastSeal: Locked<Date>
@@ -33,6 +33,28 @@ public final class QuranLabCloud: Sendable {
     private let lifecycle = Locked(Lifecycle())
     private let stopped = Locked(false)
     private let signatureReported = Locked<String?>(nil)
+    private let refusal = Locked<(status: Int, code: String, message: String, reason: String?)?>(nil)
+
+    /// The server's refusal that stopped this launch's network calls (a revoked key, a blocked app, an SDK too old for
+    /// the key), when there was one. `code` is the answer's `error` and `reason` its `reason`, the check that refused,
+    /// when the answer names one.
+    var rejection: (status: Int, code: String, message: String, reason: String?)? { refusal.withLock { $0 } }
+
+    /// That refusal as the failure a call raises for it.
+    var rejectionError: RecognizerError? {
+        guard let r = rejection else { return nil }
+        return RecognizerError.serverRejected(status: r.status, code: r.code, message: r.message, reason: r.reason)
+    }
+
+    /// The end of the Client that made it: no network call, upload pass or timer of it runs from here on.
+    func shutdown() {
+        stopped.withLock { $0 = true }
+        deltaTimer.withLock { (t: inout Task<Void, Never>?) in
+            t?.cancel()
+            t = nil
+        }
+        outbox.shutdown()
+    }
 
     init(key: String?, options: QuranLab.Options, storage: URL,
          attester: any AppAttesting = DeviceCheckAttester(),
@@ -67,7 +89,7 @@ public final class QuranLabCloud: Sendable {
         issues = IssueQueue(storage: storage)
         incidents = IncidentLedger(storage: storage)
         let store = ModelStore(root: storage.appendingPathComponent("models"),
-                               verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: options.requireSignedModels),
+                               verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true),
                                updates: options.updates)
         self.store = store
         let wifiOnly = cloud.updatesOnWiFiOnly
@@ -81,7 +103,8 @@ public final class QuranLabCloud: Sendable {
             guard let cdnKey else { return nil }
             return CDNClient(http: http, base: ModelHost.base(explicit: explicitBase, config: config.current), key: cdnKey, verifier: cdnVerifier)
         },
-                               coreML: DownloadProfile.osRunsCoreML && options.neuralEngine, compact: options.compactCoreML,
+                               inferenceContext: { config.current?.inferenceContext },
+                               coreML: DownloadProfile.osRunsCoreML && options.neuralEngine,
                                rangeSize: cloud.rangeSize,
                                networkAllowed: networkAllowed ?? { first in
                                    // the first install (no model yet) goes on any network: the app cannot work without it
@@ -100,10 +123,22 @@ public final class QuranLabCloud: Sendable {
     var isStopped: Bool { stopped.withLock { $0 } }
 
     private func stopIfFatal(_ e: CloudError) {
-        guard case .rejected(let status, let code, _) = e else { return }
+        guard case .rejected(let status, let code, let message, let reason) = e else { return }
+        // the network follows the status and the answer's `error`; its `reason` only says which words the app reads
         let fatal = ["invalid_key", "unauthorized", "developer_not_approved", "not_a_member", "key_type_mismatch",
                      "origin_not_allowed", "app_not_allowed", "app_blocked", "environment_mismatch", "sdk_too_old"]
-        if (status == 401 || status == 403) && fatal.contains(code) { stopped.withLock { $0 = true } }
+        if (status == 401 || status == 403) && fatal.contains(code) {
+            stopped.withLock { $0 = true }
+            refusal.withLock { $0 = (status, code, message, reason) }
+        } else if status == 403, !code.hasPrefix("http_"), !isStopped {
+            // a refusal with a code this SDK does not know: the calls go on, and the app's errors name the code
+            refusal.withLock { $0 = (status, code, message, reason) }
+        }
+    }
+
+    /// The server answered this install: a refusal that did not stop the launch's calls is over.
+    private func answered() {
+        if !isStopped { refusal.withLock { $0 = nil } }
     }
 
     // MARK: launch
@@ -112,7 +147,7 @@ public final class QuranLabCloud: Sendable {
     /// launch's telemetry delta and any left from earlier runs, issues, the sharing outbox), then the model update
     /// check. Each step is independent; whatever was not sent stays queued. From here a telemetry delta goes every 15
     /// minutes while the app is in use and when it goes to the background.
-    public func launch() async {
+    func launch() async {
         analytics.count(.launch)
         _ = await register()
         let cfg = await refreshConfig() ?? config.current
@@ -136,7 +171,7 @@ public final class QuranLabCloud: Sendable {
     /// launch or foreground with the flag kept. Returns whether it was sent now (false when this install already
     /// registered today).
     @discardableResult
-    public func register() async -> Bool {
+    func register() async -> Bool {
         let today = Day.string(clock())
         if (try? String(contentsOf: registeredDay, encoding: .utf8)) == today { return false }
         let fm = FileManager.default
@@ -169,16 +204,20 @@ public final class QuranLabCloud: Sendable {
     /// Fetches and verifies the config; nil (keeping the last verified one) when that fails. A body that does not
     /// verify is reported once a day (`signature_invalid`).
     @discardableResult
-    public func refreshConfig() async -> RemoteConfig? {
+    func refreshConfig() async -> RemoteConfig? {
         guard let tokens, !isStopped else { return nil }
         do throws(CloudError) {
             let t = try await tokens.token()
             do throws(CloudError) {
-                return try await config.fetch(http: http, apiURL: options.apiURL, token: t.token)
+                let fetched = try await config.fetch(http: http, apiURL: options.apiURL, token: t.token)
+                answered()
+                return fetched
             } catch {
-                guard case .rejected(401, _, _) = error else { throw error }
+                guard case .rejected(401, _, _, _) = error else { throw error }
                 await tokens.invalidate()
-                return try await config.fetch(http: http, apiURL: options.apiURL, token: try await tokens.token().token)
+                let fetched = try await config.fetch(http: http, apiURL: options.apiURL, token: try await tokens.token().token)
+                answered()
+                return fetched
             }
         } catch {
             stopIfFatal(error)
@@ -191,7 +230,7 @@ public final class QuranLabCloud: Sendable {
         }
     }
 
-    public var currentConfig: RemoteConfig? { config.current }
+    var currentConfig: RemoteConfig? { config.current }
 
     /// While the app is in use: the config again when the last fetch is a minute old (portal changes apply within a
     /// minute; settings take effect at the next take). Called at every take start and foreground.
@@ -222,8 +261,9 @@ public final class QuranLabCloud: Sendable {
     }
 
     /// A return to the foreground: a launch for telemetry, the day's registration if not done yet, the config, the
-    /// telemetry delta and the queues, and the 15-minute timer again.
+    /// telemetry delta and the queues, and the 15-minute timer again. Takes in a row join one shared recording again.
     func cameToForeground() {
+        Contributions.recorder.foreground()
         let returning = lifecycle.withLock { (l: inout Lifecycle) -> Bool in
             defer { l.background = false }
             return l.background
@@ -239,8 +279,10 @@ public final class QuranLabCloud: Sendable {
 
     /// The app went to the background: a telemetry delta now (saved before it is sent, so one the system cuts short
     /// goes at the next send point), and no timer while in the background. On the Mac, where the app resigns active at
-    /// every switch to another app, at most one a minute.
+    /// every switch to another app, at most one a minute. A shared recording that waits for the next take closes
+    /// (2.0.3; a take that is running keeps its recording until it ends).
     func wentToBackground() {
+        Contributions.recorder.background()
         lifecycle.withLock { $0.background = true }
         deltaTimer.withLock { t in
             t?.cancel()
@@ -300,7 +342,7 @@ public final class QuranLabCloud: Sendable {
         do throws(CloudError) {
             return try await http.checked(try make(t.token))
         } catch {
-            guard case .rejected(401, _, _) = error else { throw error }
+            guard case .rejected(401, _, _, _) = error else { throw error }
             await tokens.invalidate()
             return try await http.checked(try make(try await tokens.token().token))
         }
@@ -318,7 +360,7 @@ public final class QuranLabCloud: Sendable {
     /// sends every unsent delta, oldest first; then the queued issues. The config's kill switches drop the queues.
     /// `includingToday` is kept for source compatibility: since 2.0.1 every flush includes today.
     @discardableResult
-    public func flush(includingToday: Bool = false) async -> (events: Int, issues: Int) {
+    func flush(includingToday: Bool = false) async -> (events: Int, issues: Int) {
         lastSeal.withLock { $0 = clock() }
         let flags = config.current?.flags ?? RemoteConfig.Flags()
         if !flags.analytics { analytics.dropAll() }
@@ -336,7 +378,7 @@ public final class QuranLabCloud: Sendable {
                     }
                 } catch {
                     // a body the server refuses is the SDK's bug: dropped, and reported (kind and code only)
-                    if case .rejected(400, _, _) = error {
+                    if case .rejected(400, _, _, _) = error {
                         self.report(.serverRejected(status: 400, code: "bad_request", message: ""), kind: "other", code: "bad_request:events",
                                     backend: nil, revision: nil)
                     }
@@ -386,7 +428,7 @@ public final class QuranLabCloud: Sendable {
     // MARK: config effects
 
     /// The backend the deny-list forces on this install for `revision`, with its reason.
-    public func forcedBackend(revision: String) -> (backend: ActiveBackend, reason: String)? {
+    func forcedBackend(revision: String) -> (backend: ActiveBackend, reason: String)? {
         guard let rule = config.current?.denyRule(platform: app.platform, osVersion: DeviceContext.osVersionString,
                                                   deviceClass: DeviceContext.deviceClass, sdkVersion: SDKInfo.version,
                                                   modelRevision: revision) else { return nil }
@@ -405,7 +447,7 @@ public final class QuranLabCloud: Sendable {
 
     /// Why the signed config keeps the Neural Engine off for `revision` on this device, if it does: `denylist` with
     /// `backend_forced: exact`, or an `accel_deny` rule for the `ane` kind. Read at every check (every verified config).
-    public func acceleratorDenied(revision: String, kind: String = "ane") -> String? {
+    func acceleratorDenied(revision: String, kind: String = "ane") -> String? {
         if let f = forcedBackend(revision: revision), f.backend == .exact { return f.reason }
         guard let r = config.current?.accelDenyRule(values: deviceValues(revision: revision), kind: kind) else { return nil }
         if let reason = r.reason { SDKLatest.debugOnly("accel_deny: \(reason)") }
@@ -414,19 +456,35 @@ public final class QuranLabCloud: Sendable {
 
     /// The CDN revision this install should run: the local pin, else the config's (portal pin, or the channel's
     /// release with the staged rollout applied by the server).
-    public func targetRevision(_ id: ModelID) -> String? {
+    func targetRevision(_ id: ModelID) -> String? {
         if case .pinned(let r) = updates { return r }
         guard let c = config.current else { return nil }
         if let r = c.recommended, r.model == id.repository { return r.revision }
         return c.models[id.repository]?.revision
     }
 
+    /// The model version of the build the config names for `id` (SDK 3.0.0); nil for a local pin by revision.
+    func targetVersion(_ id: ModelID) -> String? {
+        if case .pinned = updates { return nil }
+        guard let c = config.current else { return nil }
+        if let r = c.recommended, r.model == id.repository { return r.version }
+        return c.models[id.repository]?.version
+    }
+
+    /// Pins the model version the config request asks for (`model_version=x.y.z`); nil follows Quran Lab's choice. A
+    /// change takes effect with the next config, fetched here.
+    func pin(version: String?) async {
+        guard config.pin(version) else { return }
+        _ = await refreshConfig()
+        if let v = config.current?.pinUnavailable { SDKLatest.debugOnly("model version \(v) is not available for this SDK: Quran Lab's choice stands") }
+    }
+
     /// Downloads, verifies and stages the target revision (see `ModelUpdater`); it becomes current at the next load.
-    public func checkForUpdate(_ id: ModelID = .recommended) async -> ModelUpdater.Outcome {
+    func checkForUpdate(_ id: ModelID = .recommended) async -> ModelUpdater.Outcome {
         let id = id.isRecommended ? RecommendedModel.resolve(config: config.current, storage: storage) : id
         guard key != nil else { return .deferred("no developer key configured") }
         guard let target = targetRevision(id) else { return .deferred("no revision in the config yet") }
-        return await updater.update(id, to: target, context: nil, activate: store.currentRevision(id) == nil)
+        return await updater.update(id, to: target, version: targetVersion(id), context: nil, activate: store.currentRevision(id) == nil)
     }
 
     /// Installs the model for `context` now (the first launch, or another context on demand), and activates it.
@@ -434,8 +492,7 @@ public final class QuranLabCloud: Sendable {
         guard key != nil else { return .deferred("no developer key configured") }
         if config.current == nil { _ = await refreshConfig() }
         guard let target = targetRevision(id) else { return .deferred("no revision in the config yet") }
-        let ctx = context ?? RemoteTajweedBlock.parse(config.current?.tajweed).block?.context
-        return await updater.update(id, to: target, context: ctx, activate: activate)
+        return await updater.update(id, to: target, version: targetVersion(id), context: context, activate: activate)
     }
 
     // MARK: sharing routes for the learner
@@ -466,7 +523,7 @@ public final class QuranLabCloud: Sendable {
                                                                              "signature": sig.base64URL], auth: nil))
                 return
             } catch {
-                if attempt == 0, case .rejected(401, let code, _) = error, code == "nonce_invalid" { continue }
+                if attempt == 0, case .rejected(401, let code, _, _) = error, code == "nonce_invalid" { continue }
                 throw error.recognizerError
             }
         }

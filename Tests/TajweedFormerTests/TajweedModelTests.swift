@@ -83,9 +83,10 @@ final class TajweedModelTests: XCTestCase {
     func testAppleProfile() throws {
         let m = try manifest()
         let p = DownloadProfile(context: "c16_l64", coreML: true)
-        XCTAssertEqual(Set(p.cpuFiles(m).map(\.localPath)), ["tokens.txt", "calibration.json", "expected_tj3.zfx", "layers.zfw",
+        XCTAssertEqual(Set(p.cpuFiles(m).map(\.localPath)), ["tokens.txt", "calibration.json", "layers.zfw",
                                                              "frontend.zfw", "c16_l64/model_engine2.onnx.zfg",
                                                              "c16_l64/model_engine2.onnx.zfg.bin", "c16_l64/frames.zfw"])
+        XCTAssertFalse(p.files(m).contains { $0.role == "reference" }, "the reference table is in no download profile: reference.fetch() brings it")
         XCTAssertEqual(Set(p.appleFiles(m).map(\.localPath)), ["coreml/tajweedformer_v4.mlmodelc/weights/weight.bin",
                                                                "coreml/tajweedformer_v4.mlmodelc/model.mil",
                                                                "coreml/tajweedformer_v4.mlmodelc/coremldata.bin",
@@ -125,7 +126,7 @@ final class TajweedModelTests: XCTestCase {
         XCTAssertGreaterThan(r.downloadedBytes, 0)
         let leftovers = FileManager.default.enumerator(atPath: dir.path)!.compactMap { $0 as? String }.filter { $0.hasSuffix(".part") || $0.hasSuffix(".gz") }
         XCTAssertEqual(leftovers, [], "only decoded files are kept")
-        let model = try TajweedModel.open(directory: dir, verifier: verifier())
+        let model = try ModelFolder.open(directory: dir, verifier: verifier())
         XCTAssertEqual(model.usableContexts, ["c16_l64"])
         let cm = try XCTUnwrap(model.coreML(context: "c16_l64"))
         XCTAssertEqual(cm.frontFunction, "front_c16_l64")
@@ -140,32 +141,40 @@ final class TajweedModelTests: XCTestCase {
         let r2 = try await installer.install(m, profile: DownloadProfile(context: "c24_l72", coreML: true), into: dir)
         let small = DownloadProfile.bytes(m.files.filter { $0.context == "c24_l72" && ($0.need == .required || $0.role == "coreml-keeps" || $0.role == "selftest") })
         XCTAssertEqual(r2.downloadedBytes, small)
-        let both = try TajweedModel.open(directory: dir, verifier: verifier())
+        let both = try ModelFolder.open(directory: dir, verifier: verifier())
         XCTAssertEqual(Set(both.usableContexts), ["c16_l64", "c24_l72"])
         XCTAssertNotNil(both.coreML(context: "c24_l72"))
     }
 
-    /// Switching to the compact build installs its package and deletes the default one (never both on disk); the
-    /// model then finds the compact build.
-    func testSwitchingBuildsDeletesTheOther() async throws {
+    /// A folder may hold both CoreML builds (SDK 3.0.0: the fp16 one, which a device gets by default, and the compact
+    /// one, which a device gets when an app names it). Installing one leaves the other where it is; the model finds
+    /// each by name, neither stands in for the other, and where no build is named the fp16 one comes first.
+    func testBothBuildsCanBeOnDiskAndTheModelFindsTheOneAskedFor() async throws {
         let m = try manifest()
         let dir = scratch()
         let installer = ModelInstaller(source: DirectoryFileSource(root: try server()))
-        _ = try await installer.install(m, profile: DownloadProfile(context: "c16_l64", coreML: true), into: dir)
+        _ = try await installer.install(m, profile: DownloadProfile(context: "c16_l64", coreML: true, compact: false), into: dir)
         let fp16 = dir.appendingPathComponent("coreml/tajweedformer_v4.mlmodelc")
         let int8 = dir.appendingPathComponent("coreml-compact/tajweedformer_v4.mlmodelc")
         XCTAssertTrue(FileManager.default.fileExists(atPath: fp16.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: int8.path))
-        XCTAssertEqual(try TajweedModel.open(directory: dir, verifier: verifier()).coreML(context: "c16_l64")?.compact, false)
+        let first = try ModelFolder.open(directory: dir, verifier: verifier())
+        XCTAssertEqual(first.coreML(context: "c16_l64")?.compact, false, "the only build on disk")
+        XCTAssertNil(first.coreML(context: "c16_l64", compact: true), "the fp16 build does not stand in for the compact one")
+        XCTAssertNotNil(first.coreML(context: "c16_l64", compact: false))
         _ = try await installer.install(m, profile: DownloadProfile(context: "c16_l64", coreML: true, compact: true), into: dir)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fp16.path), "the default build is deleted")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("coreml/engine.zfs").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fp16.path), "the fp16 build stays")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("coreml/engine.zfs").path), "no correction")
         XCTAssertTrue(FileManager.default.fileExists(atPath: int8.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("coreml/c16_l64/keeps.bin").path), "the keep table stays")
-        let model = try TajweedModel.open(directory: dir, verifier: verifier())
+        let model = try ModelFolder.open(directory: dir, verifier: verifier())
         let build = try XCTUnwrap(model.coreML(context: "c16_l64"))
-        XCTAssertTrue(build.compact)
+        XCTAssertFalse(build.compact, "no build named: the fp16 one first")
         XCTAssertEqual(build.frontFunction, "front_c16_l64")
+        XCTAssertEqual(model.coreML(context: "c16_l64", compact: true)?.package.lastPathComponent, "tajweedformer_v4.mlmodelc")
+        XCTAssertTrue(model.coreML(context: "c16_l64", compact: true)?.package.path.contains("/coreml-compact/") ?? false)
+        XCTAssertTrue(model.coreML(context: "c16_l64", compact: false)?.package.path.hasSuffix("/coreml/tajweedformer_v4.mlmodelc") ?? false)
+        XCTAssertEqual(model.coreML(context: "c16_l64", compact: false)?.compact, false)
     }
 
     /// A source that stops after `limit` bytes per call: the first install fails offline and leaves `.part` files; the
@@ -200,7 +209,46 @@ final class TajweedModelTests: XCTestCase {
         let fresh = ModelInstaller(source: DirectoryFileSource(root: try server()), rangeSize: 1024)
         let r = try await fresh.install(m, profile: profile, into: dir)
         XCTAssertLessThan(r.downloadedBytes, total, "the second launch fetched only what was missing")
-        XCTAssertNoThrow(try TajweedModel.open(directory: dir, verifier: verifier()))
+        XCTAssertNoThrow(try ModelFolder.open(directory: dir, verifier: verifier()))
+    }
+
+    /// `client.prefetch`'s progress: the bytes done and the total of the CPU set, as the files arrive. The count never
+    /// goes back, ends at the total, and a download that resumes starts from what is already on the device.
+    func testProgressCountsTheCPUSetAndResumes() async throws {
+        let m = try manifest()
+        let dir = scratch()
+        let profile = DownloadProfile(context: "c16_l64", coreML: false)
+        let total = DownloadProfile.bytes(profile.cpuFiles(m))
+        let seen = Locked<[[Int64]]>([])
+        let meter = ProgressMeter { (done: Int64, all: Int64) in seen.withLock { $0.append([done, all]) } }
+        var cut = ModelInstaller(source: FlakySource(inner: DirectoryFileSource(root: try server()), budget: Locked(total / 2)), rangeSize: 1024)
+        cut.meter = meter
+        do throws(RecognizerError) {
+            _ = try await cut.install(m, profile: profile, into: dir)
+            XCTFail("the cut source finished")
+        } catch {
+            guard case .offline = error else { return XCTFail("\(error)") }
+        }
+        let first = seen.withLock { $0 }
+        XCTAssertFalse(first.isEmpty)
+        XCTAssertTrue(first.allSatisfy { $0[1] == total }, "the total is the CPU set's stored bytes")
+        XCTAssertEqual(first.map { $0[0] }, first.map { $0[0] }.sorted(), "the bytes done never go back")
+        let reached = first.last?[0] ?? 0
+        XCTAssertGreaterThan(reached, 0)
+        XCTAssertLessThan(reached, total)
+        // the next launch: counted from what is on the device, up to the total
+        seen.withLock { $0 = [] }
+        var whole = ModelInstaller(source: DirectoryFileSource(root: try server()), rangeSize: 1024)
+        whole.meter = meter
+        let r = try await whole.install(m, profile: profile, into: dir)
+        let second = seen.withLock { $0 }
+        XCTAssertEqual(second.map { $0[0] }, second.map { $0[0] }.sorted())
+        XCTAssertEqual(second.last, [total, total], "done at the total")
+        XCTAssertLessThan(r.downloadedBytes, total, "only the rest was fetched")
+        // a model already on the device: one pass over its files, straight to the total
+        seen.withLock { $0 = [] }
+        _ = try await whole.install(m, profile: profile, into: dir)
+        XCTAssertEqual(seen.withLock { $0 }.last, [total, total])
     }
 
     /// Stored bytes that do not match: both the part and the decoded file go, after one retry.
@@ -239,13 +287,13 @@ final class TajweedModelTests: XCTestCase {
         let dir = scratch()
         _ = try await ModelInstaller(source: DirectoryFileSource(root: try server())).install(m, profile: DownloadProfile(context: "c16_l64", coreML: true), into: dir)
         try Data("extra".utf8).write(to: dir.appendingPathComponent("coreml/tajweedformer_v4.mlmodelc/extra.bin"))
-        let a = try TajweedModel.open(directory: dir, verifier: verifier())
+        let a = try ModelFolder.open(directory: dir, verifier: verifier())
         XCTAssertNotNil(a.coreMLProblem)
         XCTAssertNil(a.coreML(context: "c16_l64"))
         XCTAssertEqual(a.usableContexts, ["c16_l64"], "the CPU engine still runs")
         try FileManager.default.removeItem(at: dir.appendingPathComponent("coreml/tajweedformer_v4.mlmodelc/extra.bin"))
         try Data("tampered".utf8).write(to: dir.appendingPathComponent("c16_l64/frames.zfw"))
-        XCTAssertThrowsError(try TajweedModel.open(directory: dir, verifier: verifier())) { e in
+        XCTAssertThrowsError(try ModelFolder.open(directory: dir, verifier: verifier())) { e in
             XCTAssertEqual(e as? RecognizerError, .checksumMismatch(file: "c16_l64/frames.zfw"))
         }
     }

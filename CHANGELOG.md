@@ -1,5 +1,113 @@
 # Changelog
 
+## 3.0.0
+
+A breaking release. The SDK is an inference engine: audio in, the model's output out (every head of the network,
+and what the model heard), and nothing derived from a known text. The scorer and the tajweed settings are removed,
+and the public API is five types with the same names in the four TajweedFormer SDKs. What to change in an app, and
+what an app that showed verdicts builds itself: [docs/migrating-to-3.md](docs/migrating-to-3.md). The whole public
+surface: [docs/api.md](docs/api.md).
+
+A 3.x SDK runs only model builds made for it; the 2.x builds stay with SDK 2.x.
+
+### Removed
+- Scoring: `score(surah:ayah:)`, `TajweedResult` and its sites, madd, qalqalah, gemination and word verdicts,
+  `TajweedOptions`, presets, per-class overrides, word levels, and the tajweed settings of the signed config.
+- The 2.x entry points: `QuranLab.configure`, `TajweedRecognizer`, `TajweedModel.load()`, `Contributions`,
+  `RecognizerError`, and every other public type that is not in docs/api.md. The public surface went from 738
+  declarations in 115 types to 247 in 46 (the 23 named types, their nested value types and the sharing views).
+
+### The API
+- `TajweedClient(key:)`: one per process (`client_exists` for a second one). `client.model()` downloads the model
+  once, verifies it, opens and warms it; `client.model(version:)` asks for a model version. `client.prefetch`
+  (resumable, with progress, optionally on unmetered networks only), `client.storage`, `client.removeModels()`.
+- `TajweedModel`: `version`, `build`, `contexts`, `defaultContext`, `tokens`, `sampleClips`, `backend`, and two files
+  of the model as data for an app's own judge: `calibration` (the thresholds and weights Quran Lab measured; never
+  applied by the SDK) and `reference` (the expected units of every ayah; downloaded only by `reference.fetch()`).
+- `TajweedSession`, one take: `model.listen()` asks for the microphone and captures at the device's rate;
+  `model.listen(from:)` runs a sample clip or your samples through the same path; `model.session()` takes pushed
+  audio. `chunks` (each with its `heads` and the `decoded` layer of the take so far), `events`, `finish()` (the
+  take's `TajweedHeads`), `cancel()`.
+- Events: `speechStarted`, `speechEnded`, `interrupted`, `resumed`, `backendChanged`, and `ended` with its reason
+  (`silence`, `background`, `interrupted`, `sourceEnd`, `limit`, `error`). `endOnSilenceMs` finishes a take by
+  itself after silence. `decoded.settled` says how many tokens will not change; `isFinal` marks the last chunk.
+- `TajweedError`: one error type with a stable `code` (26 codes, the same in the four SDKs), `message`, `fix` and
+  `docs`. New situations have their own codes: `needs_connection` (a first run without a network),
+  `model_unavailable` (Quran Lab has no model build for this SDK version yet), `session_open`, `client_exists`,
+  `runtime_unsupported` (a processor the SDK does not run on: an Intel Mac, the x86_64 simulator),
+  `network_not_permitted` (the app may not use the network).
+- A refusal says what to do. When Quran Lab refuses the app with a reason it names (the account has no access yet,
+  the key is of another type, the key is not for this app id, the app is blocked, and three more), the error is
+  `server_rejected` with that reason's own message and fix; any other refusal names the server's code. The answer's
+  `reason` is read first: a key that belongs to another app, a key of another type and an identifier that is not on
+  the key arrive as a refused key (401) with the check named in `reason`, and the error is `server_rejected` with
+  that check's message and fix ("This key belongs to another app"), not `invalid_key`.
+- `client.diagnose()`: one report of where the SDK stands, safe to paste into an issue. Its `connection` is
+  `unmetered`, `metered`, `none` or `unknown`, and `prefetch(unmeteredOnly: true)` follows it: it downloads on
+  `unmetered` and `unknown` and does nothing on `metered` and `none`.
+
+### Models
+- A model has a version and a folder is a build of it. The signed manifest carries the version; the build id is the
+  first 40 hex digits of the SHA-256 of the manifest. A manifest without a version (a 2.x build) verifies and is
+  refused (`model_incompatible`). Telemetry and incident reports name the version and the build.
+- The Neural Engine's build is promoted by a golden test on raw outputs: per CTC head the greedy tokens and the
+  distance of the log-probabilities, and the mean difference of the attribute heads' probabilities, against the CPU
+  engine, within the tolerance the signed manifest gives the build (tokens only without one).
+- The context a Session runs: `TajweedSessionOptions.context`, else the signed config's `inference.context`, else
+  the model's default.
+- The Neural Engine's build is the fp16 CoreML build (`coreml`), as in 2.x. The compact build (`coreml-compact`, a
+  delta of 1.7 MB against the CPU weights already there, where the fp16 build's is 76.1 MB) is named per Session,
+  `TajweedSessionOptions(backend: .coremlCompact)`, in place of 2.x's `compactCoreML` option; a device does not try
+  it on its own. A folder may hold both builds; installing one no longer deletes the other.
+- Speech and silence come from the model's own output, one rule for the events, `chunk.speech` and the telemetry: a
+  40 ms frame is speech when `log_probs` or `timing_log_probs` hears a sound on it, so a held vowel is speech. The
+  SDK computes the timing head on every take and hands it out only when it is selected. `speechEnded` comes when the
+  window (`endOnSilenceMs`, else 1500 ms) has passed after the last such frame. `endOnSilenceMs` takes 500 to 60000.
+
+### Bounds
+- A take holds at most 20 minutes of audio; at the limit it ends by itself with `ended(.limit)`, its Heads kept.
+- At most 256 chunks and 64 events wait for the app; when it reads late, the oldest waiting ones are dropped (the
+  last chunk and `ended` never), and `diagnose().droppedChunks` counts them. `finish()` returns the whole take.
+
+### Telemetry
+- Per model version, build, context and backend: takes, audio, speech and silence, tokens per head, compute time.
+  Everything derived from scoring is gone. Two calls report what only the app knows:
+  `session.reportRecited(surah:ayahFrom:ayahTo:)` and `client.analytics.reportChecks(rule:checked:flagged:)`.
+
+### Sharing recitations
+- Reached through `client.sharing`. The rules are unchanged: Quran Lab decides per app, the learner is asked at most
+  three times, a yes is never asked again, and a learner keeps the consent version they agreed to.
+- Takes in a row share one recording. A shared recording stays open after a take for a few seconds (3 s; the signed
+  config's `flags.share_join_ms`, 0 to 10000 ms, 0 never joins), and a take that starts in that time at the same
+  input rate continues the same Ogg stream: no new headers, the encoder keeps its state, and the pause between the
+  takes gets no audio. A recording of two or more takes sends where each take starts and the pause before it
+  (`POST /v1/uploads/{id}/takes`) after its last segment. A take list the server refuses with 400 is kept and tried
+  again on the outbox's backoff until it is accepted, sharing goes off or seven days pass.
+- `client.sharing.feed(_:sampleRate:)`, for apps that capture audio themselves outside takes: the last second of
+  what is fed goes in front of the next take's recording and up to half a second after a take, so a recitation is
+  not clipped at a take's edges. Kept in memory only, one second at most; dropped at once without the learner's yes.
+  After every take the recording waits for that half second until 1.5 s after the take's end, also when no take can
+  join it any more; what is fed later goes in front of the next take. In that time only fed audio is recorded: with
+  `listen()` the microphone is closed when the take ends.
+- A recording never holds more than 20 minutes of audio: it closes there, also inside a take, and the take goes on
+  in a new recording. A take that starts with 30 s or less of room is held in memory until it ends, and joins only
+  when it fits.
+- The session JSON of a recording carries `take_seq` (the install's count of shared recordings) and `gap_ms_prev`
+  (the time since the previous one, rounded to 100 ms, left out above an hour). No identifier, no wall-clock time.
+
+### Fixed
+- Configuring twice left two upload queues on one storage, each sending the same recording. There is one Client per
+  process, and a closed Client's queue sends nothing.
+- A golden test that passed kept none of what it measured. The measures (token edits and log-probability distances
+  per head, the mean probability difference of the attribute heads) are kept with the promotion's record, also for
+  a build that signs no tolerance and for a test that failed.
+- `prefetch` reported no progress when the launch's own update check had already started the download. A listener
+  that comes while a download runs gets its progress from where it stands.
+- The Backend's name came from the folder as it was when the model was opened, so it could name the other CoreML
+  build. The name comes from the build the promotion pipeline runs.
+- One `diagnose()` report could say the config was fresh while the key was still unanswered, when the config
+  arrived while the report was made. The config's state is read first.
+
 ## 2.0.2
 
 The in-session failover no longer punishes a healthy Neural Engine (a developer measured two 2.0.1 rules firing on

@@ -37,13 +37,22 @@ final class ManifestVectorTests: XCTestCase {
             XCTAssertNotNil(m.signature, name)
             XCTAssertNoThrow(try pinned.verifySignature(m, required: true), name)
         }
-        // the tolerance is trusted: the signature covers its lines
+        // the signature covers the 2.x tolerance lines; SDK 3.0.0 reads nothing else of that field, and a 2.x build has
+        // no raw tolerance
         let t = try pinned.verifySignature(ModelManifest.parse(vector(Self.withTolerance)), required: true)
-        XCTAssertEqual(t.tolerance(build: "coreml"), .init(tokenDiffs: 0, siteFlagDiffs: 1, wordFlagDiffs: 1))
-        XCTAssertEqual(t.tolerance(build: "npu:tensor_g5:c16_l64"), .init(tokenDiffs: 0, siteFlagDiffs: 1, wordFlagDiffs: 1))
+        XCTAssertTrue(t.goldenToleranceSigned)
+        XCTAssertFalse(t.goldenRawSigned)
+        XCTAssertNil(t.rawTolerance(build: "coreml"))
         let plain = try pinned.verifySignature(ModelManifest.parse(vector(Self.withoutTolerance)), required: true)
-        XCTAssertTrue(plain.goldenTolerance.isEmpty)
-        XCTAssertEqual(plain.tolerance(build: "coreml"), .exact)
+        XCTAssertFalse(plain.goldenToleranceSigned)
+        XCTAssertNil(plain.rawTolerance(build: "coreml"))
+        // both are builds for SDK 2.x (no version): they verify, and SDK 3.0.0 does not run them
+        for name in [Self.withTolerance, Self.withoutTolerance] {
+            XCTAssertEqual(try ModelManifest.parse(vector(name)).version, "", name)
+            XCTAssertThrowsError(try ModelManifest.accept(vector(name), verifier: pinned), name) {
+                guard case .modelIncompatible = $0 as? RecognizerError else { return XCTFail("\(name): \($0)") }
+            }
+        }
     }
 
     func testOneChangedByteIsRefused() throws {

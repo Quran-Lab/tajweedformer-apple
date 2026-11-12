@@ -63,8 +63,8 @@ final class FailoverRulesTests: XCTestCase {
         XCTAssertEqual(got.heads.greedy, ref.heads.greedy)
         XCTAssertEqual(got.heads.logProbs, ref.heads.logProbs)
         let d = try XCTUnwrap(f.divergence)
-        XCTAssertGreaterThan(d.tokensExpected, 0)
-        XCTAssertEqual(d.tokensDiffer, d.tokensExpected, "the accelerator heard none of them")
+        XCTAssertGreaterThan(d.tokensExpected ?? 0, 0)
+        XCTAssertEqual(d.tokenEdits, d.tokensExpected, "the accelerator heard none of them")
         XCTAssertFalse(r.onAccelerator)
 
         // the build: the first confirmed disagreement is transient, the second turns it off for good
@@ -100,7 +100,7 @@ final class FailoverRulesTests: XCTestCase {
         await h.controller(launch: "L3").run(h.stages())
         XCTAssertEqual(h.calls.withLock { $0 }, [])
         print(String(format: "v4-blank fake confirmed: switch at chunk %d, catch-up %.2f ms, %d tokens the accelerator missed",
-                     f.chunk, f.stallMs, d.tokensExpected))
+                     f.chunk, f.stallMs, d.tokensExpected ?? 0))
     }
 
     /// The first chunk after the Neural Engine sat idle, at 3 times the warm limit (150 ms against 50 ms) and within

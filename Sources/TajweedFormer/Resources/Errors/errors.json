@@ -1,0 +1,43 @@
+{
+  "format": "quranlab.sdk-errors/1",
+  "sdk": "3.0.0",
+  "docs_base": "https://sdk.quranlab.ai/docs/errors#",
+  "note": "One catalogue for the four SDKs (NAMING.md section 7). Every SDK embeds this file and a test fails when its copy differs. `message` may contain {placeholders} the SDK fills; `fix` is one sentence a developer can act on; the docs link is docs_base + code. `server_rejected` has `reasons`: when the server's 403 carries one of those codes, the error's message and fix are that reason's (the code stays `server_rejected`).",
+  "errors": [
+    {"code": "invalid_argument", "message": "Invalid argument: {detail}.", "fix": "Pass a value the API accepts: a context or head name the model lists, a sample rate the SDK can resample, a surah from 1 to 114 with ayahs inside it, a rule name of lower-case letters, digits and underscores."},
+    {"code": "invalid_key", "message": "Quran Lab does not accept this key.", "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."},
+    {"code": "sdk_too_old", "message": "This key needs SDK {version} or later; this is {sdk}.", "fix": "Upgrade the TajweedFormer SDK to {version} or later (the min_sdk of the server's answer), with the install line of the README."},
+    {"code": "server_rejected", "message": "Quran Lab refused this app: {detail}.", "fix": "Check in sdk.quranlab.ai that the key belongs to this app id and platform and that the app is not blocked.", "reasons": {
+      "developer_not_approved": {"message": "The account behind this key has no access to Quran Lab yet (developer_not_approved).", "fix": "Open https://sdk.quranlab.ai/start with the account that owns the key and finish the access request; the key works as soon as access is given."},
+      "not_a_member": {"message": "The account that made this key is not a member of the workspace that owns the app (not_a_member).", "fix": "Ask an owner of that workspace on sdk.quranlab.ai to add the account, or make a new key from an account that is a member."},
+      "key_type_mismatch": {"message": "This key is of the wrong type for this platform (key_type_mismatch).", "fix": "Use an apps key on Android and iOS, a desktop key on macOS, Windows and Linux, and a web key in a browser page; sdk.quranlab.ai makes each of them under the same app."},
+      "origin_not_allowed": {"message": "This page's origin, {origin}, is not on the key (origin_not_allowed).", "fix": "Add this page's origin (scheme, host and port, for example https://app.example.org) to the key on its page at https://sdk.quranlab.ai/keys."},
+      "app_not_allowed": {"message": "This key belongs to another app (app_not_allowed).", "fix": "A key works for the first app that used it. Make a key for this app at https://sdk.quranlab.ai/keys, or allow this app's identifier on the key's page."},
+      "app_blocked": {"message": "Quran Lab has blocked this app (app_blocked).", "fix": "Open the app's page on sdk.quranlab.ai for the reason, or write to Quran Lab from the account that owns the app."},
+      "environment_mismatch": {"message": "This key's environment (development or production) does not match this app (environment_mismatch).", "fix": "Use the development key in the builds you run yourself and the production key in the build you publish; both are on the app's page on sdk.quranlab.ai."},
+      "local_needs_development_key": {"message": "This page runs on {origin}, and a production key does not work on a local address (local_needs_development_key).", "fix": "Use this app's development key for local work, with http://localhost:* among its origins (https://sdk.quranlab.ai/keys); keep the production key for the deployed site."}
+    }},
+    {"code": "client_exists", "message": "This process already has a TajweedClient.", "fix": "Keep the first client and reuse it, or close it before making another."},
+    {"code": "model_unavailable", "message": "Quran Lab has no model build for SDK {sdk} yet.", "fix": "Nothing to change in the app: call model() again later, and check client.diagnose() and sdk.quranlab.ai for the model builds of this SDK version."},
+    {"code": "needs_connection", "message": "The model is not on this device yet.", "fix": "Connect once so the model can be downloaded; call prefetch() at app start so later starts work offline."},
+    {"code": "network_not_permitted", "message": "This app is not allowed to use the network.", "fix": "Android: keep the INTERNET permission that the SDK's manifest declares (take out a tools:node=\"remove\" for android.permission.INTERNET). A sandboxed Mac app: turn on Outgoing Connections (Client) under App Sandbox."},
+    {"code": "download_failed", "message": "The model download stopped: {detail}.", "fix": "Call model() or prefetch() again when the network is back; the download resumes where it stopped."},
+    {"code": "storage_full", "message": "Not enough free space for the model: {needed} bytes needed, {available} free.", "fix": "Free that much space on the device, or call removeModels() to drop model versions that are no longer used."},
+    {"code": "storage_failed", "message": "The SDK's folder cannot be read or written: {detail}.", "fix": "Give the client a storage folder the app can write to, and make sure only one process uses it."},
+    {"code": "model_missing", "message": "No model here: {detail}.", "fix": "Open a folder that holds a model's manifest.json and files, or let client.model() download it."},
+    {"code": "model_invalid", "message": "The model folder is damaged: {detail}.", "fix": "Call removeModels() and then model() to download the model again."},
+    {"code": "signature_invalid", "message": "The model's manifest is not signed by Quran Lab.", "fix": "Use only model files from cdn.quranlab.ai; call removeModels() and then model() to download them again."},
+    {"code": "checksum_mismatch", "message": "A model file differs from the manifest: {file}.", "fix": "Call removeModels() and then model() to download the model again; if it repeats, the storage is failing."},
+    {"code": "model_incompatible", "message": "This model build does not run on this SDK: {detail}.", "fix": "Upgrade the SDK to the version the message names, or let client.model() pick the build for this SDK instead of opening a folder."},
+    {"code": "runtime_unsupported", "message": "The SDK cannot run here: {detail}.", "fix": "Run the app where the SDK is supported: {minimum}."},
+    {"code": "reference_missing", "message": "The reference data is not on this device.", "fix": "Call model.reference.fetch() once, with a connection, before asking for units."},
+    {"code": "session_open", "message": "This model already has an open session.", "fix": "Finish or cancel the open session before starting the next take."},
+    {"code": "session_closed", "message": "The session has ended.", "fix": "Start a new session with model.listen() or model.session() for the next take."},
+    {"code": "cancelled", "message": "The take was cancelled.", "fix": "Nothing to fix: cancel() was called, or the app's task was cancelled; start a new session for the next take."},
+    {"code": "engine_failed", "message": "The engine failed: {detail}.", "fix": "Call client.diagnose() and send the report to Quran Lab; a new session on the same model can be tried."},
+    {"code": "microphone_denied", "message": "The microphone permission was refused.", "fix": "Explain why the app listens and send the learner to the system settings; listen() asks again only where the platform allows it."},
+    {"code": "microphone_unavailable", "message": "No microphone can be opened: {detail}.", "fix": "Check that the device has an input and no other app holds it, then call listen() again."},
+    {"code": "interrupted", "message": "The take ended on an interruption: {detail}.", "fix": "Start a new session when the app has the audio again; what was heard so far is in the last chunk."},
+    {"code": "sharing_unavailable", "message": "Sharing is not available for this app.", "fix": "Nothing to call: Quran Lab switches sharing on per app; check client.sharing.isAvailable before showing sharing settings."}
+  ]
+}

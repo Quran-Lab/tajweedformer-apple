@@ -35,7 +35,7 @@ final class TajweedNeuralEngineTests: XCTestCase {
                     let h = e.take
                     XCTAssertGreaterThan(h.n40, 0)
                     XCTAssertTrue(h.isFinite, "\(ctx) \(clip): non-finite heads")
-                    for (name, width, ms) in TajweedHeads.layout {
+                    for (name, width, ms) in HeadsBuffer.layout {
                         XCTAssertEqual(h[name].count, (ms == 40 ? h.n40 : h.n20) * width, "\(ctx) \(clip) \(name)")
                     }
                     let want = (ids.array ?? []).compactMap { $0.number.map(Int.init) }

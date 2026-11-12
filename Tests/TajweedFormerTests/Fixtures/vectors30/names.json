@@ -1,0 +1,361 @@
+{
+ "about": "SDK 3.0.0 shared names (make_names.py; from NAMING.md sections 3, 4 and 7 and errors.json). An SDK test compares its own constants with these.",
+ "heads": [
+  {
+   "name": "log_probs",
+   "kind": "ctc",
+   "frameMs": 40,
+   "classes": 38
+  },
+  {
+   "name": "inter1_log_probs",
+   "kind": "ctc",
+   "frameMs": 40,
+   "classes": 38
+  },
+  {
+   "name": "inter4_log_probs",
+   "kind": "ctc",
+   "frameMs": 40,
+   "classes": 38
+  },
+  {
+   "name": "id_log_probs",
+   "kind": "ctc",
+   "frameMs": 20,
+   "classes": 38
+  },
+  {
+   "name": "timing_log_probs",
+   "kind": "ctc",
+   "frameMs": 20,
+   "classes": 38
+  },
+  {
+   "name": "gem",
+   "kind": "attribute",
+   "frameMs": 20,
+   "classes": 2
+  },
+  {
+   "name": "attr_tafkheem",
+   "kind": "attribute",
+   "frameMs": 20,
+   "classes": 3
+  },
+  {
+   "name": "attr_ghunna",
+   "kind": "attribute",
+   "frameMs": 20,
+   "classes": 5
+  },
+  {
+   "name": "attr_qalqalah",
+   "kind": "attribute",
+   "frameMs": 20,
+   "classes": 3
+  },
+  {
+   "name": "attr_face",
+   "kind": "attribute",
+   "frameMs": 20,
+   "classes": 4
+  },
+  {
+   "name": "boundary",
+   "kind": "attribute",
+   "frameMs": 20,
+   "classes": 1
+  },
+  {
+   "name": "conf",
+   "kind": "attribute",
+   "frameMs": 20,
+   "classes": 1
+  }
+ ],
+ "default_heads": [
+  "log_probs",
+  "inter1_log_probs",
+  "timing_log_probs",
+  "gem",
+  "attr_qalqalah",
+  "conf"
+ ],
+ "all_heads_keyword": "all",
+ "tokens": {
+  "blank": 0,
+  "word_bar": 1,
+  "count": 38
+ },
+ "events": [
+  {
+   "name": "speechStarted",
+   "fields": [
+    "atMs"
+   ]
+  },
+  {
+   "name": "speechEnded",
+   "fields": [
+    "atMs",
+    "silenceMs"
+   ]
+  },
+  {
+   "name": "interrupted",
+   "fields": [
+    "cause"
+   ]
+  },
+  {
+   "name": "resumed",
+   "fields": []
+  },
+  {
+   "name": "backendChanged",
+   "fields": [
+    "backend",
+    "fromChunk"
+   ]
+  },
+  {
+   "name": "ended",
+   "fields": [
+    "reason"
+   ]
+  }
+ ],
+ "ended_reasons": [
+  "silence",
+  "background",
+  "hidden",
+  "interrupted",
+  "sourceEnd",
+  "limit",
+  "error"
+ ],
+ "interrupted_causes": [
+  "interruption",
+  "routeChange"
+ ],
+ "backend": {
+  "kind": [
+   "cpu",
+   "accelerator"
+  ],
+  "name": [
+   "cpu",
+   "wasm",
+   "coreml",
+   "coreml-compact",
+   "npu:<soc>"
+  ],
+  "name_pattern": "^(cpu|wasm|coreml|coreml-compact|npu:[a-z0-9_]+)$",
+  "stage": [
+   "cpu",
+   "downloading",
+   "compiling",
+   "testing",
+   "promoted",
+   "demoted"
+  ],
+  "reason": [
+   "network",
+   "storage",
+   "verify",
+   "compile_error",
+   "compile_timeout",
+   "load_error",
+   "crash",
+   "hang",
+   "non_finite",
+   "golden_mismatch",
+   "cpu_mismatch",
+   "failover",
+   "denylist",
+   "other"
+  ]
+ },
+ "session_options": {
+  "backend": [
+   "auto",
+   "cpu"
+  ],
+  "backend_apple": [
+   "auto",
+   "cpu",
+   "coreml-compact"
+  ],
+  "pace": [
+   "realTime",
+   "fast"
+  ],
+  "sampleRate_default": 16000,
+  "topK_default": 0,
+  "topK_max": 38,
+  "topK_entry_fields": [
+   "id",
+   "logProb",
+   "margin"
+  ],
+  "endOnSilenceMs": {
+   "off": [
+    null,
+    0
+   ],
+   "min": 500,
+   "max": 60000
+  }
+ },
+ "client_options": {
+  "analytics": [
+   "on",
+   "off"
+  ],
+  "audience": [
+   "general",
+   "children"
+  ]
+ },
+ "speech": {
+  "frame_ms": 40,
+  "timing_frame_ms": 20,
+  "active": [
+   "log_probs",
+   "timing_log_probs"
+  ],
+  "default_window_ms": 1500
+ },
+ "chunk_fields": [
+  "index",
+  "startMs",
+  "endMs",
+  "firstFrame",
+  "backend",
+  "speech",
+  "heads",
+  "decoded"
+ ],
+ "decoded_fields": [
+  "text",
+  "tokens",
+  "words",
+  "frames",
+  "settled",
+  "isFinal"
+ ],
+ "token_fields": [
+  "id",
+  "name",
+  "firstMs",
+  "peakMs",
+  "lastMs",
+  "confidence"
+ ],
+ "head_fields": [
+  "name",
+  "kind",
+  "frameMs",
+  "frames",
+  "classes",
+  "values"
+ ],
+ "diagnosis": {
+  "fields": [
+   "sdk",
+   "key",
+   "config",
+   "model",
+   "context",
+   "backend",
+   "microphone",
+   "storage",
+   "lastError",
+   "droppedChunks",
+   "connection"
+  ],
+  "config": [
+   "fresh",
+   "stale",
+   "none"
+  ],
+  "microphone": [
+   "granted",
+   "denied",
+   "notAsked",
+   "none"
+  ],
+  "connection": [
+   "unmetered",
+   "metered",
+   "none",
+   "unknown"
+  ],
+  "key_reasons": [
+   "invalid_key",
+   "sdk_too_old",
+   "server_rejected"
+  ]
+ },
+ "error_fields": [
+  "code",
+  "message",
+  "fix",
+  "docs"
+ ],
+ "origin_check": {
+  "listed": null,
+  "not_listed": {
+   "code": "server_rejected",
+   "reason": "origin_not_allowed"
+  },
+  "local_needs_development_key": {
+   "code": "server_rejected",
+   "reason": "local_needs_development_key"
+  },
+  "key_unknown": {
+   "code": "invalid_key"
+  },
+  "key_revoked": {
+   "code": "invalid_key"
+  },
+  "key_not_approved": {
+   "code": "server_rejected",
+   "reason": "developer_not_approved"
+  },
+  "not_a_web_key": {
+   "code": "server_rejected",
+   "reason": "key_type_mismatch"
+  }
+ },
+ "error_docs_base": "https://sdk.quranlab.ai/docs/errors#",
+ "error_codes": [
+  "invalid_argument",
+  "invalid_key",
+  "sdk_too_old",
+  "server_rejected",
+  "client_exists",
+  "model_unavailable",
+  "needs_connection",
+  "network_not_permitted",
+  "download_failed",
+  "storage_full",
+  "storage_failed",
+  "model_missing",
+  "model_invalid",
+  "signature_invalid",
+  "checksum_mismatch",
+  "model_incompatible",
+  "runtime_unsupported",
+  "reference_missing",
+  "session_open",
+  "session_closed",
+  "cancelled",
+  "engine_failed",
+  "microphone_denied",
+  "microphone_unavailable",
+  "interrupted",
+  "sharing_unavailable"
+ ]
+}

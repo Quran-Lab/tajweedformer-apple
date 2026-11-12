@@ -34,7 +34,7 @@ final class IncidentTests: XCTestCase {
         guard let d = body["detail"] as? [String: Any] else { return XCTFail("no detail", file: file, line: line) }
         let allowed: Set<String> = ["stage", "cause", "error_domain", "error_code", "chunk", "elapsed_ms", "deadline_ms", "clip", "divergence",
                                     "device_model", "os_build", "chip", "accelerator", "compute_units", "delegate", "context", "thermal",
-                                    "low_power", "stall_ms", "attempt"]
+                                    "low_power", "stall_ms", "attempt", "build"]
         XCTAssertTrue(Set(d.keys).isSubset(of: allowed), "unknown detail keys \(Set(d.keys).subtracting(allowed))", file: file, line: line)
         XCTAssertTrue(stages.contains(d["stage"] as? String ?? ""), file: file, line: line)
         XCTAssertTrue(causes.contains(d["cause"] as? String ?? ""), file: file, line: line)
@@ -64,10 +64,34 @@ final class IncidentTests: XCTestCase {
             if let v = d[k] { XCTAssertTrue((v as? Double).map { (0...600_000).contains($0) } ?? false, "\(k) = \(v)", file: file, line: line) }
         }
         if let v = d["low_power"] { XCTAssertTrue(v is Bool, file: file, line: line) }
+        matches("build", "[0-9a-f]{40}", 40)
+        // SDK 3.0.0: the raw golden test's measures per head, the tolerance, what failed, the CPU's token count; the 2.x
+        // fields (tokens_differ, sites_differ, words_differ) are refused by the server
         if let dv = d["divergence"] {
             let o = dv as? [String: Any] ?? [:]
-            XCTAssertTrue(Set(o.keys).isSubset(of: ["tokens_expected", "tokens_differ", "sites_differ", "words_differ"]), file: file, line: line)
-            for (_, x) in o { XCTAssertTrue((x as? Int).map { (0...100_000).contains($0) } ?? false, file: file, line: line) }
+            XCTAssertTrue(Set(o.keys).isSubset(of: ["tokens_expected", "heads", "tolerance", "failed"]), "\(o.keys)", file: file, line: line)
+            if let n = o["tokens_expected"] { XCTAssertTrue((n as? Int).map { (0...10_000_000).contains($0) } ?? false, file: file, line: line) }
+            let fields: Set<String> = ["token_edits", "lp_mean", "lp_p99", "p_mean", "frames", "values"]
+            for part in ["heads", "tolerance"] {
+                guard let heads = o[part] else { continue }
+                guard let m = heads as? [String: Any] else { XCTFail("\(part) is not an object", file: file, line: line); continue }
+                for (name, value) in m {
+                    XCTAssertNotNil(name.range(of: "^[a-z][a-z0-9_]{0,31}$", options: .regularExpression), name, file: file, line: line)
+                    if part == "heads", value is NSNull { continue }
+                    let e = value as? [String: Any] ?? ["?": 0]
+                    XCTAssertTrue(Set(e.keys).isSubset(of: fields), "\(part).\(name): \(e.keys)", file: file, line: line)
+                    for (k, x) in e {
+                        let v = (x as? NSNumber)?.doubleValue ?? -1
+                        let top: Double = k == "token_edits" ? 100_000 : k == "p_mean" ? 1 : k == "frames" || k == "values" ? 100_000_000 : 30
+                        XCTAssertTrue((0...top).contains(v), "\(part).\(name).\(k) = \(x)", file: file, line: line)
+                    }
+                }
+            }
+            if let f = o["failed"] {
+                let list = f as? [String] ?? ["?"]
+                XCTAssertLessThanOrEqual(list.count, 32, file: file, line: line)
+                for s in list { XCTAssertNotNil(s.range(of: "^[a-z][a-z0-9_]{0,31}\\.[a-z0-9_]{1,16}$", options: .regularExpression), s, file: file, line: line) }
+            }
         }
     }
 
@@ -105,9 +129,8 @@ final class IncidentTests: XCTestCase {
             (.download, PromotionFailure(.network, "offline: the network connection was lost")),
             (.compile, PromotionFailure(.compileError, "cannot load front_c16_l64: /private/var/x/coremldata.bin", errorDomain: "com.apple.CoreML", errorCode: "0")),
             (.warmup, PromotionFailure(.nonFinite, "warm-up: log_probs is NaN or infinite")),
-            (.golden, PromotionFailure(.goldenMismatch, "Husary_001001: tokens differ (20 against 21 expected)", clip: "Husary_001001",
-                                       divergence: Divergence(expected: [1, 2, 3], tokens: [1, 3], expectedSites: ["5|vowel_sub"], sites: [],
-                                                              expectedWords: [1], words: [1]))),
+            (.golden, PromotionFailure(.goldenMismatch, "out of tolerance against the CPU engine: log_probs.token_edits", clip: "Husary_001001",
+                                       divergence: Self.goldenDivergence())),
         ]
         for (i, (stage, failure)) in cases.enumerated() {
             let h = PromotionTests.Harness()
@@ -122,9 +145,52 @@ final class IncidentTests: XCTestCase {
             if stage == .golden {
                 let d = try XCTUnwrap(body["detail"] as? [String: Any])
                 XCTAssertEqual(d["clip"] as? String, "Husary_001001")
-                XCTAssertEqual(d["divergence"] as? [String: Int], ["tokens_expected": 3, "tokens_differ": 1, "sites_differ": 1, "words_differ": 0])
+                let dv = try XCTUnwrap(d["divergence"] as? [String: Any])
+                XCTAssertEqual(Set(dv.keys), ["tokens_expected", "heads", "tolerance", "failed"])
+                XCTAssertEqual(dv["tokens_expected"] as? Int, 3)
+                XCTAssertEqual(dv["failed"] as? [String], ["log_probs.token_edits", "log_probs.lp_mean", "log_probs.lp_p99"])
+                let lp = try XCTUnwrap((dv["heads"] as? [String: Any])?["log_probs"] as? [String: Any])
+                XCTAssertEqual(lp["token_edits"] as? Int, 1)
+                XCTAssertEqual(lp["frames"] as? Int, 6)
+                XCTAssertEqual(((dv["tolerance"] as? [String: Any])?["log_probs"] as? [String: Any])?["token_edits"] as? Int, 0)
             }
         }
+    }
+
+    /// What the raw golden test reports for one clean clip in which the accelerator missed a token.
+    static func goldenDivergence() -> Divergence {
+        let cpu = GoldenRaw.Matrix(Vectors30.logProbs([0, 3, 0, 4, 0, 5]), cols: 38)
+        let acc = GoldenRaw.Matrix(Vectors30.logProbs([0, 3, 0, 0, 0, 5]), cols: 38)
+        let tolerance = GoldenRawTolerance(heads: ["log_probs": .init(tokenEdits: 0, lpMean: 0.05, lpP99: 1.5)], pMean: nil)
+        let clip = GoldenRaw.Clip(id: "Husary_001001", clean: true, expectedTokens: [3, 4, 5], cpu: ["log_probs": cpu], accelerator: ["log_probs": acc])
+        return GoldenRaw.evaluate([clip], tolerance: tolerance).divergence(tolerance: tolerance)
+    }
+
+    /// The model is named by its version, with the build next to it, when the controller knows both.
+    func testTheReportNamesTheVersionAndTheBuild() async throws {
+        let h = PromotionTests.Harness()
+        h.failures.withLock { $0[.compile] = PromotionFailure(.compileError, "cannot load") }
+        var env = h.env(revision: AnalyticsAndIssueTests.build)
+        env.version = "4.0.0"
+        let c = AcceleratorController(env)
+        await c.run(h.stages())
+        let inc = try XCTUnwrap(h.incidents.withLock { $0 }.last)
+        XCTAssertEqual(inc.revision, "4.0.0")
+        XCTAssertEqual(inc.build, AnalyticsAndIssueTests.build)
+        let body = try Self.json(QuranLabCloud.incidentReport(inc, app: Self.app, chip: "m2", deviceModel: "Mac14,9", osBuild: "24A335"))
+        Self.validate(body)
+        XCTAssertEqual(body["revision"] as? String, "4.0.0")
+        XCTAssertEqual((body["detail"] as? [String: Any])?["build"] as? String, AnalyticsAndIssueTests.build)
+        // the promotion's telemetry carries the same pair
+        let p = try XCTUnwrap(h.promotions.last)
+        XCTAssertEqual(p.revision, "4.0.0")
+        XCTAssertEqual(p.build, AnalyticsAndIssueTests.build)
+        let store = AnalyticsStore(storage: Fixtures.storage(), enabled: true,
+                                   context: .init(platform: "ios", sdkVersion: "3.0.0", appVersion: "1", deviceClass: "phone", soc: nil, osMajor: 26, ramTier: "8gb"))
+        for x in h.promotions { store.record(.promotion(x)) }
+        let e = try XCTUnwrap(AnalyticsStore.promotions(store.pending.first!.promotions).first)
+        XCTAssertEqual(e["revision"] as? String, "4.0.0")
+        XCTAssertEqual(e["build"] as? String, AnalyticsAndIssueTests.build)
     }
 
     /// No audio, text or identifier: only the schema's fields, and nothing of this install's ids.

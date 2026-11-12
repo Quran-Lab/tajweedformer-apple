@@ -34,7 +34,7 @@ import BackgroundTasks
 // 7. The first launch of 2.0.2 clears 2.0.1's blank and deadline demotions (`PromotionStore.migrate`).
 
 /// Where the Neural Engine stands for a recognizer.
-public enum AcceleratorState: Sendable, Hashable, CustomStringConvertible {
+enum AcceleratorState: Sendable, Hashable, CustomStringConvertible {
     /// The exact CPU engine serves; no accelerator work runs now (none applies, it has not started, or it waits).
     case cpu
     /// The promotion pipeline is running in the background; the CPU engine serves meanwhile.
@@ -44,7 +44,7 @@ public enum AcceleratorState: Sendable, Hashable, CustomStringConvertible {
     /// Not used, and why (an older OS, a failed stage, a crash, the deny-list, a failover).
     case disabled(String)
 
-    public var description: String {
+    var description: String {
         switch self {
         case .cpu: return "cpu"
         case .preparing: return "preparing"
@@ -57,8 +57,8 @@ public enum AcceleratorState: Sendable, Hashable, CustomStringConvertible {
 /// What a loaded accelerator does (TajweedNeuralEngine; a fake in tests).
 protocol AcceleratorBackend: AnyObject {
     func reset()
-    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [TajweedHeads]
-    func finish() throws(RecognizerError) -> [TajweedHeads]
+    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer]
+    func finish() throws(RecognizerError) -> [HeadsBuffer]
     /// Seconds per chunk run since the last reset.
     var chunkSeconds: [Double] { get }
     /// The error behind the last failed call, when the runtime gave one.
@@ -77,21 +77,21 @@ extension AcceleratorBackend {
 extension TajweedNeuralEngine: AcceleratorBackend {}
 
 /// What the golden test found (the last attempt of this key that got that far).
-public struct AcceleratorSelfTest: Sendable, Hashable {
-    public let passed: Bool
+struct AcceleratorSelfTest: Sendable, Hashable {
+    let passed: Bool
     /// Why it failed, when it did.
-    public let reason: String?
+    let reason: String?
     /// Per-chunk compute, milliseconds: the accelerator's p90 and median, and the CPU engine's median.
-    public let p90Ms: Double
-    public let medianMs: Double
-    public let cpuMedianMs: Double
+    let p90Ms: Double
+    let medianMs: Double
+    let cpuMedianMs: Double
 
-    public init(passed: Bool, reason: String?, p90Ms: Double = 0, medianMs: Double = 0, cpuMedianMs: Double = 0) {
+    init(passed: Bool, reason: String?, p90Ms: Double = 0, medianMs: Double = 0, cpuMedianMs: Double = 0) {
         self.passed = passed; self.reason = reason; self.p90Ms = p90Ms; self.medianMs = medianMs; self.cpuMedianMs = cpuMedianMs
     }
 
     /// CPU median over the accelerator's median (telemetry only: a build below 1 is promoted too).
-    public var speedup: Double { medianMs > 0 ? cpuMedianMs / medianMs : 0 }
+    var speedup: Double { medianMs > 0 ? cpuMedianMs / medianMs : 0 }
 }
 
 /// An accelerator incident for the issue reports (`accelerator_failover`, `promotion_failed`; PLATFORM_CLIENT 7.1).
@@ -111,7 +111,9 @@ struct AcceleratorIncident: Sendable, Equatable {
     var divergence: Divergence?
     var stallMs: Double?
     var attempt: Int?
+    /// The model version (SDK 3.0.0), and the build next to it.
     var revision: String
+    var build: String? = nil
     var context: String
     var thermal: String?
     var lowPower: Bool?
@@ -129,7 +131,11 @@ final class AcceleratorController: @unchecked Sendable {
     }
 
     struct Environment: Sendable {
+        /// The model build the key is made of (a new build of the same version is a new key: it may carry new programs).
         var revision: String
+        /// The model version, as telemetry and incident reports name the model (the build goes next to it). Empty: the
+        /// build stands in for it.
+        var version: String = ""
         var osBuild: String = DeviceInfo.osBuild
         var deviceModel: String = DeviceInfo.model
         var context: String
@@ -153,8 +159,11 @@ final class AcceleratorController: @unchecked Sendable {
     }
 
     enum GoldenOutcome: Sendable {
-        /// Every clip agreed; per-chunk compute seconds of the accelerator and of the CPU engine.
-        case passed(accelerator: [Double], cpu: [Double])
+        /// Every clip agreed; per-chunk compute seconds of the accelerator and of the CPU engine, and what the test
+        /// measured (per compared head, with the tolerance it was judged against when the build has one). The measures
+        /// are kept with the key's record also for a build without a tolerance, which is judged on its tokens: they
+        /// are what a later build's tolerance is set from.
+        case passed(accelerator: [Double], cpu: [Double], measures: Divergence? = nil)
         case failed(PromotionFailure)
         /// A session started: run again later, not a failure.
         case aborted
@@ -251,9 +260,9 @@ final class AcceleratorController: @unchecked Sendable {
         for c in wake { c.resume() }
     }
 
-    /// Every change of state, starting with the current one.
+    /// Every change of state, starting with the current one. At most 64 wait for a reader (the newest are kept).
     func states() -> AsyncStream<AcceleratorState> {
-        let (stream, c) = AsyncStream<AcceleratorState>.makeStream()
+        let (stream, c) = AsyncStream<AcceleratorState>.makeStream(bufferingPolicy: .bufferingNewest(64))
         let id = UUID()
         lock.lock()
         watchers[id] = c
@@ -420,6 +429,7 @@ final class AcceleratorController: @unchecked Sendable {
                     rec.acceleratorP90Ms = Self.percentile(t.accelerator, 0.9) * 1000
                     rec.cpuMedianMs = Self.percentile(t.cpu, 0.5) * 1000
                     rec.warmChunkMs = Array(t.accelerator.map { $0 * 1000 }.suffix(PromotionPolicy.warmSamplesKept))
+                    rec.golden = t.measures
                     env.record(.selfTest(passed: true, cohort: env.cohort()))
                 }
             case .measure:
@@ -493,7 +503,8 @@ final class AcceleratorController: @unchecked Sendable {
 
     /// The golden test, only while no session runs: a session that starts during it aborts it without a failure, and
     /// it runs again once the recognizer is idle.
-    private func golden(_ b: UncheckedBox<any AcceleratorBackend>, _ stages: Stages) async -> Result<(accelerator: [Double], cpu: [Double]), PromotionFailure> {
+    private func golden(_ b: UncheckedBox<any AcceleratorBackend>, _ stages: Stages) async
+        -> Result<(accelerator: [Double], cpu: [Double], measures: Divergence?), PromotionFailure> {
         while true {
             if await stages.sessionActive() {
                 await stages.waitIdle()
@@ -508,7 +519,7 @@ final class AcceleratorController: @unchecked Sendable {
             case .failure(let f): return .failure(f)
             case .success(.failed(let f)): return .failure(f)
             case .success(.aborted): await stages.waitIdle()
-            case .success(.passed(let a, let c)): return .success((a, c))
+            case .success(.passed(let a, let c, let m)): return .success((accelerator: a, cpu: c, measures: m))
             }
         }
     }
@@ -540,6 +551,8 @@ final class AcceleratorController: @unchecked Sendable {
         rec.lastDetail = "\(stage.rawValue): \(f.detail)"
         rec.completed = nil
         rec.attemptStarted = nil
+        // a golden test that failed keeps what it measured, as one that passed does (`failed` then names the measures)
+        if stage == .golden { rec.golden = f.divergence?.bounded }
         if f.reason.deterministic || rec.failures > PromotionPolicy.backoff.count {
             rec.status = .failed
             rec.notBefore = nil
@@ -559,10 +572,11 @@ final class AcceleratorController: @unchecked Sendable {
         if stage == .golden { env.record(.selfTest(passed: false, cohort: env.cohort())) }
         env.record(.fallback(f.reason == .nonFinite ? .nonFinite : .modelLoad, cohort: env.cohort()))
         let c = AcceleratorController.conditionsNow()
+        let named = named(revision)
         env.incident(AcceleratorIncident(kind: .promotionFailed, stage: stage.rawValue, cause: f.reason.incidentCause, message: f.detail,
                                          errorDomain: f.errorDomain, errorCode: f.errorCode, clip: f.clip, divergence: f.divergence,
-                                         attempt: max(1, min(100, rec.attempts)), revision: revision, context: context,
-                                         thermal: c.thermal, lowPower: c.lowPower))
+                                         attempt: max(1, min(100, rec.attempts)), revision: named.revision, build: named.build,
+                                         context: context, thermal: c.thermal, lowPower: c.lowPower))
         if sameKey { set(.disabled(rec.lastDetail ?? f.detail)) }
     }
 
@@ -580,7 +594,15 @@ final class AcceleratorController: @unchecked Sendable {
     }
 
     private func promotion(_ k: PromotionTelemetry.Kind, revision: String? = nil, context: String? = nil) {
-        env.record(.promotion(PromotionTelemetry(backend: "ane", revision: revision ?? env.revision, context: context ?? env.context, kind: k)))
+        let named = named(revision ?? env.revision)
+        env.record(.promotion(PromotionTelemetry(backend: "ane", revision: named.revision, build: named.build ?? "",
+                                                 context: context ?? env.context, kind: k)))
+    }
+
+    /// How telemetry and incident reports name the model of a key's build: its version with the build next to it. A
+    /// controller made without a version names the build alone.
+    private func named(_ build: String) -> (revision: String, build: String?) {
+        env.version.isEmpty ? (build, nil) : (env.version, build)
     }
 
     static func conditionsNow() -> (thermal: String, lowPower: Bool) {
@@ -647,7 +669,8 @@ final class AcceleratorController: @unchecked Sendable {
         let c = AcceleratorController.conditionsNow()
         env.incident(AcceleratorIncident(kind: .failover, stage: "session", cause: f.cause.incidentCause, message: f.detail,
                                          errorDomain: f.errorDomain, errorCode: f.errorCode, chunk: f.chunk, elapsedMs: f.elapsedMs,
-                                         deadlineMs: f.deadlineMs, divergence: f.divergence, stallMs: f.stallMs, revision: env.revision,
+                                         deadlineMs: f.deadlineMs, divergence: f.divergence, stallMs: f.stallMs,
+                                         revision: named(env.revision).revision, build: named(env.revision).build,
                                          context: env.context, thermal: c.thermal, lowPower: c.lowPower))
         switch f.cause {
         case .deadline:
@@ -773,6 +796,11 @@ final class AcceleratorController: @unchecked Sendable {
         return (l.firstMs, l.laterMs, warm)
     }
 
+    /// What this key's last golden test measured, per compared head (kept with the record, so it is there in later
+    /// launches too), whether it passed or failed; nil before a golden test ran, and for a record written before SDK
+    /// 3.0.0 kept them.
+    var lastGolden: Divergence? { record?.golden }
+
     /// The golden test's numbers, for `TajweedRecognizer.acceleratorSelfTest`.
     var lastSelfTest: AcceleratorSelfTest? {
         guard let r = record else { return nil }
@@ -845,8 +873,9 @@ final class AcceleratorController: @unchecked Sendable {
 }
 
 /// The model folder's self-test set (role `selftest`): `selftest/selftest.json`, the clips as 16 kHz int16
-/// (`selftest/<clip>.s16`, samples q / 32768), and per context the exact CPU engine's expected outputs at the default
-/// settings (`selftest/expected_<ctx>.json`).
+/// (`selftest/<clip>.s16`, samples q / 32768), and per context the exact CPU engine's expected tokens
+/// (`selftest/expected_<ctx>.json`). SDK 3.0.0 reads only `tokens` of each clip there: a build for 3.0 holds nothing
+/// else, and the site and word fields of a 2.x file are ignored.
 struct SelfTestSet: Sendable {
     struct Clip: Sendable {
         let id: String
@@ -854,22 +883,15 @@ struct SelfTestSet: Sendable {
         let ayah: Int
         let samples: [Float]
         let mustDecode: Bool
-        /// A planted-mistake clip (`"kind": "planted"` or `"planted": true`): only its flags must agree, not its tokens
-        /// (the int8 CPU engine may decode a mistaken reading differently from fp16 / fp32 while flagging the same
-        /// sites). Absent means clean: every token must agree.
+        /// A clip with a planted mistake (`"kind": "planted"` or `"planted": true`): the int8 CPU engine may decode a
+        /// mistaken reading differently from fp16, so its tokens do not count in the golden test's token edits (its
+        /// frames count in the distances). Absent means clean.
         let planted: Bool
-        /// The planted mistake's site as "pos|class" (its tj3 position and class), when the set describes it: the
-        /// accelerator must flag it, whatever the tolerance.
-        var plantedSite: String? = nil
-    }
-    struct Expected: Sendable {
-        let tokens: [Int]
-        let flaggedSites: Set<String>   // "pos|class"
-        let flaggedWords: Set<Int>
     }
 
     let clips: [Clip]
-    let expected: [String: Expected]
+    /// By clip id: the CPU engine's greedy tokens of `log_probs`.
+    let expected: [String: [Int]]
 
     static func load(_ dir: URL, context: String) -> SelfTestSet? {
         let st = dir.appendingPathComponent("selftest")
@@ -884,56 +906,28 @@ struct SelfTestSet: Sendable {
             let samples = raw.withUnsafeBytes { r in
                 (0..<(r.count / 2)).map { Float(Int16(littleEndian: r.loadUnaligned(fromByteOffset: 2 * $0, as: Int16.self))) / 32768 }
             }
-            let planted = Self.isPlanted(c)
-            var site: String?
-            if planted, let p = c["planted"], let pos = p["pos"]?.number ?? p["tj3_pos"]?.number, let cls = p["class"]?.string {
-                site = "\(Int(pos))|\(cls)"
-            }
             clips.append(Clip(id: id, surah: Int(c["surah"]?.number ?? 0), ayah: Int(c["ayah"]?.number ?? 0), samples: samples,
-                              mustDecode: c["must_decode"]?.bool ?? false, planted: planted, plantedSite: site))
+                              mustDecode: c["must_decode"]?.bool ?? false, planted: Self.isPlanted(c)))
         }
-        var expected: [String: Expected] = [:]
+        var expected: [String: [Int]] = [:]
         for (id, e) in exp["clips"]?.object ?? [:] {
-            let sites = (e["flagged_sites"]?.array ?? []).compactMap { p -> String? in
-                guard let a = p.array, a.count == 2, let pos = a[0].number, let cls = a[1].string else { return nil }
-                return "\(Int(pos))|\(cls)"
-            }
-            expected[id] = Expected(tokens: (e["tokens"]?.array ?? []).compactMap { $0.number.map(Int.init) },
-                                    flaggedSites: Set(sites), flaggedWords: Set((e["flagged_words"]?.array ?? []).compactMap { $0.number.map(Int.init) }))
+            guard let tokens = e["tokens"]?.array else { continue }
+            expected[id] = tokens.compactMap { $0.number.map { Int($0) } }
         }
         guard !clips.isEmpty, clips.allSatisfy({ expected[$0.id] != nil }) else { return nil }
         return SelfTestSet(clips: clips, expected: expected)
     }
 
     /// A clip's kind: `kind` is authoritative ("planted" or "clean"); without it, `planted` marks a planted clip when it
-    /// is `true` or an object (revision e describes the planted mistake there). Any other value, or none, is clean.
-    /// Unknown keys and unexpected types never fail the set.
+    /// is `true` or an object. Any other value, or none, is clean. Unknown keys and unexpected types never fail the set.
     static func isPlanted(_ c: JSONValue) -> Bool {
         if let k = c["kind"]?.string { return k == "planted" }
         if c["planted"]?.bool == true || c["planted"]?.object != nil { return true }
         return false
     }
 
-    /// One clip's decisions against its expected ones: on a clean clip the token sequence; on every clip, planted ones
-    /// included, the flagged sites and flagged words as sets compared in both directions (a missed flag and an extra
-    /// flag both fail; an expected set may be empty or not). Sites are numbered by the engine's expected-token
-    /// position, as the engine wrote the expected files. Nil when they agree, else why not.
-    static func compare(clip: String, planted: Bool = false, expected e: Expected, tokens: [Int], flaggedSites: Set<String>,
-                        flaggedWords: Set<Int>) -> String? {
-        if !planted && tokens != e.tokens { return "\(clip): tokens differ (\(tokens.count) against \(e.tokens.count) expected)" }
-        let missedSites = e.flaggedSites.subtracting(flaggedSites).sorted(), extraSites = flaggedSites.subtracting(e.flaggedSites).sorted()
-        if !missedSites.isEmpty || !extraSites.isEmpty {
-            return "\(clip): flagged sites differ (missed \(missedSites), extra \(extraSites))"
-        }
-        let missedWords = e.flaggedWords.subtracting(flaggedWords).sorted(), extraWords = flaggedWords.subtracting(e.flaggedWords).sorted()
-        if !missedWords.isEmpty || !extraWords.isEmpty {
-            return "\(clip): flagged words differ (missed \(missedWords), extra \(extraWords))"
-        }
-        return nil
-    }
-
-    /// The pass rule's verdict from the clips' comparison, with the per-chunk times (seconds) for the measure stage.
-    /// Speed is never part of it (Quran Lab, 11-10): a build that agrees is promoted, slower or not.
+    /// The verdict from the golden test's outcome, with the per-chunk times (seconds) for the measure stage.
+    /// Speed is never part of it: a build that agrees is promoted, slower or not.
     static func judge(mismatch: String?, accelerator: [Double], cpu: [Double]) -> AcceleratorSelfTest {
         let p90 = AcceleratorController.percentile(accelerator, 0.9) * 1000
         let med = AcceleratorController.percentile(accelerator, 0.5) * 1000
@@ -941,64 +935,6 @@ struct SelfTestSet: Sendable {
         return .init(passed: mismatch == nil, reason: mismatch, p90Ms: p90, medianMs: med, cpuMedianMs: cpuMed)
     }
 }
-
-/// The golden test's verdict over the whole self-test set, in both directions: the accelerator against the shipped
-/// expected outputs and against the on-device CPU run (which must itself equal the expected file), the totals within
-/// the build's tolerance from the signed manifest (exact when it gives none), and the planted mistake flagged always.
-enum GoldenJudge {
-    struct Clip: Sendable {
-        var id: String
-        var planted: Bool
-        var plantedSite: String?
-        /// The shipped expected outputs; nil for the SDK's bundled clips (tokens against the CPU only).
-        var expected: SelfTestSet.Expected?
-        var cpuTokens: [Int]
-        var accTokens: [Int]
-        var cpuSites: Set<String> = []
-        var accSites: Set<String> = []
-        var cpuWords: Set<Int> = []
-        var accWords: Set<Int> = []
-    }
-
-    /// Nil when the build passes, else why not; `totals` are the counts against the CPU run (token edits on clean clips,
-    /// symmetric differences of flagged sites and words on every clip).
-    static func evaluate(_ clips: [Clip], tolerance t: ModelManifest.GoldenTolerance) -> (failure: PromotionFailure?, totals: Divergence) {
-        var totals = Divergence()
-        var firstDiff: String?
-        for c in clips {
-            if let e = c.expected {
-                // the CPU engine first: it must be the shipped expected outputs exactly
-                if let why = SelfTestSet.compare(clip: c.id, planted: false, expected: e, tokens: c.cpuTokens, flaggedSites: c.cpuSites,
-                                                 flaggedWords: c.cpuWords) {
-                    let d = Divergence(expected: e.tokens, tokens: c.cpuTokens, expectedSites: e.flaggedSites, sites: c.cpuSites,
-                                       expectedWords: e.flaggedWords, words: c.cpuWords)
-                    return (PromotionFailure(.cpuMismatch, "CPU engine: " + why, clip: c.id, divergence: d), d)
-                }
-            }
-            if c.planted, let site = c.plantedSite, !c.accSites.contains(site) {
-                let d = Divergence(expected: c.cpuTokens, tokens: c.accTokens, expectedSites: c.cpuSites, sites: c.accSites,
-                                   expectedWords: c.cpuWords, words: c.accWords)
-                return (PromotionFailure(.goldenMismatch, "\(c.id): the planted mistake at \(site) is not flagged", clip: c.id, divergence: d), d)
-            }
-            if !c.planted {
-                totals.tokensExpected += c.cpuTokens.count
-                totals.tokensDiffer += Divergence.edits(c.cpuTokens, c.accTokens)
-            }
-            totals.sitesDiffer += c.cpuSites.symmetricDifference(c.accSites).count
-            totals.wordsDiffer += c.cpuWords.symmetricDifference(c.accWords).count
-            if firstDiff == nil, (!c.planted && c.cpuTokens != c.accTokens) || c.cpuSites != c.accSites || c.cpuWords != c.accWords {
-                firstDiff = c.id
-            }
-        }
-        if totals.tokensDiffer > t.tokenDiffs || totals.sitesDiffer > t.siteFlagDiffs || totals.wordsDiffer > t.wordFlagDiffs {
-            let why = "\(totals.tokensDiffer) token edits, \(totals.sitesDiffer) site flags and \(totals.wordsDiffer) word flags differ "
-                + "from the CPU engine (tolerance \(t.tokenDiffs), \(t.siteFlagDiffs), \(t.wordFlagDiffs))"
-            return (PromotionFailure(.goldenMismatch, why, clip: firstDiff, divergence: totals), totals)
-        }
-        return (nil, totals)
-    }
-}
-
 /// Recognizers whose accelerator waits to be prepared, for the app's background task.
 enum AcceleratorRegistry {
     static let pending = Locked<[UUID: @Sendable () async -> Void]>([:])
@@ -1021,7 +957,7 @@ extension QuranLab {
     /// charging: call once at launch, before the app finishes launching, with an identifier listed in the app's
     /// `BGTaskSchedulerPermittedIdentifiers`. Without it, the SDK runs it after the first finished session (or after a
     /// short idle delay), at background priority.
-    public static func registerAcceleratorPreparation(identifier: String) {
+    static func registerAcceleratorPreparation(identifier: String) {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
             let box = UncheckedBox(task)
             let work = Task.detached(priority: .background) {

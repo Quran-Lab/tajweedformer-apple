@@ -33,9 +33,9 @@ final class FakeCPUEngine: CPUStreamEngine {
         state = 0
     }
 
-    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [TajweedHeads] {
+    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer] {
         audio += s
-        var out: [TajweedHeads] = []
+        var out: [HeadsBuffer] = []
         while audio.count >= Self.window + consumed * Self.advance {
             out.append(chunk(audio[(consumed * Self.advance)..<(consumed * Self.advance + Self.window)], blank: held?.contains(consumed) ?? false))
             consumed += 1
@@ -43,12 +43,12 @@ final class FakeCPUEngine: CPUStreamEngine {
         return out
     }
 
-    func finish() throws(RecognizerError) -> [TajweedHeads] {
+    func finish() throws(RecognizerError) -> [HeadsBuffer] {
         let zeros = [Float](repeating: 0, count: 16_800)
         return try zeros.withUnsafeBufferPointer { (p) throws(RecognizerError) in try push(p) }
     }
 
-    private func chunk(_ w: ArraySlice<Float>, blank: Bool) -> TajweedHeads {
+    private func chunk(_ w: ArraySlice<Float>, blank: Bool) -> HeadsBuffer {
         let m = Double(w.reduce(Float(0)) { $0 + abs($1) }) / Double(max(1, w.count))
         state = 0.6 * state + m
         var lp = [Float](repeating: -20, count: 8 * 38)
@@ -56,7 +56,7 @@ final class FakeCPUEngine: CPUStreamEngine {
             let t = m > 0.002 && !blank ? 1 + Int((state * 997).rounded(.down) + Double(f / 3)) % 37 : 0
             lp[f * 38 + t] = 0
         }
-        return TajweedHeads(chunk: ["log_probs": lp])
+        return HeadsBuffer(chunk: ["log_probs": lp])
     }
 }
 
@@ -111,11 +111,11 @@ final class FakeAccelerator: AcceleratorBackend {
         chunkSeconds = []
     }
 
-    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [TajweedHeads] { try watch(try inner.push(s)) }
-    func finish() throws(RecognizerError) -> [TajweedHeads] { try watch(try inner.finish()) }
+    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer] { try watch(try inner.push(s)) }
+    func finish() throws(RecognizerError) -> [HeadsBuffer] { try watch(try inner.finish()) }
 
-    private func watch(_ chunks: [TajweedHeads]) throws(RecognizerError) -> [TajweedHeads] {
-        var out: [TajweedHeads] = []
+    private func watch(_ chunks: [HeadsBuffer]) throws(RecognizerError) -> [HeadsBuffer] {
+        var out: [HeadsBuffer] = []
         for var c in chunks {
             let i = produced
             produced += 1
@@ -152,7 +152,7 @@ func fakeRecitation(seconds: Double, seed: Int = 1) -> [Float] {
 
 /// The whole take's greedy tokens through `runner`, fed in pieces of `piece` samples, with the take's own truncation.
 struct RunResult {
-    var heads = TajweedHeads()
+    var heads = HeadsBuffer()
     var frames: [Int] = []
     var handedOut = 0
     /// Where the take's chunks were handed out again (a confirmed blank disagreement).

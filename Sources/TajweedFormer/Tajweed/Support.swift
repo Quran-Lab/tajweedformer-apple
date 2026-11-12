@@ -1,7 +1,7 @@
 import Foundation
 
 /// The backend a recognizer runs on.
-public enum ActiveBackend: String, Sendable, Hashable, Codable {
+enum ActiveBackend: String, Sendable, Hashable, Codable {
     /// The CoreML package on the Neural Engine (iOS 18, macOS 15).
     case neuralEngine
     /// The exact CPU engine: the same bits on every device.

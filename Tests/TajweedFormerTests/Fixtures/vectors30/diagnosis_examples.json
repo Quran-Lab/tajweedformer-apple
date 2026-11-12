@@ -1,0 +1,946 @@
+{
+ "about": "client.diagnose() reports for SDK 3.0.0 (make_names.py). `valid` reports pass diagnosis.schema.json; each `invalid` one fails it for the reason named. The numbers are examples.",
+ "valid": [
+  {
+   "name": "Android, promoted to the NPU, sharing queue waiting",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "first start without a connection",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": null
+    },
+    "key": {
+     "accepted": null,
+     "reason": null
+    },
+    "config": "none",
+    "model": null,
+    "context": null,
+    "backend": null,
+    "microphone": "notAsked",
+    "storage": {
+     "models": [],
+     "sharingQueueBytes": 0
+    },
+    "lastError": "needs_connection",
+    "droppedChunks": 0,
+    "connection": "none"
+   }
+  },
+  {
+   "name": "C on a desktop, the key was revoked, two builds on disk, a newer SDK exists",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.1"
+    },
+    "key": {
+     "accepted": false,
+     "reason": "invalid_key"
+    },
+    "config": "stale",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c24_l72",
+    "backend": {
+     "kind": "cpu",
+     "name": "cpu",
+     "stage": "cpu",
+     "reason": null
+    },
+    "microphone": "none",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "519235d00d503835e234882970b62a35da6cacf8",
+       "bytes": 61201877
+      },
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 61244310
+      }
+     ],
+     "sharingQueueBytes": 0
+    },
+    "lastError": "invalid_key",
+    "droppedChunks": 0,
+    "connection": "unknown"
+   }
+  },
+  {
+   "name": "Apple, the accelerator was demoted after a failover, the microphone refused",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "cpu",
+     "name": "cpu",
+     "stage": "demoted",
+     "reason": "failover"
+    },
+    "microphone": "denied",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 219771004
+      }
+     ],
+     "sharingQueueBytes": 0
+    },
+    "lastError": "microphone_denied",
+    "droppedChunks": 0,
+    "connection": "metered"
+   }
+  },
+  {
+   "name": "web, the engine in a Worker",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": null
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c8_l64",
+    "backend": {
+     "kind": "cpu",
+     "name": "wasm",
+     "stage": "cpu",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 59310442
+      }
+     ],
+     "sharingQueueBytes": 402113
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unknown"
+   }
+  },
+  {
+   "name": "the key is accepted and the config names no model build for this SDK yet",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": null,
+    "context": null,
+    "backend": null,
+    "microphone": "notAsked",
+    "storage": {
+     "models": [],
+     "sharingQueueBytes": 0
+    },
+    "lastError": "model_unavailable",
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "an app that did not read chunks for a while: 1844 waiting chunks were dropped",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c8_l64",
+    "backend": {
+     "kind": "cpu",
+     "name": "cpu",
+     "stage": "cpu",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 59310442
+      }
+     ],
+     "sharingQueueBytes": 0
+    },
+    "lastError": null,
+    "droppedChunks": 1844,
+    "connection": "unmetered"
+   }
+  }
+ ],
+ "invalid": [
+  {
+   "name": "an unknown field",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered",
+    "deviceId": "0f3a"
+   }
+  },
+  {
+   "name": "a missing field",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "an error code that is not in the catalogue",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": "timeout",
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "a version that is not x.y.z",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "v4.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "a build that is not 40 hex digits",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "a reason on an accepted key",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": "invalid_key"
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "a refused key without a reason",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.1"
+    },
+    "key": {
+     "accepted": false,
+     "reason": null
+    },
+    "config": "stale",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c24_l72",
+    "backend": {
+     "kind": "cpu",
+     "name": "cpu",
+     "stage": "cpu",
+     "reason": null
+    },
+    "microphone": "none",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "519235d00d503835e234882970b62a35da6cacf8",
+       "bytes": 61201877
+      },
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 61244310
+      }
+     ],
+     "sharingQueueBytes": 0
+    },
+    "lastError": "invalid_key",
+    "droppedChunks": 0,
+    "connection": "unknown"
+   }
+  },
+  {
+   "name": "a microphone value of another spelling",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "not_asked",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "an accelerator named cpu",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "cpu",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "a model path in storage",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211,
+       "path": "/data/user/0/app/files/models"
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "negative bytes",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": -1
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "config as a boolean",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": true,
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "no droppedChunks",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "negative droppedChunks",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": -1,
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "droppedChunks as a string",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": "0",
+    "connection": "unmetered"
+   }
+  },
+  {
+   "name": "no connection",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0
+   }
+  },
+  {
+   "name": "a connection value of another spelling",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "wifi"
+   }
+  }
+ ]
+}

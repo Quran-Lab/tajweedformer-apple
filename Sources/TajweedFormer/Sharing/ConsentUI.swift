@@ -33,7 +33,7 @@ extension Contributions {
     /// The theme of the SDK's sheets where the app passes none: the sheet the SDK presents by itself (no
     /// `.quranLabSharing()`), and the default of `.quranLabSharing()` and the views. Colours, corner radius and fonts
     /// only: the words stay the deck's (or the app's own wording), and the consent version does not change.
-    public static var theme: SharingTheme {
+    static var theme: SharingTheme {
         get { themeState.withLock { $0 } }
         set { themeState.withLock { $0 = newValue } }
     }
@@ -50,8 +50,17 @@ public struct SharingConsentView: View {
     @State private var confirmed = false
     private let copy = Contributions.copy
 
-    public init(reask: Bool = false, guardian: Bool? = nil, theme: SharingTheme = Contributions.theme,
+    /// - Parameters:
+    ///   - client: the app's Client.
+    ///   - reask: the gentler wording of a second or third ask.
+    ///   - onDone: called with the learner's answer once a button was tapped.
+    public init(_ client: TajweedClient, reask: Bool = false, theme: SharingTheme = .standard,
                 onDone: @escaping @MainActor (Bool) -> Void = { _ in }) {
+        self.init(reask: reask, guardian: nil, theme: theme, onDone: onDone)
+    }
+
+    init(reask: Bool = false, guardian: Bool? = nil, theme: SharingTheme = Contributions.theme,
+         onDone: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.reask = reask
         self.guardian = guardian ?? (QuranLab.configuration.options.audience == .children)
         self.theme = theme
@@ -125,7 +134,8 @@ public struct SharingConsentView: View {
 public struct SharingThanksView: View {
     let theme: SharingTheme
     @State private var impact: String?
-    public init(theme: SharingTheme = Contributions.theme) { self.theme = theme }
+    public init(_ client: TajweedClient, theme: SharingTheme = .standard) { self.init(theme: theme) }
+    init(theme: SharingTheme = Contributions.theme) { self.theme = theme }
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(Contributions.copy.string("thanks")).font(theme.bodyFont).foregroundColor(theme.text)
@@ -154,7 +164,8 @@ public struct SharingSettingsView: View {
     private let copy = Contributions.copy
     private let children = QuranLab.configuration.options.audience == .children
 
-    public init(theme: SharingTheme = Contributions.theme) { self.theme = theme }
+    public init(_ client: TajweedClient, theme: SharingTheme = .standard) { self.init(theme: theme) }
+    init(theme: SharingTheme = Contributions.theme) { self.theme = theme }
 
     private func delete() {
         confirmDelete = false
@@ -212,8 +223,8 @@ public struct SharingSettingsView: View {
     }
 }
 
-/// Shows the SDK's sheet and thank-you at the moments the SDK picks (after a finished session with feedback,
-/// `TajweedRecognizer.endSession(feedback:)`). Put it once near the root of the app: `.quranLabSharing()`.
+/// Shows the SDK's sheet and thank-you at the moments the SDK picks (after a finished take in which the model heard
+/// something). Put it once near the root of the app: `.quranLabSharing(client)`.
 @MainActor
 final class SharingPromptModel: ObservableObject {
     static let shared = SharingPromptModel()
@@ -246,8 +257,10 @@ struct SharingPromptModifier: ViewModifier {
 
 extension View {
     /// Lets the SDK present its recitation-sharing sheet and thank-you on this view, at the right moments, in `theme`
-    /// (default: `Contributions.theme`). An app with its own UI (`Contributions.setPresenter(_:)`) does not need it.
-    public func quranLabSharing(theme: SharingTheme = Contributions.theme) -> some View { modifier(SharingPromptModifier(theme: theme)) }
+    /// for the app's Client. Without it the SDK presents its sheet over the front view controller on iOS.
+    public func quranLabSharing(_ client: TajweedClient, theme: SharingTheme = .standard) -> some View {
+        modifier(SharingPromptModifier(theme: theme))
+    }
 }
 
 #if canImport(UIKit) && !os(watchOS) && !os(tvOS)
@@ -272,9 +285,10 @@ enum SharingFallbackPresenter {
 #endif
 
 #if canImport(UIKit) && !os(watchOS)
-/// UIKit: the consent sheet in a view controller (present it modally when `endSession(feedback:)` returns `.ask`).
+/// UIKit: the consent sheet in a view controller, for an app that presents it itself.
 public final class SharingConsentViewController: UIHostingController<SharingConsentView> {
-    public init(reask: Bool = false, theme: SharingTheme = Contributions.theme, onDone: @escaping @MainActor (Bool) -> Void = { _ in }) {
+    public init(_ client: TajweedClient, reask: Bool = false, theme: SharingTheme = .standard,
+                onDone: @escaping @MainActor (Bool) -> Void = { _ in }) {
         super.init(rootView: SharingConsentView(reask: reask, theme: theme, onDone: onDone))
         rootView = SharingConsentView(reask: reask, theme: theme) { [weak self] v in
             onDone(v)
@@ -288,7 +302,7 @@ public final class SharingConsentViewController: UIHostingController<SharingCons
 
 /// UIKit: the sharing settings in a view controller.
 public final class SharingSettingsViewController: UIHostingController<SharingSettingsView> {
-    public init(theme: SharingTheme = Contributions.theme) { super.init(rootView: SharingSettingsView(theme: theme)) }
+    public init(_ client: TajweedClient, theme: SharingTheme = .standard) { super.init(rootView: SharingSettingsView(theme: theme)) }
     @available(*, unavailable)
     required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
@@ -297,7 +311,8 @@ public final class SharingSettingsViewController: UIHostingController<SharingSet
 #if canImport(AppKit) && !targetEnvironment(macCatalyst)
 /// AppKit: the consent sheet in a view controller (present it as a sheet of the app's window).
 public final class SharingConsentViewControllerMac: NSHostingController<SharingConsentView> {
-    public init(reask: Bool = false, theme: SharingTheme = Contributions.theme, onDone: @escaping @MainActor (Bool) -> Void = { _ in }) {
+    public init(_ client: TajweedClient, reask: Bool = false, theme: SharingTheme = .standard,
+                onDone: @escaping @MainActor (Bool) -> Void = { _ in }) {
         super.init(rootView: SharingConsentView(reask: reask, theme: theme, onDone: onDone))
         rootView = SharingConsentView(reask: reask, theme: theme) { [weak self] v in
             onDone(v)
@@ -311,7 +326,7 @@ public final class SharingConsentViewControllerMac: NSHostingController<SharingC
 
 /// AppKit: the sharing settings in a view controller.
 public final class SharingSettingsViewControllerMac: NSHostingController<SharingSettingsView> {
-    public init(theme: SharingTheme = Contributions.theme) { super.init(rootView: SharingSettingsView(theme: theme)) }
+    public init(_ client: TajweedClient, theme: SharingTheme = .standard) { super.init(rootView: SharingSettingsView(theme: theme)) }
     @available(*, unavailable)
     required dynamic init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }

@@ -5,7 +5,7 @@ import DeviceCheck
 #endif
 
 /// App Attest, behind a protocol so tests (and platforms without it) can stand in.
-public protocol AppAttesting: Sendable {
+protocol AppAttesting: Sendable {
     var isSupported: Bool { get }
     /// A new key in the Secure Enclave; returns its id.
     func generateKey() async throws -> String
@@ -18,24 +18,24 @@ public protocol AppAttesting: Sendable {
 
 /// DCAppAttestService. Unsupported on the simulator, in Mac command-line tools and tests, and on
 /// devices without a Secure Enclave: the SDK then runs unattested.
-public struct DeviceCheckAttester: AppAttesting {
-    public init() {}
+struct DeviceCheckAttester: AppAttesting {
+    init() {}
 
-    public var isSupported: Bool {
+    var isSupported: Bool {
         #if canImport(DeviceCheck) && !targetEnvironment(simulator)
         if #available(iOS 14.0, macOS 11.0, *) { return DCAppAttestService.shared.isSupported }
         #endif
         return false
     }
 
-    public func generateKey() async throws -> String {
+    func generateKey() async throws -> String {
         #if canImport(DeviceCheck)
         if #available(iOS 14.0, macOS 11.0, *) { return try await DCAppAttestService.shared.generateKey() }
         #endif
         throw RecognizerError.serviceUnavailable("App Attest")
     }
 
-    public func attestKey(_ keyID: String, clientDataHash: Data) async throws -> Data {
+    func attestKey(_ keyID: String, clientDataHash: Data) async throws -> Data {
         #if canImport(DeviceCheck)
         if #available(iOS 14.0, macOS 11.0, *) {
             return try await DCAppAttestService.shared.attestKey(keyID, clientDataHash: clientDataHash)
@@ -44,7 +44,7 @@ public struct DeviceCheckAttester: AppAttesting {
         throw RecognizerError.serviceUnavailable("App Attest")
     }
 
-    public func generateAssertion(_ keyID: String, clientDataHash: Data) async throws -> Data {
+    func generateAssertion(_ keyID: String, clientDataHash: Data) async throws -> Data {
         #if canImport(DeviceCheck)
         if #available(iOS 14.0, macOS 11.0, *) {
             return try await DCAppAttestService.shared.generateAssertion(keyID, clientDataHash: clientDataHash)
@@ -241,7 +241,7 @@ actor TokenProvider {
             do throws(CloudError) {
                 return .token(try tokenFrom(try await http.checked(try request("v1/attest/assert", body: body))))
             } catch {
-                guard case .rejected(_, let code, let message) = error else { throw error }
+                guard case .rejected(_, let code, let message, _) = error else { throw error }
                 switch code {
                 case "attest_key_unknown", "attest_key_revoked":
                     return .newKey
@@ -277,7 +277,7 @@ actor TokenProvider {
             return t
         } catch {
             // an attestation the server refuses still leaves the unattested path
-            guard case .rejected(_, let code, _) = error,
+            guard case .rejected(_, let code, _, _) = error,
                   ["attestation_failed", "challenge_invalid", "team_mismatch", "attest_key_revoked"].contains(code) else { throw error }
             return try await unattested()
         }

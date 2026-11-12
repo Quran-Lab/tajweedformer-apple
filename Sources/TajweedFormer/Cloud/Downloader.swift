@@ -24,20 +24,20 @@ struct CDNClient: Sendable {
         return u
     }
 
-    /// The model's manifest at a revision, signature checked (always required from the network) and compatible. Its
-    /// signature covers the size and SHA-256 of every file.
-    func manifest(_ id: ModelID, revision: String) async throws(RecognizerError) -> ModelManifest {
+    /// The model's manifest at a build, as SDK 3.0.0 accepts it: its SHA-256 starts with the build the config named
+    /// (when `revision` is a build id), it is signed, it has a version and runs on this SDK, and its version is the
+    /// one the config named. Its signature covers the size and SHA-256 of every file.
+    func manifest(_ id: ModelID, revision: String, version: String? = nil) async throws(RecognizerError) -> ModelManifest {
         let resp: HTTPClient.Response
         do throws(CloudError) { resp = try await http.checked(request(fileURL(id, revision: revision, path: ModelManifest.fileName))) } catch {
-            if case .rejected(status: 404, _, _) = error {
+            if case .rejected(status: 404, _, _, _) = error {
                 throw .modelMissing("revision \(revision) of \(id.repository) has no \(id.folder)/\(ModelManifest.fileName) on the CDN")
             }
             throw error.recognizerError
         }
-        let parsed = try ModelManifest.parse(resp.body)
-        guard parsed.modelID == id.name else { throw .manifestInvalid("the CDN manifest is for \(parsed.modelID), not \(id.name)") }
-        let m = try verifier.verifySignature(parsed, required: true)
-        try m.checkCompatible()
+        let build = revision.range(of: "^[0-9a-fA-F]{40}$", options: .regularExpression) != nil ? revision : nil
+        let m = try ModelManifest.accept(resp.body, verifier: verifier, build: build, version: version)
+        guard m.modelID == id.name else { throw .manifestInvalid("the CDN manifest is for \(m.modelID), not \(id.name)") }
         return m
     }
 

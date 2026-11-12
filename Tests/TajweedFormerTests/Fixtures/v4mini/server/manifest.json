@@ -310,16 +310,16 @@
    "context": "*",
    "decoded": {
     "path": "expected_tj3.zfx",
-    "sha256": "5ed70003e8886e6d7c1ad222f27e14131762bce24e9e78f2bc4e5747eca24c1f",
-    "size": 1000
+    "sha256": "148d10f8e056dfb59b6522d2c0b1ec7159ca64018f63e496e29e5d4db1cd2991",
+    "size": 684
    },
    "encoding": "gzip",
-   "need": "required",
+   "need": "optional",
    "path": "expected_tj3.zfx.gz",
    "platforms": "*",
-   "role": "expected",
-   "sha256": "5dedadde23b36e5f67298828ceec16b097ec503b711c7c0cc9c4af97ccd2c649",
-   "size": 54,
+   "role": "reference",
+   "sha256": "04a60cbe2d879a1023fb86995b0517e39ef6678dadfda97c478a0cc7cb655e3a",
+   "size": 250,
    "soc": "*"
   },
   {
@@ -409,32 +409,32 @@
    "context": "c16_l64",
    "decoded": {
     "path": "selftest/expected_c16_l64.json",
-    "sha256": "648e4391bfce8dc6bcf4f02fd31a0e26010703541304900eb35eded514f4baa4",
-    "size": 781
+    "sha256": "e71932baf0cabf6ff6b315b59860ef139eb85459da5480400ceeff54497401d3",
+    "size": 356
    },
    "encoding": "gzip",
    "need": "optional",
    "path": "selftest/expected_c16_l64.json.gz",
    "platforms": "*",
    "role": "selftest",
-   "sha256": "b45253927a1d7fcd9e3b01547ff4deec7139e506898727ff49c77573eb217f74",
-   "size": 318,
+   "sha256": "3f1e9423a3eb5d170c1175f75800030c09579f108d1a626404de1f09e107abf9",
+   "size": 175,
    "soc": "*"
   },
   {
    "context": "c24_l72",
    "decoded": {
     "path": "selftest/expected_c24_l72.json",
-    "sha256": "a647d43bf53bea1fe5cd26ec4053cd16b590760af3f54675695ce305cdf291e0",
-    "size": 781
+    "sha256": "2e703a9d4432e5cf40f8dad2fa93fff1d47300c2421e2e7139827417ed6941a2",
+    "size": 356
    },
    "encoding": "gzip",
    "need": "optional",
    "path": "selftest/expected_c24_l72.json.gz",
    "platforms": "*",
    "role": "selftest",
-   "sha256": "b66d8ff4cd268e91a396e3e35b3c30f36d255e0e7546bcb6904c16d4e9abdb92",
-   "size": 318,
+   "sha256": "5acbfa27941fd8d3856f0cbf03d1b23be57a903d4bffa6b60cf1f52642aac8f5",
+   "size": 176,
    "soc": "*"
   },
   {
@@ -461,10 +461,35 @@
   }
  ],
  "format": 3,
- "min_sdk_version": "2.0.0",
+ "golden_raw_tolerance": {
+  "coreml": {
+   "attr": {
+    "p_mean": 0.02
+   },
+   "inter1_log_probs": {
+    "lp_mean": 0.05,
+    "lp_p99": 1.5,
+    "token_edits": 0
+   },
+   "log_probs": {
+    "lp_mean": 0.05,
+    "lp_p99": 1.5,
+    "token_edits": 0
+   }
+  },
+  "coreml-compact": {
+   "log_probs": {
+    "lp_mean": 0.1,
+    "lp_p99": 2.0,
+    "token_edits": 1
+   }
+  }
+ },
+ "min_sdk_version": "3.0.0",
  "model_id": "v4.0",
- "revision": "v4.0-test.1",
- "signature": "og/W8+BQPiM0q2WWCd3Pa5FXbJ67kUFnBAfG+y7nyZ4eu65j752G1u+tvSGbxIYVf4fsUnaNCqLqyLZgN1xMDg==",
+ "revision": "v4.0-test.3",
+ "signature": "GnUY1Db5verNzjAtqBz6GhM0vkIQFzelacgVjT/RpsfduGsbqY8XLJZSScMitnShQAw3zgErk5Goh/UiA8wgBA==",
  "tokens": "tokens.txt",
- "tokens_sha256": "3592528071e35233d6378f5129b691b591b49ca27cfb41e94381ef260c875336"
+ "tokens_sha256": "3592528071e35233d6378f5129b691b591b49ca27cfb41e94381ef260c875336",
+ "version": "4.0.0"
 }

@@ -26,13 +26,13 @@ final class TajweedNeuralEngine {
     private var pending: [Float] = []
     private var feat: [Float] = []
     private var rows: [Float] = []
-    private(set) var take = TajweedHeads()
+    private(set) var take = HeadsBuffer()
     /// Seconds spent in predictions, per chunk (for latency reporting).
     private(set) var chunkSeconds: [Double] = []
     /// The error behind the last failed prediction (its domain and code go into incident reports).
     private(set) var lastError: NSError?
 
-    convenience init(_ build: TajweedModel.CoreMLBuild, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws(RecognizerError) {
+    convenience init(_ build: ModelFolder.CoreMLBuild, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws(RecognizerError) {
         try self.init(model: build.package, keeps: build.keeps, front: build.frontFunction, back: build.backFunction,
                       computeUnits: computeUnits)
     }
@@ -63,15 +63,15 @@ final class TajweedNeuralEngine {
         self.crossName = crossName
         let xs = try c(fi["x"]).shape.map(\.intValue)
         let ls = try c(bo["log_probs"]).shape.map(\.intValue)
-        guard xs.count == 4, xs[3] == 80, ls.count == 3, ls[2] == TajweedHeads.vocab else {
+        guard xs.count == 4, xs[3] == 80, ls.count == 3, ls[2] == HeadsBuffer.vocab else {
             throw .neuralEngineUnavailable("x is \(xs), log_probs \(ls): not a V4 package")
         }
         window = xs[2]
         ctcFrames = ls[1]
         advance = 4 * ctcFrames
-        frontHeads = TajweedHeads.layout.map(\.name).filter { fo[$0] != nil }
-        backHeads = TajweedHeads.layout.map(\.name).filter { bo[$0] != nil }
-        guard Set(frontHeads + backHeads).count == TajweedHeads.layout.count else {
+        frontHeads = HeadsBuffer.layout.map(\.name).filter { fo[$0] != nil }
+        backHeads = HeadsBuffer.layout.map(\.name).filter { bo[$0] != nil }
+        guard Set(frontHeads + backHeads).count == HeadsBuffer.layout.count else {
             throw .neuralEngineUnavailable("the package lacks heads: has \(frontHeads + backHeads)")
         }
         for p in 0..<2 {
@@ -109,7 +109,7 @@ final class TajweedNeuralEngine {
         for p in 0..<2 { for (_, a) in buf[p] { zero(a) } }
         zf_fbank_reset(fbank)
         pending.removeAll(keepingCapacity: true)
-        take = TajweedHeads()
+        take = HeadsBuffer()
         chunkSeconds.removeAll()
         lastError = nil
     }
@@ -123,7 +123,7 @@ final class TajweedNeuralEngine {
     }
 
     /// One chunk of `window` fbank frames: both functions, every head read out.
-    private func runChunk(_ frames: UnsafeBufferPointer<Float>) throws(RecognizerError) -> TajweedHeads {
+    private func runChunk(_ frames: UnsafeBufferPointer<Float>) throws(RecognizerError) -> HeadsBuffer {
         let t0 = CFAbsoluteTimeGetCurrent()
         fillRows(x, frames)
         let cur = buf[parity], nxt = buf[1 - parity]
@@ -146,7 +146,7 @@ final class TajweedNeuralEngine {
             throw .neuralEngineUnavailable("prediction failed: \(error.localizedDescription)")
         }
         var chunk: [String: [Float]] = [:]
-        for (name, _, _) in TajweedHeads.layout {
+        for (name, _, _) in HeadsBuffer.layout {
             guard let pb = heads[name]?.pixelBuffer else { throw .neuralEngineUnavailable("\(name) has no surface") }
             readRows(pb, into: &rows)
             chunk[name] = rows
@@ -154,16 +154,16 @@ final class TajweedNeuralEngine {
         chunkSeconds.append(CFAbsoluteTimeGetCurrent() - t0)
         parity = 1 - parity
         step += 1
-        return TajweedHeads(chunk: chunk)
+        return HeadsBuffer(chunk: chunk)
     }
 
     /// fbank frames in; every chunk they complete is run.
-    private func pushFrames(_ f: UnsafeBufferPointer<Float>, _ n: Int, into out: inout [TajweedHeads]) throws(RecognizerError) {
+    private func pushFrames(_ f: UnsafeBufferPointer<Float>, _ n: Int, into out: inout [HeadsBuffer]) throws(RecognizerError) {
         pending.append(contentsOf: UnsafeBufferPointer(start: f.baseAddress, count: n * 80))
         let w = window * 80, a = advance * 80
         var consumed = 0
         while pending.count - consumed >= w {
-            let h = try pending.withUnsafeBufferPointer { (p) throws(RecognizerError) -> TajweedHeads in
+            let h = try pending.withUnsafeBufferPointer { (p) throws(RecognizerError) -> HeadsBuffer in
                 try runChunk(UnsafeBufferPointer(rebasing: p[consumed..<consumed + w]))
             }
             take.append(h)
@@ -174,8 +174,8 @@ final class TajweedNeuralEngine {
     }
 
     /// 16 kHz mono samples in; the chunks they complete out (each chunk's heads).
-    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [TajweedHeads] {
-        var out: [TajweedHeads] = []
+    func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer] {
+        var out: [HeadsBuffer] = []
         var at = 0
         while at < s.count {
             let n = min(16_000, s.count - at)
@@ -190,8 +190,8 @@ final class TajweedNeuralEngine {
     }
 
     /// The end of the take: 1.05 s of zeros (16,800 samples), the fbank's last frames, every chunk they complete.
-    func finish() throws(RecognizerError) -> [TajweedHeads] {
-        var out: [TajweedHeads] = []
+    func finish() throws(RecognizerError) -> [HeadsBuffer] {
+        var out: [HeadsBuffer] = []
         let zeros = [Float](repeating: 0, count: 16_800)
         out += try zeros.withUnsafeBufferPointer { (p) throws(RecognizerError) in try push(p) }
         let cap = Int(zf_fbank_max_frames(0))

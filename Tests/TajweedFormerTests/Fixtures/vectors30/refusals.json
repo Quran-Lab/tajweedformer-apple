@@ -1,0 +1,180 @@
+{
+ "format": "quranlab.sdk-refusal-vectors/1",
+ "about": "SDK 3.0.0: a refusal says what to do (make_refusals.py; every message and fix is the catalogue's). Each case is the first answer the Client gets from the API (`status`, the JSON `body`) and the error the call that needed the server raises (`expect`: code, the entry of server_rejected.reasons used or null, message, fix). The refusal's code is the body's `reason` when the catalogue has an entry for it, else its `error`. `app` is the identifier the Client registered with and fills {origin}; `sdk` fills {sdk}. diagnose() then reports the key as not accepted with the expected code as its reason, and lastError is the expected code.",
+ "sdk": "3.0.0",
+ "app": "org.example.halaqa",
+ "cases": [
+  {
+   "name": "a key the server does not know",
+   "about": "401 invalid_key with no reason: a made-up or revoked key. As before.",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid."
+   },
+   "expect": {
+    "code": "invalid_key",
+    "reason": null,
+    "message": "Quran Lab does not accept this key.",
+    "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+   }
+  },
+  {
+   "name": "the key belongs to another app",
+   "about": "401 invalid_key with reason app_not_allowed: the key is bound to the first app identifier that used it, and this is another one.",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "app_not_allowed"
+   },
+   "expect": {
+    "code": "server_rejected",
+    "reason": "app_not_allowed",
+    "message": "This key belongs to another app (app_not_allowed).",
+    "fix": "A key works for the first app that used it. Make a key for this app at https://sdk.quranlab.ai/keys, or allow this app's identifier on the key's page."
+   }
+  },
+  {
+   "name": "the page's origin is not on the key",
+   "about": "401 invalid_key with reason origin_not_allowed ({origin} is the identifier the Client registered with).",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "origin_not_allowed"
+   },
+   "expect": {
+    "code": "server_rejected",
+    "reason": "origin_not_allowed",
+    "message": "This page's origin, org.example.halaqa, is not on the key (origin_not_allowed).",
+    "fix": "Add this page's origin (scheme, host and port, for example https://app.example.org) to the key on its page at https://sdk.quranlab.ai/keys."
+   }
+  },
+  {
+   "name": "a key of the wrong type",
+   "about": "401 invalid_key with reason key_type_mismatch.",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "key_type_mismatch"
+   },
+   "expect": {
+    "code": "server_rejected",
+    "reason": "key_type_mismatch",
+    "message": "This key is of the wrong type for this platform (key_type_mismatch).",
+    "fix": "Use an apps key on Android and iOS, a desktop key on macOS, Windows and Linux, and a web key in a browser page; sdk.quranlab.ai makes each of them under the same app."
+   }
+  },
+  {
+   "name": "a reason this SDK does not know",
+   "about": "401 invalid_key with a reason the catalogue has no entry for: as without a reason.",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "a_reason_from_later"
+   },
+   "expect": {
+    "code": "invalid_key",
+    "reason": null,
+    "message": "Quran Lab does not accept this key.",
+    "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+   }
+  },
+  {
+   "name": "a null reason",
+   "about": "401 invalid_key with reason null: as without a reason.",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": null
+   },
+   "expect": {
+    "code": "invalid_key",
+    "reason": null,
+    "message": "Quran Lab does not accept this key.",
+    "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+   }
+  },
+  {
+   "name": "a blocked app",
+   "about": "403 with the code in `error`, as before.",
+   "status": 403,
+   "body": {
+    "error": "app_blocked",
+    "message": "This app is blocked."
+   },
+   "expect": {
+    "code": "server_rejected",
+    "reason": "app_blocked",
+    "message": "Quran Lab has blocked this app (app_blocked).",
+    "fix": "Open the app's page on sdk.quranlab.ai for the reason, or write to Quran Lab from the account that owns the app."
+   }
+  },
+  {
+   "name": "an account without access yet",
+   "about": "403 developer_not_approved in `error`.",
+   "status": 403,
+   "body": {
+    "error": "developer_not_approved",
+    "message": "No access yet."
+   },
+   "expect": {
+    "code": "server_rejected",
+    "reason": "developer_not_approved",
+    "message": "The account behind this key has no access to Quran Lab yet (developer_not_approved).",
+    "fix": "Open https://sdk.quranlab.ai/start with the account that owns the key and finish the access request; the key works as soon as access is given."
+   }
+  },
+  {
+   "name": "a 403 this SDK does not know",
+   "about": "403 with a code the catalogue has no entry for: server_rejected with the code as {detail}.",
+   "status": 403,
+   "body": {
+    "error": "a_code_from_later",
+    "message": "Refused."
+   },
+   "expect": {
+    "code": "server_rejected",
+    "reason": null,
+    "message": "Quran Lab refused this app: a_code_from_later.",
+    "fix": "Check in sdk.quranlab.ai that the key belongs to this app id and platform and that the app is not blocked."
+   }
+  },
+  {
+   "name": "the reason is read first",
+   "about": "A body with both: `reason` names a catalogue entry, so it decides, not `error`.",
+   "status": 403,
+   "body": {
+    "error": "app_blocked",
+    "message": "Refused.",
+    "reason": "key_type_mismatch"
+   },
+   "expect": {
+    "code": "server_rejected",
+    "reason": "key_type_mismatch",
+    "message": "This key is of the wrong type for this platform (key_type_mismatch).",
+    "fix": "Use an apps key on Android and iOS, a desktop key on macOS, Windows and Linux, and a web key in a browser page; sdk.quranlab.ai makes each of them under the same app."
+   }
+  },
+  {
+   "name": "the key needs a newer SDK",
+   "about": "403 sdk_too_old keeps its own code; the message names the answer's min_sdk.",
+   "status": 403,
+   "body": {
+    "error": "sdk_too_old",
+    "message": "This key needs a newer SDK.",
+    "min_sdk": "3.1.0"
+   },
+   "expect": {
+    "code": "sdk_too_old",
+    "reason": null,
+    "message": "This key needs SDK 3.1.0 or later; this is 3.0.0.",
+    "fix": "Upgrade the TajweedFormer SDK to 3.1.0 or later (the min_sdk of the server's answer), with the install line of the README."
+   }
+  }
+ ]
+}

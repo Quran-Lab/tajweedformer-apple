@@ -1,7 +1,7 @@
 #!/bin/bash
 # TajweedFormerCore.xcframework from the pinned engine (engine/, the tajweedformer-sdk submodule; ZF_ENGINE_DIR
-# overrides it): the exact engine, its ONNX-Runtime-free graph runner, the stream API and (2.0.0) the V4 tajweed
-# library with its streams (zf_tajweed.h, target zf_tajweed_engine) and the CoreML sidecar rebuild (zf/zfs.h,
+# overrides it): the exact engine, its ONNX-Runtime-free graph runner, the stream API and the V4 tajweed
+# library, inference only (zf_tajweed.h, target zf_tajweed_inference), and the CoreML sidecar rebuild (zf/zfs.h,
 # zf/vfs.h) as one static library per platform,
 # with the C headers and a module map, for the Swift package (Package.swift).
 #   iOS device arm64, iOS Simulator arm64, macOS arm64
@@ -27,10 +27,10 @@ build() { # name sdk system deployment
     -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=$sdk -DCMAKE_OSX_DEPLOYMENT_TARGET=$target \
     -DCMAKE_C_FLAGS=-DZF_QUANT_DIVIDE=1 -DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$(xcrun -f clang++) \
     -DCMAKE_ASM_COMPILER=$CC >/dev/null
-  cmake --build "$B" --target zf_engine zf_ort_ops zf_rt zf_stream zf_tajweed_engine -j 8 >/dev/null
+  cmake --build "$B" --target zf_engine zf_ort_ops zf_rt zf_stream zf_tajweed_inference -j 8 >/dev/null
   mkdir -p "$OUT/$name"
   libtool -static -o "$OUT/$name/libTajweedFormerCore.a" "$B/engine/libzf_engine.a" \
-    "$B/accel/libzf_ort_ops.a" "$B/accel/libzf_rt.a" "$B/accel/libzf_stream.a" "$B/tajweed/libzf_tajweed_engine.a" 2>/dev/null
+    "$B/accel/libzf_ort_ops.a" "$B/accel/libzf_rt.a" "$B/accel/libzf_stream.a" "$B/tajweed/libzf_tajweed_inference.a" 2>/dev/null
 }
 build ios iphoneos iOS 15.0
 build sim iphonesimulator iOS 15.0
@@ -50,5 +50,9 @@ xcodebuild -create-xcframework \
   -library "$OUT/sim/libTajweedFormerCore.a" -headers "$H" \
   -library "$OUT/mac/libTajweedFormerCore.a" -headers "$H" \
   -output "$ROOT/TajweedFormerCore.xcframework" >/dev/null
+# the engine core's privacy manifest next to each slice's library (the package's own is a resource of its target)
+for s in "$ROOT"/TajweedFormerCore.xcframework/*/; do
+  [ -f "$s/libTajweedFormerCore.a" ] && cp "$ROOT/scripts/xcframework/PrivacyInfo.xcprivacy" "$s/PrivacyInfo.xcprivacy"
+done
 (cd "$ROOT" && rm -f TajweedFormerCore.xcframework.zip && zip -qry TajweedFormerCore.xcframework.zip TajweedFormerCore.xcframework)
 echo "$ROOT/TajweedFormerCore.xcframework ($(du -sh "$ROOT/TajweedFormerCore.xcframework" | cut -f1)); zip checksum $(swift package compute-checksum "$ROOT/TajweedFormerCore.xcframework.zip")"

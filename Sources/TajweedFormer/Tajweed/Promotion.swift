@@ -25,7 +25,7 @@ import UIKit
 // (`PromotionStore.migrate`).
 
 /// A stage of the promotion pipeline.
-public enum PromotionStage: String, Sendable, Codable, CaseIterable, Comparable {
+enum PromotionStage: String, Sendable, Codable, CaseIterable, Comparable {
     /// The accelerator's files (CoreML package, keep table, self-test set), verified like the CPU set.
     case download
     /// The device-specific compile: the first load of the package with the Neural Engine allowed.
@@ -40,13 +40,13 @@ public enum PromotionStage: String, Sendable, Codable, CaseIterable, Comparable 
     case promote
 
     var order: Int { Self.allCases.firstIndex(of: self)! }
-    public static func < (a: PromotionStage, b: PromotionStage) -> Bool { a.order < b.order }
+    static func < (a: PromotionStage, b: PromotionStage) -> Bool { a.order < b.order }
     /// The stage after this one, nil after `promote`.
     var next: PromotionStage? { order + 1 < Self.allCases.count ? Self.allCases[order + 1] : nil }
 }
 
 /// Why an attempt failed (the `reasons` keys of the `promotions` telemetry).
-public enum PromotionReason: String, Sendable, Codable, CaseIterable {
+enum PromotionReason: String, Sendable, Codable, CaseIterable {
     case network, storage, verify
     case compileError = "compile_error"
     case compileTimeout = "compile_timeout"
@@ -58,7 +58,7 @@ public enum PromotionReason: String, Sendable, Codable, CaseIterable {
     case failover, denylist, other
 
     /// Failures that the same model revision on the same OS build would repeat: never retried for the key.
-    public var deterministic: Bool { [.goldenMismatch, .cpuMismatch, .nonFinite, .crash].contains(self) }
+    var deterministic: Bool { [.goldenMismatch, .cpuMismatch, .nonFinite, .crash].contains(self) }
 
     /// The cause class of an incident report (`promotion_failed`, PLATFORM_CLIENT 7.1).
     var incidentCause: String {
@@ -94,28 +94,112 @@ struct PromotionFailure: Error, Sendable, Equatable {
     }
 }
 
-/// How far an accelerator's (or a replayed) decode is from the CPU engine's: counts only, never the tokens.
+/// How far an accelerator's output is from the CPU engine's, as an incident report carries it (SDK 3.0.0): the raw
+/// golden test's measures per compared head, the tolerance they were judged against, the measures that failed, and
+/// the CPU run's token count. Numbers only, never the tokens. Every part is optional.
 struct Divergence: Codable, Sendable, Equatable, Hashable {
-    var tokensExpected = 0
-    var tokensDiffer = 0
-    var sitesDiffer = 0
-    var wordsDiffer = 0
+    /// The measures of one head (a CTC head, or `attr` for the attribute heads together), or one head's tolerance.
+    struct Head: Codable, Sendable, Equatable, Hashable {
+        var tokenEdits: Int?
+        var lpMean: Double?
+        var lpP99: Double?
+        var pMean: Double?
+        var frames: Int?
+        var values: Int?
 
-    enum CodingKeys: String, CodingKey {
-        case tokensExpected = "tokens_expected", tokensDiffer = "tokens_differ", sitesDiffer = "sites_differ", wordsDiffer = "words_differ"
+        enum CodingKeys: String, CodingKey {
+            case tokenEdits = "token_edits", lpMean = "lp_mean", lpP99 = "lp_p99", pMean = "p_mean", frames, values
+        }
+
+        init(tokenEdits: Int? = nil, lpMean: Double? = nil, lpP99: Double? = nil, pMean: Double? = nil, frames: Int? = nil,
+             values: Int? = nil) {
+            self.tokenEdits = tokenEdits
+            self.lpMean = lpMean
+            self.lpP99 = lpP99
+            self.pMean = pMean
+            self.frames = frames
+            self.values = values
+        }
+
+        /// The values inside what the server takes: counts 0 to 100,000 (edits) and 100,000,000 (compared), distances 0
+        /// to 30, a probability difference 0 to 1.
+        var bounded: Head {
+            Head(tokenEdits: tokenEdits.map { max(0, min(100_000, $0)) }, lpMean: lpMean.map { max(0, min(30, $0)) },
+                 lpP99: lpP99.map { max(0, min(30, $0)) }, pMean: pMean.map { max(0, min(1, $0)) },
+                 frames: frames.map { max(0, min(100_000_000, $0)) }, values: values.map { max(0, min(100_000_000, $0)) })
+        }
     }
 
-    /// Token edits (Levenshtein), and the symmetric differences of the flagged sites and words.
-    init(expected: [Int], tokens: [Int], expectedSites: Set<String>, sites: Set<String>, expectedWords: Set<Int>, words: Set<Int>) {
-        tokensExpected = expected.count
-        tokensDiffer = Self.edits(expected, tokens)
-        sitesDiffer = expectedSites.symmetricDifference(sites).count
-        wordsDiffer = expectedWords.symmetricDifference(words).count
+    /// The CPU run's greedy tokens (over the clean clips in the golden test; in the window of a failover).
+    var tokensExpected: Int?
+    /// Per compared head; nil for a head whose shapes differed.
+    var heads: [String: Head?]?
+    /// The build's `golden_raw_tolerance` entry, left out when it signs none.
+    var tolerance: [String: Head]?
+    /// The measures out of tolerance, each `<head>.<measure>`.
+    var failed: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case tokensExpected = "tokens_expected", heads, tolerance, failed
     }
 
     init() {}
 
-    var isZero: Bool { tokensDiffer == 0 && sitesDiffer == 0 && wordsDiffer == 0 }
+    /// A failover's divergence: the tokens the CPU engine heard in the window, and how many edits away the
+    /// accelerator's were.
+    init(expected: [Int], tokens: [Int]) {
+        tokensExpected = expected.count
+        heads = ["log_probs": .some(Head(tokenEdits: Self.edits(expected, tokens)))]
+    }
+
+    /// The token edits of `log_probs`, when the divergence has them.
+    var tokenEdits: Int? { heads?["log_probs"]??.tokenEdits }
+
+    /// The report's form: every number inside what the server takes.
+    var bounded: Divergence {
+        var d = self
+        d.tokensExpected = tokensExpected.map { max(0, min(10_000_000, $0)) }
+        d.heads = heads?.mapValues { $0?.bounded }
+        d.tolerance = tolerance?.mapValues(\.bounded)
+        d.failed = failed.map { Array($0.prefix(32)) }
+        return d
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(tokensExpected, forKey: .tokensExpected)
+        if let heads {
+            // a head whose shapes differed is written as null
+            var h = c.nestedContainer(keyedBy: Name.self, forKey: .heads)
+            for (name, m) in heads {
+                if let m { try h.encode(m, forKey: Name(name)) } else { try h.encodeNil(forKey: Name(name)) }
+            }
+        }
+        try c.encodeIfPresent(tolerance, forKey: .tolerance)
+        try c.encodeIfPresent(failed, forKey: .failed)
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tokensExpected = try c.decodeIfPresent(Int.self, forKey: .tokensExpected)
+        if c.contains(.heads) {
+            let h = try c.nestedContainer(keyedBy: Name.self, forKey: .heads)
+            var out: [String: Head?] = [:]
+            for k in h.allKeys { out[k.stringValue] = .some(try h.decodeNil(forKey: k) ? nil : try h.decode(Head.self, forKey: k)) }
+            heads = out
+        }
+        tolerance = try c.decodeIfPresent([String: Head].self, forKey: .tolerance)
+        failed = try c.decodeIfPresent([String].self, forKey: .failed)
+    }
+
+    /// A head name as a coding key.
+    struct Name: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(_ s: String) { stringValue = s }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
 
     static func edits(_ a: [Int], _ b: [Int]) -> Int {
         if a.isEmpty { return b.count }
@@ -129,7 +213,6 @@ struct Divergence: Codable, Sendable, Equatable, Hashable {
         return prev[b.count]
     }
 }
-
 /// The constants of the pipeline and the failover, in one place.
 enum PromotionPolicy {
     /// The compile stage (the first load with the Neural Engine allowed runs the ANE compiler).
@@ -257,6 +340,12 @@ struct PromotionRecord: Codable, Sendable, Equatable {
     var disagreements: Int?
     /// The most recent warm chunk times of the accelerator, ms (the golden test's, then the sessions'): the limits.
     var warmChunkMs: [Double]?
+    // 3.0.0 (optional, so earlier records decode)
+    /// What this key's last golden test measured against the CPU engine, per compared head: token edits and log-prob
+    /// distances of the CTC heads, the mean probability difference of the attribute heads, and the tolerance in
+    /// force when the build has one. Recorded also for a build judged on tokens alone, and for a test that failed
+    /// (its `failed` then names the measures that decided it).
+    var golden: Divergence?
 
     struct DeadlineMiss: Codable, Sendable, Equatable {
         var session: String
@@ -462,8 +551,8 @@ struct PromotionConditions: Sendable, Equatable {
 }
 
 /// One promotions telemetry event: an attempt that ended (promoted, or failed at a stage), a demotion, or a failover.
-public struct PromotionTelemetry: Sendable, Hashable {
-    public enum Kind: Sendable, Hashable {
+struct PromotionTelemetry: Sendable, Hashable {
+    enum Kind: Sendable, Hashable {
         /// A pipeline attempt ended: promoted, or failed at `stage` with `reason`.
         case attempt(promoted: Bool, stage: PromotionStage?, reason: PromotionReason?, compileMs: Double?, speedup: Double?)
         /// A promoted build was demoted (after a failover, or the deny-list): counted under `reasons`.
@@ -476,21 +565,24 @@ public struct PromotionTelemetry: Sendable, Hashable {
     }
 
     /// "ane" (as cohort backends).
-    public var backend: String
-    public var revision: String
-    public var context: String
-    public var kind: Kind
+    var backend: String
+    /// The model version (SDK 3.0.0), and its build (empty when it is not known).
+    var revision: String
+    var build: String
+    var context: String
+    var kind: Kind
 
-    public init(backend: String, revision: String, context: String, kind: Kind) {
+    init(backend: String, revision: String, build: String = "", context: String, kind: Kind) {
         self.backend = backend
         self.revision = revision
+        self.build = build
         self.context = context
         self.kind = kind
     }
 }
 
 /// What made a session leave the accelerator (the `failover_causes` keys).
-public enum FailoverCause: String, Sendable, Codable, CaseIterable {
+enum FailoverCause: String, Sendable, Codable, CaseIterable {
     /// The accelerator call threw.
     case exception
     /// A head came out NaN or infinite.

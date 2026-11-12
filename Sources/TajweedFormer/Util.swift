@@ -22,3 +22,9 @@ final class Locked<Value>: @unchecked Sendable {
         return try body(&value)
     }
 }
+
+/// The package's own resources (the error catalogue, the sharing copy, the self-test clips, the privacy manifest).
+/// Tests reach the library's bundle through this; `Bundle.module` in a test file is the test target's.
+enum SDKResources {
+    static var bundle: Bundle { Bundle.module }
+}

@@ -1,14 +1,19 @@
 quranlab-model-manifest 3
 model_id v4.0
 family tajweedformer
-revision v4.0-test.1
-min_sdk_version 2.0.0
+revision v4.0-test.3
+version 4.0.0
+min_sdk_version 3.0.0
 engine_format 3
 coreml_format 9
 tokens tokens.txt
 tokens_sha256 3592528071e35233d6378f5129b691b591b49ca27cfb41e94381ef260c875336
 default_context c16_l64
 contexts c16_l64,c24_l72
+golden_raw coreml attr p_mean=0.02
+golden_raw coreml inter1_log_probs token_edits=0 lp_mean=0.05 lp_p99=1.5
+golden_raw coreml log_probs token_edits=0 lp_mean=0.05 lp_p99=1.5
+golden_raw coreml-compact log_probs token_edits=1 lp_mean=0.1 lp_p99=2.0
 file 9b22d53dd094b0699df2f76a283653f0643a70314ba3bd034f1d6eddabd1bcb2 39 c16_l64/frames.zfw.gz * * c16_l64 frames required gzip 7331b4fa52944f350ee0d4b865f1ac3a927508a8650bef137d80048408d07a90 1400 c16_l64/frames.zfw
 file bc2875ad96999d49a718bf283953a1fad1e5cbd7f1548f335ae7acda0a9bc1a5 35 c16_l64/model_engine2.onnx.gz native * c16_l64 ort-graph optional gzip 375b88e07e721ac6c91933f041344b2f3394b5b8c135562665bf60ed3a23ae82 300 c16_l64/model_engine2.onnx
 file 6680d69e8496ed32489c0a657c77a687a3386aebe1c3b4eb39f43a4e7b97a53c 44 c16_l64/model_engine2.onnx.zfg.bin.gz * * c16_l64 graph-data required gzip e5bc6764b748d39a83556244fd377b155edfee8a753534d008de3dcb18bdb836 2100 c16_l64/model_engine2.onnx.zfg.bin
@@ -28,14 +33,14 @@ file ea6646096b71e3f1476ba339779268498be28d8430350b8079753d790409b32a 38 coreml/
 file df02b858f5b195c015934b95506e40bde657f8f18a68234b85548f4b9e19b7c9 11 coreml/tajweedformer_v4.mlmodelc/coremldata.bin apple * * coreml optional identity - - -
 file 89bc619717ab42cc4913faad4625bcd1fb89e136f4afcfd9cc749f021612416b 140 coreml/tajweedformer_v4.mlmodelc/model.mil apple * * coreml optional identity - - -
 file 29e94705dc216e56b3c583f7cc53692bbb233b676ce53b933dbc388a4bf0cc21 384 coreml/tajweedformer_v4.mlmodelc/weights/weight.bin.gz apple * * coreml optional gzip 346a578a87cffc251ae7b0fe9ed08607c3537b691cfe7f521f6ad7d5af015d90 10240 coreml/tajweedformer_v4.mlmodelc/weights/weight.bin
-file 5dedadde23b36e5f67298828ceec16b097ec503b711c7c0cc9c4af97ccd2c649 54 expected_tj3.zfx.gz * * * expected required gzip 5ed70003e8886e6d7c1ad222f27e14131762bce24e9e78f2bc4e5747eca24c1f 1000 expected_tj3.zfx
+file 04a60cbe2d879a1023fb86995b0517e39ef6678dadfda97c478a0cc7cb655e3a 250 expected_tj3.zfx.gz * * * reference optional gzip 148d10f8e056dfb59b6522d2c0b1ec7159ca64018f63e496e29e5d4db1cd2991 684 expected_tj3.zfx
 file 27a097abf84f3897bb1f58286b77b188963d067cae2800a0ab397681b8284cfa 48 frontend.zfw.gz * * * frontend required gzip 683ad0cb577200705d824c5688277fdef4bf4e487c0bcdb490f4849ba9d7849f 950 frontend.zfw
 file 6d9545edabb3847bc3c82249902877ed5e98ba10b0e79efeb26f1ec5a30c3dd5 420 layers.zfw.gz * * * weights required gzip a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654 16384 layers.zfw
 file 5733899bae21d3bb1af02f338e261068aeff89e6118c4e0f6a321ed638a3427a 27 npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.tflite.gz android tensor_g4 c16_l64 npu-model optional gzip 663a8aa50c77ac4bb7c0a7abd69547ce22291ad310c58597cf4b9351e0d2ba73 300 npu/tensor_g4/c16_l64/tajweedformer_v4_tensor_g4_c16_l64.tflite
 file 0859eb5814c4bdfd648dc24af8563de467242d585442bc9f3310911ac8098a82 3200 selftest/Husary_001001.s16 * * * selftest optional identity - - -
 file 2825a61655de9ec5f1da6c7e72445478681ea0ddfaee11f6c5fa61b57d53d053 3200 selftest/Husary_112001.s16 * * * selftest optional identity - - -
 file 922feb0cb16ce4e9f428d3fcc23cbfe95822a571e293ff258129deb2a5aa62ee 3200 selftest/Husary_112001_planted.s16 * * * selftest optional identity - - -
-file b45253927a1d7fcd9e3b01547ff4deec7139e506898727ff49c77573eb217f74 318 selftest/expected_c16_l64.json.gz * * c16_l64 selftest optional gzip 648e4391bfce8dc6bcf4f02fd31a0e26010703541304900eb35eded514f4baa4 781 selftest/expected_c16_l64.json
-file b66d8ff4cd268e91a396e3e35b3c30f36d255e0e7546bcb6904c16d4e9abdb92 318 selftest/expected_c24_l72.json.gz * * c24_l72 selftest optional gzip a647d43bf53bea1fe5cd26ec4053cd16b590760af3f54675695ce305cdf291e0 781 selftest/expected_c24_l72.json
+file 3f1e9423a3eb5d170c1175f75800030c09579f108d1a626404de1f09e107abf9 175 selftest/expected_c16_l64.json.gz * * c16_l64 selftest optional gzip e71932baf0cabf6ff6b315b59860ef139eb85459da5480400ceeff54497401d3 356 selftest/expected_c16_l64.json
+file 5acbfa27941fd8d3856f0cbf03d1b23be57a903d4bffa6b60cf1f52642aac8f5 176 selftest/expected_c24_l72.json.gz * * c24_l72 selftest optional gzip 2e703a9d4432e5cf40f8dad2fa93fff1d47300c2421e2e7139827417ed6941a2 356 selftest/expected_c24_l72.json
 file 212cea57cf36b185976e1dee310de491e016076d672600c4cf2b4d3f18b92c04 811 selftest/selftest.json * * * selftest optional identity - - -
 file 3592528071e35233d6378f5129b691b591b49ca27cfb41e94381ef260c875336 248 tokens.txt * * * tokens required identity - - -

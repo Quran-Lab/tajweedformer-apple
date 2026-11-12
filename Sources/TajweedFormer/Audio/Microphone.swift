@@ -5,38 +5,64 @@ import AudioToolbox
 import CoreAudio
 #endif
 
-/// Live microphone capture into a take, through AVAudioEngine.
+/// What `listen` needs from a microphone: the SDK's `Microphone`, or a fake in tests.
+protocol CaptureDevice: AnyObject, Sendable {
+    /// Asks for the permission when it was not asked yet; false when it is refused.
+    func authorize() async -> Bool
+    /// Opens the input and delivers mono samples with the rate they have; `notice` says what happens to the input.
+    func open(deliver: @escaping @Sendable ([Float], Double) -> Void,
+              notice: @escaping @Sendable (CaptureNotice) -> Void) throws(RecognizerError)
+    /// Stops capture and releases the input. Nothing is delivered after it returns.
+    func close()
+}
+
+/// What happened to the input of a `listen` take.
+enum CaptureNotice: Sendable, Equatable {
+    /// A call, or another app took the audio: nothing is read until it ends.
+    case interruptionBegan
+    /// The interruption ended; `canResume` when the input runs again.
+    case interruptionEnded(canResume: Bool)
+    /// Another input (headphones in or out): the input was reopened, possibly at another rate.
+    case routeChanged
+    /// The app left the foreground.
+    case background
+    /// The input could not be reopened.
+    case failed(String)
+}
+
+/// The source of a `listen` take: the device stops when the take ends.
+final class LiveCapture: SessionSource {
+    private let device: any CaptureDevice
+    init(_ device: any CaptureDevice) { self.device = device }
+    func stop() { device.close() }
+}
+
+/// The SDK's microphone, through AVAudioEngine. `model.listen()` uses it; an app that wants samples only uses it
+/// directly:
 ///
-/// The microphone runs at the hardware's rate (48 or 44.1 kHz on most devices); the session
-/// converts it to 16 kHz with the engine's deterministic resampler, so the samples the model sees
-/// are the same bits on every device. Audio arrives in 10 ms buffers: the stream runs the front
-/// end just before each chunk's window completes, which lands in time only when audio arrives in
-/// small pieces.
+///     let microphone = Microphone()
+///     for await samples in try await microphone.samples() { meter(samples) }   // mono, at microphone.sampleRate
 ///
-/// - iOS: the audio session asks for 10 ms I/O buffers and the engine's input is tapped. While
-///   sharing is on it also asks for 48 kHz (the rate shared sessions are coded at), so external
-///   routes that can deliver it natively do. A host that manages its own `AVAudioSession` and
-///   feeds the session itself keeps its own settings; it can call `setPreferredSampleRate(48_000)`
-///   for the same effect.
-/// - macOS: there is no audio session. An input tap on the Mac delivers 100 ms buffers whatever
-///   size is asked for, so the input goes to an `AVAudioSinkNode` instead, with this process's
-///   I/O buffer of the input device set to 10 ms (a per-process setting; other apps keep theirs).
-///   The device's sample rate is a system-wide setting shared with every other app, so the SDK
-///   never changes it, sharing or not: shared audio at another rate is resampled to 48 kHz for
-///   sharing only, as on iOS.
+/// The input runs at the hardware's rate (48 or 44.1 kHz on most devices) and that rate travels with the samples, so
+/// the Session converts it for the model itself and shared recordings keep the full band. Audio arrives in pieces
+/// of about 10 ms.
 ///
-/// A hardware rate the engine's resampler does not take (96 or 88.2 kHz audio interfaces, for
-/// example) is first converted to 48 kHz with `AVAudioConverter`. Live microphone audio is not
-/// reproducible anyway, and the session (and a recording) sees the 48 kHz audio.
+/// - iOS: the audio session is set to record, with 10 ms I/O buffers. An interruption (a call, another app taking
+///   the audio) pauses capture until it ends; a route change (headphones in or out) reopens the input at its new
+///   rate; the app going to the background ends a `listen` take.
+/// - macOS: there is no audio session and no interruption. A change of the input device reopens the input at its
+///   new rate (the same event as a route change on iOS). A Mac app that is not frontmost is not suspended, so a
+///   `listen` take goes on until it is finished. The device's sample rate is a system-wide setting, so the SDK
+///   never changes it.
 ///
-/// Permission: `Microphone.requestPermission()` asks the user (iOS and macOS show their own
-/// dialog, with the app's `NSMicrophoneUsageDescription`); `start` asks too when the user has not
-/// been asked yet, and throws `microphoneUnavailable` when access was denied, because a denied
-/// microphone delivers silence rather than failing. A sandboxed Mac app also needs the
-/// `com.apple.security.device.audio-input` entitlement (the same key serves the hardened runtime).
+/// A rate the engine's resampler does not take (96 or 88.2 kHz interfaces) is converted to 48 kHz first.
+///
+/// Permission: the first use asks the user (the system's dialog, with the app's `NSMicrophoneUsageDescription`);
+/// a refusal is the error `microphone_denied`. A sandboxed or hardened Mac app also needs the
+/// `com.apple.security.device.audio-input` entitlement.
 public final class Microphone: @unchecked Sendable {
     /// Whether the app may record.
-    public enum Permission: Sendable, Equatable {
+    enum Permission: Sendable, Equatable {
         case granted
         case denied
         /// The user has not been asked yet.
@@ -46,14 +72,65 @@ public final class Microphone: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let lock = NSLock()
     private var running = false
+    private var paused = false
+    private var rate = 0.0
+    private var deliver: (@Sendable ([Float], Double) -> Void)?
+    private var notice: (@Sendable (CaptureNotice) -> Void)?
+    private var observers: [NSObjectProtocol] = []
+    private var lastReopen = Date.distantPast
+    private var stream: AsyncStream<[Float]>.Continuation?
     #if os(macOS)
     private var sink: AVAudioSinkNode?
     #endif
 
     public init() {}
 
+    /// The rate of the samples, in Hz: the device's own (48000 or 44100 on most), or 48000 where that is converted.
+    /// 0 before the input is open. It can change when the input device changes.
+    public var sampleRate: Double {
+        lock.lock()
+        defer { lock.unlock() }
+        return rate
+    }
+
+    /// The most buffers that wait unread on `samples()` (a few seconds of audio).
+    static let waitingBuffers = 256
+
+    /// The stream `samples()` hands out: a reader that falls behind loses the oldest waiting buffers, so what waits
+    /// never grows past `waitingBuffers`.
+    static func stream() -> (AsyncStream<[Float]>, AsyncStream<[Float]>.Continuation) {
+        AsyncStream<[Float]>.makeStream(bufferingPolicy: .bufferingNewest(waitingBuffers))
+    }
+
+    /// Asks for the permission when needed, opens the input and gives its samples: mono, -1...1, at `sampleRate`.
+    /// The stream ends at `stop()`. Throws `microphone_denied` or `microphone_unavailable`. Read it as it comes: at
+    /// most 256 buffers wait, and the oldest waiting one is dropped when the app reads late.
+    public func samples() async throws(TajweedError) -> AsyncStream<[Float]> {
+        guard await authorize() else { throw TajweedError(.microphoneDenied) }
+        let (out, c) = Self.stream()
+        do throws(RecognizerError) {
+            try open(deliver: { s, _ in _ = c.yield(s) }, notice: { n in
+                if case .failed = n { c.finish() }
+            })
+        } catch {
+            c.finish()
+            throw TajweedError(from: error)
+        }
+        keep(c)
+        return out
+    }
+
+    private func keep(_ c: AsyncStream<[Float]>.Continuation) {
+        lock.lock()
+        stream = c
+        lock.unlock()
+    }
+
+    /// Stops capture and releases the input.
+    public func stop() { close() }
+
     /// The app's microphone permission now.
-    public static var permission: Permission {
+    static var permission: Permission {
         #if os(macOS)
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: return .granted
@@ -76,9 +153,8 @@ public final class Microphone: @unchecked Sendable {
         #endif
     }
 
-    /// Asks the user for the microphone when they have not been asked yet; true when the app
-    /// may record.
-    public static func requestPermission() async -> Bool {
+    /// Asks the user for the microphone when they have not been asked yet; true when the app may record.
+    static func requestPermission() async -> Bool {
         #if os(macOS)
         return await AVCaptureDevice.requestAccess(for: .audio)
         #else
@@ -89,10 +165,152 @@ public final class Microphone: @unchecked Sendable {
         #endif
     }
 
-    /// Starts capture into `session` (a `TajweedRecognizer` with an open take).
-    public func start(into session: any AudioBufferSink) throws(RecognizerError) {
+    // MARK: the engine (callers hold the lock)
+
+    /// Reads the input's format and starts the engine on it.
+    private func startEngine() throws(RecognizerError) {
+        guard let deliver else { return }
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw .microphoneUnavailable("no audio input device")
+        }
+        let adapter = try RateAdapter(format)
+        rate = adapter.output.sampleRate
+        #if os(macOS)
+        if let au = input.audioUnit {
+            // this process's I/O buffer on the input device: 10 ms (the device keeps its rate)
+            var frames = UInt32((format.sampleRate / 100).rounded())
+            _ = AudioUnitSetProperty(au, kAudioDevicePropertyBufferFrameSize, kAudioUnitScope_Global, 0,
+                                     &frames, UInt32(MemoryLayout<UInt32>.size))
+        }
+        // the render callback copies the I/O buffer and returns; the samples go out on a queue
+        let queue = DispatchQueue(label: "ai.quranlab.microphone", qos: .userInteractive)
+        let node = AVAudioSinkNode { _, frames, list -> OSStatus in
+            guard frames > 0, let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return noErr }
+            copy.frameLength = frames
+            let src = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
+            let dst = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+            for (s, d) in zip(src, dst) where s.mData != nil && d.mData != nil {
+                memcpy(d.mData!, s.mData!, Int(min(s.mDataByteSize, d.mDataByteSize)))
+            }
+            let box = UncheckedBox(copy)
+            queue.async { adapter.feed(box.value, to: deliver) }
+            return noErr
+        }
+        engine.attach(node)
+        engine.connect(input, to: node, format: format)
+        sink = node
+        #else
+        input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(format.sampleRate / 100), format: format) { buffer, _ in
+            adapter.feed(buffer, to: deliver)
+        }
+        #endif
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            detach()
+            throw .microphoneUnavailable("cannot start the microphone: \(error.localizedDescription)")
+        }
+    }
+
+    private func detach() {
+        #if os(macOS)
+        if let sink {
+            engine.disconnectNodeInput(sink)
+            engine.detach(sink)
+            self.sink = nil
+        }
+        #else
+        engine.inputNode.removeTap(onBus: 0)
+        #endif
+    }
+
+    // MARK: what happens to the input
+
+    private func observe() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
+            self?.reopen()
+        })
+        #if os(iOS)
+        observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: nil) { [weak self] n in
+            let type = (n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap { AVAudioSession.InterruptionType(rawValue: $0) }
+            let options = AVAudioSession.InterruptionOptions(rawValue: (n.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0)
+            if type == .began { self?.interruptionBegan() } else if type == .ended { self?.interruptionEnded(resume: options.contains(.shouldResume)) }
+        })
+        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { [weak self] n in
+            let reason = (n.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap { AVAudioSession.RouteChangeReason(rawValue: $0) }
+            if reason == .newDeviceAvailable || reason == .oldDeviceUnavailable { self?.reopen() }
+        })
+        observers.append(center.addObserver(forName: Notification.Name("UIApplicationDidEnterBackgroundNotification"), object: nil,
+                                            queue: nil) { [weak self] _ in
+            self?.send(.background)
+        })
+        #endif
+    }
+
+    private func send(_ n: CaptureNotice) {
+        lock.lock()
+        let notice = running ? self.notice : nil
+        lock.unlock()
+        notice?(n)
+    }
+
+    private func interruptionBegan() {
+        lock.lock()
+        let was = running && !paused
+        if was {
+            paused = true
+            engine.pause()
+        }
+        lock.unlock()
+        if was { send(.interruptionBegan) }
+    }
+
+    private func interruptionEnded(resume: Bool) {
+        lock.lock()
+        guard running, paused else { lock.unlock(); return }
+        var resumed = false
+        if resume {
+            #if os(iOS)
+            try? AVAudioSession.sharedInstance().setActive(true)
+            #endif
+            resumed = (try? engine.start()) != nil
+        }
+        if resumed { paused = false }
+        lock.unlock()
+        send(.interruptionEnded(canResume: resumed))
+    }
+
+    /// The input changed (another device, another format): the engine is started again on the input as it is now.
+    private func reopen() {
+        lock.lock()
+        guard running, !paused, Date().timeIntervalSince(lastReopen) > 0.5 else { lock.unlock(); return }
+        lastReopen = Date()
+        engine.stop()
+        detach()
+        var failure: String?
+        do throws(RecognizerError) { try startEngine() } catch { failure = "\(error)" }
+        lock.unlock()
+        send(failure.map { CaptureNotice.failed($0) } ?? CaptureNotice.routeChanged)
+    }
+}
+
+extension Microphone: CaptureDevice {
+    func authorize() async -> Bool {
+        switch Self.permission {
+        case .granted: return true
+        case .denied: return false
+        case .undetermined: return await Self.requestPermission()
+        }
+    }
+
+    func open(deliver: @escaping @Sendable ([Float], Double) -> Void,
+              notice: @escaping @Sendable (CaptureNotice) -> Void) throws(RecognizerError) {
         if Self.permission == .denied {
-            throw .microphoneUnavailable("access to the microphone was denied (Settings, Privacy, Microphone)")
+            throw .microphoneUnavailable(TajweedError.deniedMark + " (Settings, Privacy, Microphone)")
         }
         lock.lock()
         defer { lock.unlock() }
@@ -108,76 +326,46 @@ public final class Microphone: @unchecked Sendable {
             throw .microphoneUnavailable("cannot configure the audio session: \(error.localizedDescription)")
         }
         #endif
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw .microphoneUnavailable("no audio input device")
-        }
-        let adapter = try RateAdapter(format)
-        #if os(macOS)
-        if let au = input.audioUnit {
-            // this process's I/O buffer on the input device: 10 ms (the device keeps its rate)
-            var frames = UInt32((format.sampleRate / 100).rounded())
-            _ = AudioUnitSetProperty(au, kAudioDevicePropertyBufferFrameSize, kAudioUnitScope_Global, 0,
-                                     &frames, UInt32(MemoryLayout<UInt32>.size))
-        }
-        // the render callback copies the I/O buffer and returns; the session is fed on a queue
-        let queue = DispatchQueue(label: "ai.quranlab.microphone", qos: .userInteractive)
-        let node = AVAudioSinkNode { _, frames, list -> OSStatus in
-            guard frames > 0, let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return noErr }
-            copy.frameLength = frames
-            let src = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
-            let dst = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
-            for (s, d) in zip(src, dst) where s.mData != nil && d.mData != nil {
-                memcpy(d.mData!, s.mData!, Int(min(s.mDataByteSize, d.mDataByteSize)))
-            }
-            let box = UncheckedBox(copy)
-            queue.async { adapter.feed(box.value, into: session) }
-            return noErr
-        }
-        engine.attach(node)
-        engine.connect(input, to: node, format: format)
-        sink = node
-        #else
-        input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(format.sampleRate / 100), format: format) { buffer, _ in
-            adapter.feed(buffer, into: session)
-        }
-        #endif
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            detach()
-            throw .microphoneUnavailable("cannot start the microphone: \(error.localizedDescription)")
+        self.deliver = deliver
+        self.notice = notice
+        do throws(RecognizerError) { try startEngine() } catch {
+            self.deliver = nil
+            self.notice = nil
+            throw error
         }
         running = true
+        paused = false
+        observe()
     }
 
-    public func stop() {
+    func close() {
         lock.lock()
-        defer { lock.unlock() }
-        guard running else { return }
-        engine.stop()
-        detach()
-        running = false
-    }
-
-    private func detach() {
-        #if os(macOS)
-        if let sink {
-            engine.disconnectNodeInput(sink)
-            engine.detach(sink)
-            self.sink = nil
+        let was = running
+        if was {
+            engine.stop()
+            detach()
+            running = false
+            paused = false
+            rate = 0
         }
-        #else
-        engine.inputNode.removeTap(onBus: 0)
+        deliver = nil
+        notice = nil
+        let old = observers
+        observers = []
+        let c = stream
+        stream = nil
+        lock.unlock()
+        for o in old { NotificationCenter.default.removeObserver(o) }
+        c?.finish()
+        #if os(iOS)
+        if was { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
         #endif
     }
 }
 
-/// Microphone buffers into a session: as they are when the engine's resampler takes their rate,
-/// else converted to 48 kHz first (AVAudioConverter, streaming, its state kept across buffers).
-/// Called on one thread at a time (the tap's, or the Mac's feeding queue).
+/// Microphone buffers on their way out: as they are when the engine's resampler takes their rate, else converted to
+/// 48 kHz first (AVAudioConverter, streaming, its state kept across buffers). Called on one thread at a time (the
+/// tap's, or the Mac's feeding queue).
 final class RateAdapter: @unchecked Sendable {
     let input: AVAudioFormat
     let output: AVAudioFormat
@@ -224,6 +412,12 @@ final class RateAdapter: @unchecked Sendable {
     func feed(_ buffer: AVAudioPCMBuffer, into session: any AudioBufferSink) {
         guard let b = convert(buffer) else { return }
         try? session.enqueue(b)
+    }
+
+    /// The buffer's samples, mono, with the rate they have after the adapter.
+    func feed(_ buffer: AVAudioPCMBuffer, to deliver: ([Float], Double) -> Void) {
+        guard let b = convert(buffer), let out = try? AudioFormat.samples(from: b), !out.samples.isEmpty else { return }
+        deliver(out.samples, out.rate)
     }
 }
 
