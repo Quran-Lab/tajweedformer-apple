@@ -186,9 +186,18 @@ struct JSONFile<Value: Codable>: Sendable {
         return try? JSONDecoder().decode(Value.self, from: d)
     }
 
-    func write(_ v: Value) {
+    func write(_ v: Value) { _ = store(v) }
+
+    /// Writes the value; whether the device has it now (false on a full disk or a storage that refuses the write).
+    func store(_ v: Value) -> Bool {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let d = try? JSONEncoder().encode(v) { try? d.write(to: url, options: .atomic) }
+        guard let d = try? JSONEncoder().encode(v) else { return false }
+        do {
+            try d.write(to: url, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 
     func delete() { try? FileManager.default.removeItem(at: url) }

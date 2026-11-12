@@ -1197,6 +1197,9 @@ enum ProveOnMac {
             await pause(0.5)
             d = await client.diagnose()
         }
+        // the summary's line about the SDK: from this diagnosis for now, from the last one when the run gets there
+        // (the newest release the signed config names can change while the run goes on)
+        let sdkAt = header.count
         header.append(sdkLine(version: d.sdkVersion, latest: d.sdkLatest))
         if d.key.accepted != true || d.config != "fresh" {
             steps[1].verdict = .fail
@@ -1451,6 +1454,8 @@ enum ProveOnMac {
         out.say("step 6  diagnose")
         let last = await client.diagnose()
         for line in last.json.split(separator: "\n") { out.say("    " + String(line)) }
+        // the summary says about the SDK what the report printed here says
+        header[sdkAt] = sdkLine(version: last.sdkVersion, latest: last.sdkLatest)
         let parsed = ((try? JSONSerialization.jsonObject(with: Data(last.json.utf8))) as? [String: Any]) != nil
         var telemetry = ""
         if let t = await doors.flushTelemetry() {

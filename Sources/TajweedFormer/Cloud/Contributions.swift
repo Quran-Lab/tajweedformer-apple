@@ -216,6 +216,9 @@ enum ShareFiles {
     static let capture = "capture.json"
     static let end = "end.json"
     static let takesFile = "takes.json"
+    /// The count of the learner's changes of mind the recording was begun under (3.0.1, rule R5). On the device
+    /// only: it is no part of what is uploaded.
+    static let stampFile = "stamp.json"
     static func name(_ n: Int) -> String { String(format: "seg-%05d", n) }
 
     /// A closed segment: its size and hash, where the stream stood, and the bitrate it was encoded at (absent in
@@ -239,6 +242,16 @@ enum ShareFiles {
         var preSkip: Int
         /// The bitrate of each segment opened so far, in order.
         var bitrates: [Int]?
+    }
+
+    /// `stamp.json`.
+    struct Stamp: Codable, Sendable {
+        var count: Int
+    }
+
+    /// The count a recording's folder is stamped with; 0 for a recording of an SDK before 3.0.1 (no stamp).
+    static func consentCount(_ folder: URL) -> Int {
+        read(Stamp.self, folder.appendingPathComponent(stampFile))?.count ?? 0
     }
 
     /// `takes.json`, and the body of the take list call.
@@ -422,6 +435,8 @@ final class ShareCapture: ShareRecording {
     let id: String
     let folder: URL
     private let outbox: ContributionOutbox
+    /// The count of the learner's changes of mind the recording begins under: its stamp.
+    private let consentCount: Int
     /// The session JSON, given the input rate and route (known at the first audio), `take_seq` and `gap_ms_prev`.
     private let session: (Int, String, Int?, Int?) -> Data
     /// The recording's place in the install's count of recordings (`begin`), nil when none is kept.
@@ -442,8 +457,9 @@ final class ShareCapture: ShareRecording {
     var isAlive: Bool { !failed && !ended }
 
     init(outbox: ContributionOutbox, consentVersion: String?, consentTextSHA256: String? = nil, modelRevision: String?, backend: String,
-         weightsSHA256: String?, modelBuild: String? = nil) {
+         weightsSHA256: String?, modelBuild: String? = nil, consentCount: Int = Contributions.consentCount) {
         self.outbox = outbox
+        self.consentCount = consentCount
         id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         folder = outbox.root.appendingPathComponent(id, isDirectory: true)
         let weights = weightsSHA256
@@ -481,6 +497,8 @@ final class ShareCapture: ShareRecording {
         if writer == nil {
             do {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                // the stamp before anything else is in the folder: a recording without one reads as begun under count 0
+                try ShareFiles.write(ShareFiles.Stamp(count: consentCount), folder.appendingPathComponent(ShareFiles.stampFile))
                 try session(Int(rate.rounded()), AudioRoute.current(), takeSeq, gapMsPrev).write(to: folder.appendingPathComponent(ShareFiles.session))
             } catch {
                 throw .storageFailed("cannot create \(folder.lastPathComponent): \(error.localizedDescription)")

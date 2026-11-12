@@ -464,7 +464,14 @@ final class ProveOnMacTests: XCTestCase {
         let server = try Fixtures.v4mini().appendingPathComponent("server")
         let build = String(Manifest30VectorTests.sha256(try Data(contentsOf: server.appendingPathComponent("manifest.json"))).prefix(40))
         let modelKey = try Fixtures.v4miniKey()
-        StubProtocol.reset(CloudFixtures.server(config: CloudFixtures.config(models: ["Quran-Lab/tajweedformer-v4": build]), extra: { s in
+        // the newest SDK release the signed config names changes while the run goes on (as it did in the first run on
+        // a Mac): 2.0.2 when the run starts, 9.9.9 from step 2 on
+        let raised = Locked(false)
+        let models = ["Quran-Lab/tajweedformer-v4": build]
+        let early = CloudFixtures.config(models: models, extra: ["sdk_latest": ["version": "2.0.2", "severity": "info", "url": "https://x"]])
+        let later = CloudFixtures.config(models: models, extra: ["sdk_latest": ["version": "9.9.9", "severity": "info", "url": "https://x"]])
+        StubProtocol.reset(CloudFixtures.server(config: early, extra: { s in
+            if s.path == "/v1/config" { return raised.withLock { $0 } ? later : early }
             // the CDN: the stored files of the test folder
             guard s.url.host == CloudFixtures.cdn.host, let at = s.path.range(of: "/sdk/v4.0/") else { return nil }
             guard let data = try? Data(contentsOf: server.appendingPathComponent(String(s.path[at.upperBound...]))) else {
@@ -541,6 +548,13 @@ final class ProveOnMacTests: XCTestCase {
             for c in set.clips { out[c.id] = ProveOnMacTests.standInTokens(c.samples) }
             return out
         }
+        // between step 1 and step 6 the server raises the newest release, and the SDK fetches the config again
+        let fetch = doors.fetchSelfTest
+        doors.fetchSelfTest = { (model: TajweedModel) async throws -> Int in
+            raised.withLock { $0 = true }
+            _ = await QuranLab.cloud?.refreshConfig()
+            return try await fetch(model)
+        }
         let signingKeys = [CloudFixtures.signer.publicKey.rawRepresentation, modelKey]
         // `scripts/prove-on-mac.sh --rehearse` (CI) names a folder: the script then follows this run as it follows a real one
         let work = ProcessInfo.processInfo.environment["QURANLAB_PROVE_REHEARSAL_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
@@ -576,6 +590,11 @@ final class ProveOnMacTests: XCTestCase {
         XCTAssertEqual(report.measured.first?.measures.ctc["inter1_log_probs"]?.tokenEdits, 1)
         XCTAssertTrue(out.lines.contains("        coreml c16_l64: stays on the CPU engine: tokens differ (golden: the tokens differ from the CPU engine's "
             + "(this build has no tolerance): inter1_log_probs.token_edits)"), out.lines.joined(separator: "\n"))
+        // the summary's line about the SDK is the LAST diagnosis's: the newest release changed during the run, and
+        // the summary says what the report printed in step 6 says
+        XCTAssertTrue(out.lines.contains { $0.contains("\"latest\": \"9.9.9\"") }, "step 6 prints the newest release as it is then")
+        XCTAssertTrue(report.summary.contains("SDK \(SDKInfo.version); a newer release, 9.9.9, is out"), report.summary.joined(separator: "\n"))
+        XCTAssertFalse(report.summary.contains { $0.contains("newest release, 2.0.2") }, "not what the first config of the run named")
         // each build's golden stage as lines: what was measured next to the signed bound, or that it has none
         let judged = try XCTUnwrap(out.lines.firstIndex(of: "        golden stage, judged by the tolerance the signed manifest gives coreml-compact "
             + "(measured / bound):"), out.lines.joined(separator: "\n"))
@@ -613,7 +632,7 @@ final class ProveOnMacTests: XCTestCase {
             + "\"clips\": 3, \"clean_clips\": 2, \"tokens_expected\": 12, \"heads\": {\"log_probs\": {\"token_edits\": 0, \"lp_mean\": 0.012346, "
             + "\"lp_p99\": 0.45679, \"frames\": 24}, \"inter1_log_probs\": {\"token_edits\": 0, \"lp_mean\": 0.02, \"lp_p99\": 0.7, \"frames\": 24}, "
             + "\"attr\": {\"p_mean\": 0.001235, \"values\": 480}}, \"passed\": true, \"platform\": \"macos\", "
-        XCTAssertTrue(report.summary.contains { $0.hasPrefix(wanted) && $0.contains("\"sdk_version\": \"3.0.0\"}") }, report.summary.joined(separator: "\n"))
+        XCTAssertTrue(report.summary.contains { $0.hasPrefix(wanted) && $0.contains("\"sdk_version\": \"\(SDKInfo.version)\"}") }, report.summary.joined(separator: "\n"))
         // nothing printed names the key, the app, the storage folder or the home folder
         let printed = (out.lines + report.summary).joined(separator: "\n")
         for secret in [CloudFixtures.key, CloudFixtures.app.bundleID, storage.path, NSHomeDirectory(), "qlt_v1."] {

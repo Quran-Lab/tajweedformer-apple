@@ -271,6 +271,36 @@ public final class TajweedClient: Sendable {
         }
     }
 
+    /// What a Session with the default options (`backend: .auto`) would run on now in `context`, read from the stored
+    /// promotion state (the verdict the pipeline keeps per model build, context, CoreML build, OS build and device):
+    /// a promoted build is `accelerator`, by its name, `promoted`; a build the pipeline gave up on is `cpu`, `demoted`
+    /// with its reason; `cpu` when nothing is promoted. It needs no open Model.
+    /// Tried before (3.0.0): `diagnose()` reported the Backend of the Model's engine in hand, which is the engine of
+    /// the LAST Session (its context, its backend choice), next to the model's default context; after a Session on
+    /// the CPU engine or in another context a promoted default build read as `cpu`. Without an open Model it said
+    /// `cpu` whatever was promoted.
+    static func storedBackend(_ folder: ModelFolder, context: String) -> TajweedBackend {
+        guard DownloadProfile.osRunsCoreML, TajweedRecognizer.mayUseAccelerator(requested: .automatic, context: context) else { return .cpu }
+        let compact = TajweedRecognizer.unnamedBuildIsCompact(model: folder, context: context)
+        let build = compact ? "coreml-compact" : "coreml"
+        let store = PromotionStore(dir: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"))
+        guard let r = store.record(AcceleratorController.key(revision: folder.identity, context: context, build: build)) else { return .cpu }
+        switch r.status {
+        case .ready:
+            // the build's package is on the device. The disk is asked, not the folder in hand: a Model's folder was
+            // opened before the pipeline fetched the build, so it does not list the build's files.
+            let files = folder.manifest.files.filter { $0.role == build && ($0.context == "*" || $0.context == context) }
+            let onDisk = ModelFolder.packages(files).contains { (pkg: String) -> Bool in
+                FileManager.default.fileExists(atPath: folder.directory.appendingPathComponent(pkg).path)
+            }
+            return onDisk ? TajweedBackend(kind: .accelerator, name: build, stage: .promoted, reason: nil) : .cpu
+        case .failed:
+            return TajweedBackend(kind: .cpu, name: "cpu", stage: .demoted, reason: r.lastReason?.rawValue ?? "other")
+        default:
+            return .cpu
+        }
+    }
+
     // MARK: lifecycle and diagnosis
 
     /// The app left the foreground. iOS and macOS apps need not call it: the SDK follows the system's notifications.
@@ -303,12 +333,14 @@ public final class TajweedClient: Sendable {
         if let m = held.withLock({ $0 }) {
             if ModelVersion.isVersion(m.version), m.build.count == 40 { model = .init(version: m.version, build: m.build, verified: true) }
             context = m.defaultContext
-            backend = await m.backend
+            // what a Session with the default options would run on now, not what the Model's last Session ran on
+            backend = await m.defaultBackend()
         } else if let f = onDevice() {
-            // on the device and verified, not opened yet
+            // on the device and verified, not opened yet: the stored promotion state says what a Session would get
             if ModelVersion.isVersion(f.version), f.build.count == 40 { model = .init(version: f.version, build: f.build, verified: true) }
-            context = TajweedModel.defaultContext(f)
-            backend = .cpu
+            let ctx = TajweedModel.defaultContext(f)
+            context = ctx
+            backend = Self.storedBackend(f, context: ctx)
         }
         let permission: String
         switch Microphone.permission {

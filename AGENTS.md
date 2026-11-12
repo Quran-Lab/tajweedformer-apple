@@ -60,18 +60,18 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
   no tajweed settings (SDK 2.x did; see [docs/migrating-to-3.md](docs/migrating-to-3.md)). It hosts only V4.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon. The Neural Engine backend needs iOS 18 or macOS 15; on older
   systems the exact CPU engine runs.
-- **Status:** released, version 3.0.0. CI builds every push for iOS and macOS and runs the tests on macOS. The whole
-  path through the public API (the key and the signed config, the download, the verified model, the promotion
-  pipeline, takes on the CPU engine and on the Neural Engine) has run on an Apple silicon Mac against Quran Lab's
-  servers with `scripts/prove-on-mac.sh`; that proof has not been run on an iPhone.
+- **Status:** released; this is version 3.0.1. CI builds every push for iOS and macOS and runs the tests on macOS.
+  The whole path through the public API (the key and the signed config, the download, the verified model, the
+  promotion pipeline, takes on the CPU engine and on the Neural Engine) has run on an Apple silicon Mac against
+  Quran Lab's servers with `scripts/prove-on-mac.sh` (version 3.0.0); that proof has not been run on an iPhone.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.0.0. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.0.1. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.0.0"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.0.1"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -325,8 +325,10 @@ wording and SDK upgrades, and every shared recording carries that version.
 
 While the learner shares, every take is uploaded in full as it runs: Ogg Opus, mono, 48 kHz, in segments, PUT to
 presigned URLs from a persistent outbox that survives force-quit and reboot; on a bad network the SDK lowers the
-bitrate of the audio still to be encoded. Deleting is signed with a P-256 key made on the device (in the Secure
-Enclave where there is one): no app key or token can delete a learner's recordings.
+bitrate of the audio still to be encoded. Turning sharing off, or deleting, cancels what is being uploaded at that
+moment and deletes the unsent queue: nothing more leaves the device once the call has returned. Deleting is signed
+with a P-256 key made on the device (in the Secure Enclave where there is one): no app key or token can delete a
+learner's recordings.
 
 Takes in a row are one recording: a recording stays open after a take for a few seconds (3 s; Quran Lab's config can
 set it from 0, never, to 10 s), and a take that starts in that time continues the same stream. A recording never

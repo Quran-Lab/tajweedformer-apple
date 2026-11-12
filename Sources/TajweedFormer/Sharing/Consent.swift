@@ -46,6 +46,14 @@ struct SharingState: Codable, Equatable {
     var guardian = false
     /// A shared session finished since the grant (the thank-you is due).
     var sharedOnce = false
+    /// The count of the learner's changes of mind (3.0.1, rule R5): it goes up when sharing is turned off, when a
+    /// deletion is accepted and when sharing comes on, in the same write as the consent. Every recording carries
+    /// the count it was begun under; one that carries another is never uploaded. 0 in a state of an earlier SDK.
+    var consentCount = 0
+    /// "Delete what I shared" is asking the server: written before it asks and taken back with its answer. A
+    /// process that finds it at its first read of the state ended meanwhile: the learner's wish stands, and
+    /// sharing is off.
+    var deleting = false
 
     /// The most sheets an install is ever shown.
     static let maxAsks = 3
@@ -55,7 +63,7 @@ struct SharingState: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case v, consent, asks, lastAskSession, sessions, thanked, decidedAt, consentVersion, consentTextSHA256, guardian,
-             sharedOnce
+             sharedOnce, consentCount, deleting
     }
 
     /// A grant keeps the version it was given; an older state that lacks a field gets its default (a declined state
@@ -82,6 +90,8 @@ extension SharingState {
         consentTextSHA256 = (try? c.decodeIfPresent(String.self, forKey: .consentTextSHA256)) ?? nil
         guardian = (try? c.decodeIfPresent(Bool.self, forKey: .guardian)) ?? false
         sharedOnce = (try? c.decodeIfPresent(Bool.self, forKey: .sharedOnce)) ?? false
+        consentCount = (try? c.decodeIfPresent(Int.self, forKey: .consentCount)) ?? 0
+        deleting = (try? c.decodeIfPresent(Bool.self, forKey: .deleting)) ?? false
         upgrade()
     }
 }
@@ -132,34 +142,84 @@ enum Contributions {
         // this install's count of shared recordings (take_seq, gap_ms_prev), in the configured storage
         sequence: .stored { ShareSequencer.file(storage: QuranLab.configuration.storageDirectory) })
 
-    private static func file() -> JSONFile<SharingState> {
-        JSONFile(url: QuranLab.configuration.storageDirectory.appendingPathComponent("cloud/sharing-state.json"))
+    /// Where the learner's answer is kept in a storage folder.
+    static func stateFile(storage: URL) -> JSONFile<SharingState> {
+        JSONFile(url: storage.appendingPathComponent("cloud/sharing-state.json"))
+    }
+
+    private static func file() -> JSONFile<SharingState> { stateFile(storage: QuranLab.configuration.storageDirectory) }
+
+    /// For tests: whether the device refuses to store the state now (a full disk, a storage that refuses the write).
+    static let refusesWrites = Locked<(@Sendable () -> Bool)?>(nil)
+    /// When the last write of the state failed, if it did. The state in memory is the one in force meanwhile.
+    private static let unsaved = Locked<Date?>(nil)
+    /// Whether the device has the state that is in force.
+    static var isStored: Bool { unsaved.withLock { $0 == nil } }
+
+    /// Writes the state to the device; whether it is stored. A write that fails is tried again whenever the state is
+    /// read (at most once a second) and at the state's next change, so the device has it as soon as it can.
+    @discardableResult
+    private static func store(_ v: SharingState, _ f: JSONFile<SharingState>) -> Bool {
+        let refused = refusesWrites.withLock { $0 }?() ?? false
+        let ok = !refused && f.store(v)
+        unsaved.withLock { $0 = ok ? nil : Date() }
+        return ok
+    }
+
+    /// The state as the device has it, at a process's first read. A state that says a deletion was being asked
+    /// means the process ended before the server's answer was written: sharing is off from here, in the same
+    /// write, so the recordings of the earlier consent are never uploaded whatever the server did.
+    private static func fromDisk(_ f: JSONFile<SharingState>) -> SharingState {
+        var v = f.read() ?? SharingState()
+        v.upgrade()
+        if v.deleting {
+            v.deleting = false
+            if v.consent == .granted { v.consentCount += 1 }
+            v.consent = .final
+            v.decidedAt = Date().timeIntervalSince1970.rounded()
+            store(v, f)
+        }
+        return v
     }
 
     static func state() -> SharingState {
         lock.withLock { s in
-            if let s { return s }
-            var v = file().read() ?? SharingState()
-            v.upgrade()
+            if let s {
+                // a write that failed is tried again, at most once a second
+                if let tried = unsaved.withLock({ $0 }), Date().timeIntervalSince(tried) >= 1 { store(s, file()) }
+                return s
+            }
+            let v = fromDisk(file())
             s = v
             return v
         }
     }
 
+    /// Changes the state and writes it. The count of the learner's changes of mind goes up whenever their yes comes
+    /// into force or goes out of it (sharing on, sharing off, an accepted deletion), in the same write as the
+    /// consent: the device never holds the new answer with the old count.
     static func update(_ body: (inout SharingState) -> Void) -> SharingState {
         let f = file()
         return lock.withLock { s -> SharingState in
-            var v = s ?? f.read() ?? SharingState()
+            var v = s ?? fromDisk(f)
             v.upgrade()
+            let had = v.consent == .granted
             body(&v)
+            if (v.consent == .granted) != had { v.consentCount += 1 }
             s = v
-            f.write(v)
+            store(v, f)
             return v
         }
     }
 
+    /// The count of the learner's changes of mind in force (the stamp of a recording that begins now).
+    static var consentCount: Int { state().consentCount }
+
     /// Forgets the cached state (tests, and a new storage directory at configure).
-    static func reload() { lock.withLock { $0 = nil } }
+    static func reload() {
+        lock.withLock { $0 = nil }
+        unsaved.withLock { $0 = nil }
+    }
 
     /// The copy deck in force (the app's locale, else English), with the app's own wording applied.
     static var copy: SharingCopy {
@@ -320,7 +380,8 @@ enum Contributions {
     /// The settings switch (not a sheet answer). On: granted, to the consent version in force at that moment (a
     /// children's app needs the guardian's confirmation); already on, nothing changes (the learner keeps the version
     /// they agreed to). Off: final, never asked again, and every queued upload stops at once (the unsent queue is
-    /// deleted); it works whatever version the learner agreed to.
+    /// deleted, and a request in flight is cancelled: no byte of audio leaves the device after this returns); it
+    /// works whatever version the learner agreed to, and returns within 3 s whatever the network does.
     static func setSharing(_ on: Bool, guardianConfirmed: Bool = false) async {
         if on {
             if state().consent == .granted { return }
@@ -346,18 +407,51 @@ enum Contributions {
     /// servers (a challenge signed with this device's key, no app credential can do this),
     /// the unsent queue is dropped, and the contribution code, device key and recovery code are replaced, so later
     /// shares are not linked to the deleted ones. There is no call to delete another learner's recordings.
+    ///
+    /// The queue stops BEFORE the server is asked (3.0.1): nothing is sent while it answers, so nothing reaches the
+    /// server after it has deleted. An accepted delete turns sharing off (the learner turns it on again with the
+    /// switch; nobody is asked again). A delete the server did not take changes nothing: the call throws, sharing is
+    /// still on, nothing on the device was deleted, and the queue goes on with what it had.
+    /// When the device cannot store the state (a full disk, a storage that refuses the write), the server is asked
+    /// all the same: the learner's wish to have their recordings deleted outranks the order of a local write. A mark
+    /// that could not be stored is taken back, so no later write stores it; and after an accepted deletion the state
+    /// is written once more after the queue is deleted, when the write may succeed because the queue's files are
+    /// gone. A write that failed is tried again whenever the state is read.
+    /// Tried before (3.0.0): the server was asked first and the queue dropped after its answer, with sharing turned
+    /// off last; segments could be sent while the server was deleting.
     static func deleteShared() async throws(RecognizerError) {
         guard let cloud = QuranLab.cloud else { throw .serviceUnavailable("deleting shared recordings (no cloud configured)") }
-        try await cloud.deleteContributions(contributor: contributionCode)
-        recorder.stop()
-        // later recordings are not linked to the deleted ones: the count starts again
-        ShareSequencer.reset(ShareSequencer.file(storage: QuranLab.configuration.storageDirectory))
-        await cloud.outbox.cancelQueued()
-        QuranLab.resetContributor()
+        await cloud.outbox.hold()
+        // on the device before the server is asked: a deletion is being asked. A process that ends before the answer
+        // is written finds this at its next launch and takes it for an off (`fromDisk`).
+        _ = update { $0.deleting = true }
+        // the device could not store the mark: it is taken back, so that no later write stores it. The server is asked
+        // all the same.
+        if !isStored { lock.withLock { $0?.deleting = false } }
+        do throws(RecognizerError) {
+            try await cloud.deleteContributions(contributor: contributionCode)
+        } catch {
+            // not taken by the server: nothing changes
+            _ = update { $0.deleting = false }
+            await cloud.outbox.release()
+            throw error
+        }
+        // accepted: sharing is off from here, in one write with its count, before anything on the device is deleted
+        // and before any take can open a recording
         _ = update { s in
             s.consent = .final
             s.decidedAt = Date().timeIntervalSince1970.rounded()
+            s.deleting = false
         }
+        recorder.stop()
+        // later recordings are not linked to the deleted ones: the count starts again
+        ShareSequencer.reset(ShareSequencer.file(storage: QuranLab.configuration.storageDirectory))
+        // the pass has left already (the hold waited for it)
+        await cloud.outbox.cancelQueued(wait: 0.3)
+        QuranLab.resetContributor()
+        // the state once more, after the queue is deleted: a device that could not store the off before can now
+        _ = update { (_: inout SharingState) in }
+        await cloud.outbox.release()
     }
 
     /// The recovery code for a lost device, shown only by the SDK's own sharing settings view (never handed to the
@@ -377,9 +471,11 @@ enum Contributions {
     /// The capture for a recording that starts now, when sharing is active (the recorder asks for one when a take
     /// starts a new recording).
     static func capture(revision: String, build: String? = nil, backend: ActiveBackend, weightsSHA256: String?) -> ShareCapture? {
+        // the count first, then the consent: a stop between the two is either seen here or leaves an old stamp
+        let count = consentCount
         guard isActive, let outbox = QuranLab.cloud?.outbox else { return nil }
         return ShareCapture(outbox: outbox, consentVersion: consentVersion, consentTextSHA256: grantedTextSHA256, modelRevision: revision,
-                            backend: backend.rawValue, weightsSHA256: weightsSHA256, modelBuild: build)
+                            backend: backend.rawValue, weightsSHA256: weightsSHA256, modelBuild: build, consentCount: count)
     }
 
     /// A shared session finished (the thank-you becomes due at the next completed session).
