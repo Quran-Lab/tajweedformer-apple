@@ -19,7 +19,11 @@ change in an app's code.
 - Fixed: every request of an upload is cancelled the moment sharing goes off (the start of the upload, the upload
   URLs, each segment, the take list, the wait for a token, and on iOS the uploads of the background session), and
   the upload checks that sharing is still on before every request and after every answer. After `setOn(false)` or
-  `delete()` has returned, no byte of audio leaves the device; in the test the server takes 0 bytes more.
+  `delete()` has returned, the request in flight is cancelled and the SDK hands nothing more to the system. What
+  the system had already buffered for the connection may still go out, and that can be the whole segment that
+  was being sent; nothing after it is sent. In the test, against a local stub, 0 bytes more arrived. Measured
+  on a phone of another platform (Android 11), the system's buffer held 2,220,032 bytes when the request was
+  ended, which is more than one segment; the buffer of iOS and macOS is not measured.
 - `setOn(false)` returns within 3 s whatever the network does, and turning sharing on again works at once. Until
   now a request that hung kept the queue busy, and the next recording waited behind it for up to 30 s.
 - `delete()` stops the queue before it asks the server. Until now it asked first, and segments could still be

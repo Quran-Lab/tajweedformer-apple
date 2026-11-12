@@ -326,7 +326,8 @@ wording and SDK upgrades, and every shared recording carries that version.
 While the learner shares, every take is uploaded in full as it runs: Ogg Opus, mono, 48 kHz, in segments, PUT to
 presigned URLs from a persistent outbox that survives force-quit and reboot; on a bad network the SDK lowers the
 bitrate of the audio still to be encoded. Turning sharing off, or deleting, cancels what is being uploaded at that
-moment and deletes the unsent queue: nothing more leaves the device once the call has returned. Deleting is signed
+moment and deletes the unsent queue: once the call has returned the SDK hands nothing more to the system (what the
+system had already buffered for the connection may still go out, which can be the segment being sent). Deleting is signed
 with a P-256 key made on the device (in the Secure Enclave where there is one): no app key or token can delete a
 learner's recordings.
 
