@@ -44,13 +44,13 @@ here. The names are those of the four TajweedFormer SDKs. Start with the README'
 public final class TajweedClient: Sendable
 ```
 
-The app's link to Quran Lab: the key, the signed config, registration, telemetry, issues, sharing and the model files on disk. Make one at launch with the app's key from sdk.quranlab.ai and keep it: One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition path waits on the network once the model is on the device.
+The app's link to Quran Lab: the key, the signed config, registration, telemetry, issues, sharing and the model files on disk. Make one at launch with the app's key from sdk.quranlab.ai and keep it: One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition path waits on the network once the model is on the device. A model comes only from Quran Lab's server, through the Client (3.1.0): the key, the signed config, the SDK's own download and its verification. No call takes a model folder, and a Client opens only a build it downloaded itself on this device.
 
 - `public let sharing: TajweedSharing`: Sharing recitations with Quran Lab: whether it is offered, the learner's choice, the outbox.
 - `public let analytics: TajweedAnalytics`: Counters the app reports itself.
 - `public convenience init(key: String, options: TajweedClientOptions = TajweedClientOptions()) throws(TajweedError)`: - Parameter key: the app's key from sdk.quranlab.ai (`qlk_v1_...`), for this app's bundle id.
 - `public func close()`: Ends the Client: its network calls and upload queue stop, and another Client can be made. Models made by it stay usable for takes that are open.
-- `public func model(version: String? = nil) async throws(TajweedError) -> TajweedModel`: The Model for this app: downloaded on first use (the CPU files of the default context, verified), opened, and warmed so the first take starts at once. Later calls return the same Model. Call it early for a warm start. `version` pins a model version (`"4.0.0"`): the config request names it, and Quran Lab answers that version's build for this SDK, or its normal choice when it has none. Nil takes the version Quran Lab's config names. A first run without a network throws `needs_connection`; `model_unavailable` when Quran Lab has no build for this SDK version yet.
+- `public func model(version: String? = nil) async throws(TajweedError) -> TajweedModel`: The Model for this app: downloaded on first use (the CPU files of the default context, verified), opened, and warmed so the first take starts at once. Later calls return the same Model. Call it early for a warm start. `version` pins a model version (`"4.0.0"`): the config request names it, and Quran Lab answers that version's build for this SDK, or its normal choice when it has none. Nil takes the version Quran Lab's config names. A first run without a network throws `needs_connection`; `model_unavailable` when Quran Lab has no build for this SDK version yet. When Quran Lab has refused the key or the app (`invalid_key`, or `server_rejected` with its reason), no model is opened and the downloaded model is removed from the device; once the server accepts the key again the model is downloaded again. A Model that was open before the refusal keeps running until the app closes it.
 - `public func prefetch(unmeteredOnly: Bool = false, onProgress: (@Sendable (_ done: Int64, _ total: Int64) -> Void)? = nil) async throws(TajweedError)`: Downloads and verifies the model ahead of use. Resumable: a download that stopped goes on where it stopped. With `unmeteredOnly` it follows the connection `diagnose()` reports: it downloads on `unmetered` (Wi-Fi, Ethernet) and on `unknown`, and does nothing on `metered` (cellular, a personal hotspot, Low Data Mode) and on `none`; call it again later. A no-op when the model is on the device. `onProgress` gets the bytes done and the total of the files to download, as they arrive.
 - `public var storage: TajweedDiagnosis.Storage`: What the SDK holds on disk: the bytes of each model build, ordered by version then build, and the bytes of the sharing queue. The same object as `diagnose().storage`.
 - `public func removeModels() throws(TajweedError)`: Removes the model files (the next `model()` downloads them again). The learner's sharing choice and the upload queue stay.
@@ -68,7 +68,7 @@ What a Client may be told besides its key. Every field has a default.
 
 - `public var appId: String?`: The app's id; nil reads the bundle identifier.
 - `public var appVersion: String?`: The app's version; nil reads the bundle's short version.
-- `public var storage: URL?`: Where the SDK keeps models and its queues; nil means `Application Support/QuranLab` (on macOS `Application Support/<bundle id>/QuranLab`).
+- `public var storage: URL?`: Where the SDK keeps models and its queues; nil means `Application Support/QuranLab` (on macOS `Application Support/<bundle id>/QuranLab`). The folder is the SDK's to fill: a model found there that this Client did not download itself on this device is not opened; it is deleted and downloaded.
 - `public var analytics: Analytics`
 - `public var audience: Audience`
 - `public init(appId: String? = nil, appVersion: String? = nil, storage: URL? = nil, analytics: Analytics = .on, audience: Audience = .general)`
@@ -91,9 +91,8 @@ What a Client may be told besides its key. Every field has a default.
 public final class TajweedModel: Sendable
 ```
 
-One verified model build on this device: its version, contexts, tokens, calibration and reference data and sample clips. It holds the engine and, once promoted, the Neural Engine's build. Made by `client.model()` (download, verify, open, warm) or opened from a folder with `TajweedModel.open(_:)`. A Model has one open Session at a time; a take is `listen()` or `session()`, and the next take is a new Session.
+One verified model build on this device: its version, contexts, tokens, calibration and reference data and sample clips. It holds the engine and, once promoted, the Neural Engine's build. Made by `client.model()` (download, verify, open, warm) and by nothing else: a model comes from Quran Lab's server through the Client, and no call opens a folder the app supplies (`TajweedModel.open(_:)` did, to 3.0.1). A Model has one open Session at a time; a take is `listen()` or `session()`, and the next take is a new Session.
 
-- `public static func open(_ folder: URL) async throws(TajweedError) -> TajweedModel`: Opens a model folder already on disk (manifest.json and the files it lists), verified the same way as a download: the manifest's signature when it has one, then the size and SHA-256 of every file.
 - `public var id: String`: The model's id, `"v4.0"`.
 - `public var version: String`: The model's version, `"4.0.0"`.
 - `public var build: String`: The build id of this folder, for diagnostics only (a new CoreML build of the same weights is a new build of the same version).

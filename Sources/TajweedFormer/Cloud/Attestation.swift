@@ -141,9 +141,13 @@ actor TokenProvider {
     private let keyMarker: JSONFile<String>
     private var cached: APIToken?
     private var inFlight: Task<APIToken, any Error>?
+    /// Told when the server issued a token: an answer that accepts the key (it clears a remembered refusal).
+    private let issued: @Sendable () -> Void
 
     init(http: HTTPClient, apiURL: URL, key: String, app: AppIdentity, teamID: String?,
-         attester: any AppAttesting, attestKeys: any AttestKeyStoring = KeychainAttestKeyStore(), storage: URL) {
+         attester: any AppAttesting, attestKeys: any AttestKeyStoring = KeychainAttestKeyStore(), storage: URL,
+         issued: @escaping @Sendable () -> Void = {}) {
+        self.issued = issued
         self.http = http
         self.apiURL = apiURL
         self.key = key
@@ -197,6 +201,7 @@ actor TokenProvider {
         if let t {
             cached = t
             file.write(t)
+            issued()
         }
     }
 

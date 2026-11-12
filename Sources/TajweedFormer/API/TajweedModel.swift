@@ -2,7 +2,8 @@ import Foundation
 
 /// One verified model build on this device: its version, contexts, tokens, calibration and reference data and
 /// sample clips. It holds the engine and, once promoted, the Neural Engine's build. Made by
-/// `client.model()` (download, verify, open, warm) or opened from a folder with `TajweedModel.open(_:)`.
+/// `client.model()` (download, verify, open, warm) and by nothing else: a model comes from Quran Lab's server
+/// through the Client, and no call opens a folder the app supplies (`TajweedModel.open(_:)` did, to 3.0.1).
 ///
 /// A Model has one open Session at a time; a take is `listen()` or `session()`, and the next take is a new Session.
 public final class TajweedModel: Sendable {
@@ -17,22 +18,14 @@ public final class TajweedModel: Sendable {
     }
 
     private let state: Locked<State>
-    /// The Client that made it (kept alive with it); nil for a folder opened directly.
+    /// The Client that made it (kept alive with it); nil for a folder the SDK's own tests opened.
     let client: TajweedClient?
 
+    /// Internal: an app cannot make a Model from a folder. `client.model()` makes it from the Client's own download;
+    /// the SDK's tests make one from a verified test folder.
     init(_ folder: ModelFolder, client: TajweedClient?) {
         state = Locked(State(folder: folder))
         self.client = client
-    }
-
-    /// Opens a model folder already on disk (manifest.json and the files it lists), verified the same way as a
-    /// download: the manifest's signature when it has one, then the size and SHA-256 of every file.
-    public static func open(_ folder: URL) async throws(TajweedError) -> TajweedModel {
-        do throws(RecognizerError) {
-            return TajweedModel(try await ModelFolder.load(directory: folder), client: nil)
-        } catch {
-            throw TajweedError(from: error)
-        }
     }
 
     var folder: ModelFolder { state.withLock { $0.folder } }
@@ -71,7 +64,7 @@ public final class TajweedModel: Sendable {
     /// The expected units of each ayah, read-only data for an app's own judge; nil when this build ships none. The
     /// table is not part of the model's download: `reference.fetch()` brings it, once.
     public var reference: TajweedReference? {
-        // a Model of a Client downloads the table through it; a folder opened directly has only what is in the folder
+        // a Model of a Client downloads the table through it; a folder a test opened has only what is in the folder
         var download: (@Sendable (ModelFolder, ModelManifest.File) async throws -> Void)?
         if client != nil { download = Self.fetchReference }
         let source = download

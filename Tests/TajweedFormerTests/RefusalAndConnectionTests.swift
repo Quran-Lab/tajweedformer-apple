@@ -21,12 +21,15 @@ enum StubbedModelServer {
 
     /// A Client over the stub, with its own storage; the config's and the test folder's keys are trusted. `app` is
     /// the identifier it registers with.
-    static func client(storage: URL = CloudFixtures.storage(), app: AppIdentity = CloudFixtures.app) throws -> TajweedClient {
+    static func client(storage: URL = CloudFixtures.storage(), app: AppIdentity = CloudFixtures.app,
+                       installKeys: any InstallKeyStoring = CloudFixtures.installKeys) throws -> TajweedClient {
         let keys = [CloudFixtures.signer.publicKey.rawRepresentation, try Fixtures.v4miniKey()]
         var made = CloudFixtures.options(signingKeys: keys, storage: storage)
         made.cloud?.app = app
         let options = made
-        return try TajweedClient(key: CloudFixtures.key, configuration: options, cloud: { root in CloudFixtures.cloud(storage: root, options: options) })
+        return try TajweedClient(key: CloudFixtures.key, configuration: options, cloud: { root in
+            CloudFixtures.cloud(storage: root, options: options, installKeys: installKeys)
+        })
     }
 }
 
@@ -200,10 +203,10 @@ final class RefusalReasonTests: XCTestCase {
     func testEveryCaseOfTheRefusalVector() async throws {
         let v = try Vectors30.json("refusals.json")
         // `sdk` names the version the file was built with and fills {sdk} in its texts: this SDK is that version or a
-        // later 3.0.x, and puts its own version in its place before it compares
+        // later 3.0.x or 3.1.x, and puts its own version in its place before it compares
         let written = try XCTUnwrap(v["sdk"] as? String)
         XCTAssertTrue(ModelManifest.version(SDKInfo.version, isAtLeast: written), "SDK \(SDKInfo.version) is not older than the vector's \(written)")
-        XCTAssertEqual(SDKInfo.version.split(separator: ".").prefix(2).joined(separator: "."), written.split(separator: ".").prefix(2).joined(separator: "."), "the same line of releases")
+        XCTAssertTrue(["3.0", "3.1"].contains(SDKInfo.version.split(separator: ".").prefix(2).joined(separator: ".")), "the vector holds for SDK 3.0.x and 3.1.x")
         let app = try XCTUnwrap(v["app"] as? String)
         let cases = try XCTUnwrap(v["cases"] as? [[String: Any]])
         XCTAssertEqual(cases.count, 11)

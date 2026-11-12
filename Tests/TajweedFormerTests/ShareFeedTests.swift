@@ -342,7 +342,7 @@ final class ShareFeedTests: XCTestCase {
     /// The session JSON carries them only when there is a count, and `gap_ms_prev` only within its range.
     func testTheSessionJSONFields() throws {
         func session(_ seq: Int?, _ gap: Int?) throws -> [String: Any] {
-            let d = ContributionClient.session(modelRevision: "4.0.0", backend: "exact", weightsSHA256: nil, consentVersion: "share-2026-11-09",
+            let d = ContributionClient.session(modelRevision: "4.0.0", backend: "exact", weightsSHA256: nil, consentVersion: "share-2026-11-12",
                                                contributor: String(repeating: "a", count: 32), day: "2026-11-11", inputSampleRate: 16_000,
                                                inputRoute: "builtin", modelBuild: AnalyticsAndIssueTests.build, takeSeq: seq, gapMsPrev: gap)
             return try XCTUnwrap(JSONSerialization.jsonObject(with: d) as? [String: Any])

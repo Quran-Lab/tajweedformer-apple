@@ -1,5 +1,114 @@
 # Changelog
 
+## 3.1.0
+
+A model comes from Quran Lab's server, through the Client, and in no other way. The same change in the Android,
+Apple, web and C SDKs, and one sentence more on the sharing sheet. The same engine and the same model builds as
+3.0.1.
+
+### Removed: opening a model folder the app supplies
+- `TajweedModel.open(_:)` is removed, and the Client no longer looks for a model in the app bundle
+  (`QuranLabModels/<model id>/`). A model comes from Quran Lab's server through the Client.
+- Why: the model is Quran Lab's to deliver, verify and update; an app that carries its own copy cannot be told of
+  a newer or a withdrawn build.
+- What replaces it: `client.model()` downloads the model on first use, verifies it, opens it and warms it, and
+  `client.prefetch()` downloads it ahead of use.
+- Migration: replace `try await TajweedModel.open(folder)` with `try await client.model()` on a
+  `TajweedClient(key:)`, and take the model folder out of the app's resources. An app that still calls the removed
+  function does not compile.
+
+### Changed: the Client opens only a build it downloaded itself
+- The Client marks every build it downloads with a record that is bound to the device: the record's key lives in
+  the Keychain (this device only, readable after first unlock), not among the app's files. A model folder in the
+  Client's storage without a valid record (put there in advance, or copied from another device) is not opened and
+  none of its files is reused: it is deleted, and the build is downloaded.
+- An install that updates from 3.0 downloads its model once more at the first launch after the update, because the
+  model that 3.0 downloaded has no record. Without a connection at that launch `client.model()` throws
+  `needs_connection`, and the download happens at the next call with a connection.
+- After that download a learner without a connection keeps working, as before. An interrupted download resumes
+  where it stopped.
+- When the Keychain does not answer (for example before the first unlock after a restart), `client.model()` and
+  `client.prefetch()` throw `storage_failed`; nothing is opened, deleted or downloaded, and the next call tries
+  again.
+- On a Mac, an app without a provisioning profile (an unsigned or ad hoc signed binary, a command line tool) is
+  refused by that keychain; there, and only there, the key lives in the Mac's login keychain, in an item named for
+  the app's bundle id. It is not among the app's files, and it can travel to another Mac with the keychain.
+
+### Changed: model files are requested with the install's token
+- Every request for a model file (the manifest, every file, every range of a file) carries the install's token
+  beside the developer key. The SDK has the token before its first model request, attested where the system
+  supports App Attest. When the download server answers `invalid_token` the SDK renews the token once and repeats
+  the request once. A model request never follows a redirect.
+- New answers of the download server, each with its own words: `server_rejected` with the reason
+  `model_attestation_required` (the install could not be confirmed where Quran Lab asks for that; never for a
+  development key) or `model_not_allowed` (model files are switched off for the platform), and `download_failed`
+  when Quran Lab's daily limit for model downloads is reached (try again later; the SDK does not repeat the request
+  in a loop). None of them stops a model that is already on the device.
+
+### Changed: a refused key or app does not run the model, and the model is removed
+- When Quran Lab refuses the key or the app (a revoked key, a paused or blocked app), the SDK stops running the
+  model and removes the downloaded model from the device. Once the key is accepted again the model is downloaded
+  again.
+- The refusals that do this say why: a key that is revoked or that Quran Lab never issued, a key of another app
+  or of the wrong type, an app that is blocked by Quran Lab or paused by its developer, an account without access.
+  `client.model()` and `client.prefetch()` throw the refusal's error (`invalid_key`, or `server_rejected` with its
+  reason) and open no model. The refusal is remembered on the device, so a launch without a network stays
+  refused. Until 3.0.1 a refusal stopped the network calls of the launch and nothing else.
+- What is removed: every model build the SDK holds, with its partial downloads and the Core ML packages in the
+  build folders (what `client.removeModels()` removes), in the call that received the refusal. The learner's
+  sharing choice and the recordings that are not sent yet stay. When a file cannot be removed the SDK tries again
+  at every start; the app gets the refusal's error, never an error about the removal. What the system cached by
+  itself is not the SDK's to remove: the compiled form that Core ML keeps for the Neural Engine of a package the
+  SDK loaded stays until the system drops it.
+- A Model that is already open when the refusal arrives keeps running until the app closes it; its files are
+  removed when it is closed, or at the next start.
+- Not a refusal, and a model on the device keeps running and stays: no network, a timeout, a failure of the
+  server, a rate limit, a network that Quran Lab does not serve, `sdk_too_old`, and every answer that names no
+  reason.
+- The words of `app_blocked` now say both cases: blocked by Quran Lab, or paused by its developer on the app's
+  page. The fix of `model_missing` no longer speaks of opening a folder.
+
+### The sharing sheet
+- **Changed: the sharing sheet and "What is shared" now say that no human ever listens to your recordings:
+  only software learns from them.** Copy deck `2026-11-12.1` (consent `share-2026-11-12`) in eight languages. A
+  learner who already agreed is not asked again, and their recordings keep the version they agreed to.
+
+### Tests
+The tests below run on the public CI's Mac runner against a stub server; those that open a model use a small test
+model (not a released model build) and a stand-in engine. The device's key store is a stand-in in memory in every
+test: no test touches a real Keychain. Where App Attest is needed it is a stand-in too. None of them ran on a
+phone or against Quran Lab's servers.
+- The sharing deck: the eight bundled decks are the published ones byte for byte; the line about who receives the
+  recordings and "What is shared" are the deck's own text, whole, in each of the eight languages (checked on the
+  strings the sheet is built from and on the sheet's source, not on a drawn sheet); an install with a stored yes
+  under `share-2026-11-09` (the state written by the test as SDK 3.0.1 left it) is not asked at start, after many
+  sessions or after a restart, and the recordings it uploads to the stub carry `share-2026-11-09`.
+- The install record: a storage filled in advance exactly as a real download leaves it (without a record, with the
+  record of another device, on a device without a key, with a record of another build) is not opened and is
+  replaced by a download; a real download and then a relaunch opens with no request for a file, also without a
+  network; an interrupted download resumes (the stub fails one file, and the test writes the first bytes of that
+  file as a broken transfer leaves them), and the same folder on another device does not; the two ways the key
+  store can fail (the stand-in is told to have no key, or to fail); the record is written before the first file is
+  asked for; the update from 3.0, with and without a connection (a 3.1.0 download with its record taken away
+  stands for what 3.0 left).
+- Model requests: the exact headers of the manifest request and of every range request; the token is in hand
+  before the first of them, the attested one with the stand-in for App Attest; the renewal on `invalid_token`,
+  once; no redirect is followed.
+- The refused Client: every case of the vector the four SDKs share (`model_gate.json`, 32 answers of the API and of
+  the download server), with a model on the device and without one; a relaunch without a network stays refused; an
+  accepting answer ends it; a refusal of a model request is not ended by an answer of the API; a Model that is
+  open keeps running.
+- The removal: a refusal with a downloaded model on the device leaves no model file and no install record when
+  the call returns, also in the middle of a download; the remembered refusal and the device key stay, and so do a
+  stored sharing state and a stand-in file in the upload queue's folder that stands for a recording not sent yet
+  (no real recording is queued in this test); an answer that is not a refusal removes nothing; after the accepting
+  answer every file of the build is asked for again; the files of an open Model go when it is closed; a removal
+  that fails (made to fail by a switch of the test, not by a real storage error) is tried again at the next
+  start; a start without a network that finds a remembered refusal and model files, put back by the test, removes
+  them first.
+- No public declaration takes a model, a base URL, a trusted key, a verifier or a transport (read from the
+  sources).
+
 ## 3.0.1
 
 One fix for sharing and two for `diagnose()`. The same engine and the same model builds as 3.0.0, and nothing to

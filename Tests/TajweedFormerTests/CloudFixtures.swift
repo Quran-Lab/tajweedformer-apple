@@ -224,6 +224,40 @@ struct FakeAttester: AppAttesting {
     }
 }
 
+/// The install record's device key, kept in memory: the tests' stand-in for the Keychain (no test touches a real
+/// one). `forget()` is a device that has no key (any more); `fail(_:)` a key store that does not answer.
+final class MemoryInstallKeyStore: InstallKeyStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var key: Data?
+    private var failure: String?
+    private var counted = (loads: 0, creates: 0)
+
+    init(key: Data? = nil) { self.key = key }
+
+    func load() -> InstallKeyLookup {
+        lock.lock()
+        defer { lock.unlock() }
+        counted.loads += 1
+        if let failure { return .failed(failure) }
+        return key.map { .key($0) } ?? .none
+    }
+
+    func create() -> InstallKeyLookup {
+        lock.lock()
+        defer { lock.unlock() }
+        counted.creates += 1
+        if let failure { return .failed(failure) }
+        let made = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+        key = made
+        return .key(made)
+    }
+
+    func forget() { lock.lock(); key = nil; lock.unlock() }
+    func fail(_ why: String?) { lock.lock(); failure = why; lock.unlock() }
+    var hasKey: Bool { lock.lock(); defer { lock.unlock() }; return key != nil }
+    var creates: Int { lock.lock(); defer { lock.unlock() }; return counted.creates }
+}
+
 /// The Keychain's stand-in: shared by the clouds a test makes, as the Keychain is by an app's launches.
 final class MemoryAttestKeyStore: AttestKeyStoring, @unchecked Sendable {
     private let lock = NSLock()
@@ -259,12 +293,18 @@ enum CloudFixtures {
                          contributions: contributions)
     }
 
+    /// The device key of the install record for every server client these fixtures make: one device for the test
+    /// process, so a second Client on the same storage is a relaunch on the same device. A test about another
+    /// device, or about a key store that fails, passes its own.
+    static let installKeys = MemoryInstallKeyStore()
+
     static func cloud(storage: URL, options: QuranLab.Options? = nil, attester: any AppAttesting = FakeAttester(isSupported: false),
                       attestKeys: any AttestKeyStoring = MemoryAttestKeyStore(),
+                      installKeys: any InstallKeyStoring = CloudFixtures.installKeys,
                       networkAllowed: (@Sendable (Bool) async -> Bool)? = { _ in true },
                       clock: @escaping @Sendable () -> Date = { Date() }) -> QuranLabCloud {
         QuranLabCloud(key: key, options: options ?? Self.options(), storage: storage, attester: attester, attestKeys: attestKeys,
-                      networkAllowed: networkAllowed, clock: clock)
+                      installKeys: installKeys, networkAllowed: networkAllowed, clock: clock)
     }
 
     /// A signed config body and its headers.

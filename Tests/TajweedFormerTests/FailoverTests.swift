@@ -448,8 +448,9 @@ final class FirstInstallTests: XCTestCase {
             return StubProtocol.Reply(headers: [:], body: d)
         }
         let verifier = ManifestVerifier(trustedKeys: [try Fixtures.v4miniKey()], requireSignature: true)
-        let store = ModelStore(root: Fixtures.storage(), verifier: verifier)
-        let client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: ModelHost.defaultBase, key: "k", verifier: verifier)
+        let store = ModelStore(root: Fixtures.storage(), verifier: verifier, installKeys: MemoryInstallKeyStore())
+        let client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: ModelHost.defaultBase,
+                               auth: .fixed(key: "k", token: "t"), verifier: verifier)
         let updater = ModelUpdater(store: store, client: { client }, coreML: true, networkAllowed: { _ in true })
         let out = await updater.update(.v4_0, to: "rev-1", activate: true)
         guard case .installed(let m, _) = out else { return XCTFail("\(out)") }

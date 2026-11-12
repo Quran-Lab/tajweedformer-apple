@@ -34,11 +34,33 @@ final class QuranLabCloud: Sendable {
     private let stopped = Locked(false)
     private let signatureReported = Locked<String?>(nil)
     private let refusal = Locked<(status: Int, code: String, message: String, reason: String?)?>(nil)
+    /// The refusal that stops the model on the device, remembered across launches (SPEC 15.3).
+    let gate: ModelGate
 
     /// The server's refusal that stopped this launch's network calls (a revoked key, a blocked app, an SDK too old for
     /// the key), when there was one. `code` is the answer's `error` and `reason` its `reason`, the check that refused,
-    /// when the answer names one.
-    var rejection: (status: Int, code: String, message: String, reason: String?)? { refusal.withLock { $0 } }
+    /// when the answer names one. Without one of this launch: the refusal an earlier launch remembered, when it
+    /// stops the model and no answer has accepted the key since.
+    var rejection: (status: Int, code: String, message: String, reason: String?)? {
+        if let now = refusal.withLock({ $0 }) { return now }
+        return gate.stop.map { (status: $0.status, code: $0.code, message: $0.message, reason: $0.reason) }
+    }
+
+    /// The refusal that stops the model, when one is remembered: `client.model()` and `prefetch` then open no
+    /// model. When this launch's calls are not stopped the server is asked once more first (the config): an
+    /// accepting answer clears a refusal of the API, and the call goes on. A refusal of a model request is not
+    /// cleared by it: with a fresh config in hand the CDN is asked again (the manifest of the build the config
+    /// names), and its answer decides. Without a network nothing is asked and the refusal holds.
+    func modelStop() async -> RecognizerError? {
+        guard let stop = gate.stop else { return nil }
+        if !isStopped, await refreshConfig() != nil, stop.from == .model {
+            let id = RecommendedModel.resolve(config: config.current, storage: storage)
+            if let target = targetRevision(id) { await updater.ask(id, revision: target) }
+        }
+        // still refused: a removal of the model files that failed before is tried again
+        gate.removeModelsIfStopped()
+        return gate.stop?.error
+    }
 
     /// That refusal as the failure a call raises for it.
     var rejectionError: RecognizerError? {
@@ -59,6 +81,7 @@ final class QuranLabCloud: Sendable {
     init(key: String?, options: QuranLab.Options, storage: URL,
          attester: any AppAttesting = DeviceCheckAttester(),
          attestKeys: any AttestKeyStoring = KeychainAttestKeyStore(),
+         installKeys: any InstallKeyStoring = KeychainInstallKeyStore(),
          networkAllowed: (@Sendable (Bool) async -> Bool)? = nil,
          clock: @escaping @Sendable () -> Date = { Date() }) {
         let cloud = options.cloud ?? CloudOptions()
@@ -73,10 +96,14 @@ final class QuranLabCloud: Sendable {
         self.app = app
         let http = HTTPClient(session: cloud.urlSession ?? HTTPClient.makeSession())
         self.http = http
-        tokens = key.map {
+        let gate = ModelGate(storage: storage)
+        self.gate = gate
+        let tokens = key.map {
+            // a token the server issues is an answer that accepts the key
             TokenProvider(http: http, apiURL: cloud.apiURL, key: $0, app: app, teamID: cloud.appleTeamID,
-                          attester: attester, attestKeys: attestKeys, storage: storage)
+                          attester: attester, attestKeys: attestKeys, storage: storage, issued: { gate.accepted(.api) })
         }
+        self.tokens = tokens
         let config = ConfigStore(storage: storage, trustedKeys: cloud.signingKeys)
         self.config = config
         outbox = ContributionOutbox(storage: storage, http: http, apiURL: cloud.apiURL, tokens: tokens, config: config,
@@ -90,7 +117,7 @@ final class QuranLabCloud: Sendable {
         incidents = IncidentLedger(storage: storage)
         let store = ModelStore(root: storage.appendingPathComponent("models"),
                                verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true),
-                               updates: options.updates)
+                               updates: options.updates, installKeys: installKeys)
         self.store = store
         let wifiOnly = cloud.updatesOnWiFiOnly
         let analytics = self.analytics, issues = self.issues
@@ -100,8 +127,22 @@ final class QuranLabCloud: Sendable {
         let cdnVerifier = ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true)
         let telemetryOn = options.analytics != .off
         updater = ModelUpdater(store: store, client: {
-            guard let cdnKey else { return nil }
-            return CDNClient(http: http, base: ModelHost.base(explicit: explicitBase, config: config.current), key: cdnKey, verifier: cdnVerifier)
+            guard let cdnKey, let tokens else { return nil }
+            // A model request carries the install's token: the one the SDK uses for everything else, attested where
+            // the system supports App Attest, asked for before the first model request. A 401 `invalid_token` drops
+            // it and asks for a new one, once.
+            let auth = ModelRequestAuthorization(key: cdnKey, token: { (renew: Bool) async throws(CloudError) -> String in
+                if renew { await tokens.invalidate() }
+                do throws(CloudError) {
+                    return try await tokens.token().token
+                } catch {
+                    // the API refused the key when it was asked for the token: remembered as any refusal of the API
+                    gate.note(error, from: .api)
+                    throw error
+                }
+            })
+            return CDNClient(http: http, base: ModelHost.base(explicit: explicitBase, config: config.current), auth: auth, verifier: cdnVerifier,
+                             refused: { gate.note($0, from: .model) }, accepted: { gate.accepted(.model) })
         },
                                inferenceContext: { config.current?.inferenceContext },
                                coreML: DownloadProfile.osRunsCoreML && options.neuralEngine,
@@ -116,18 +157,22 @@ final class QuranLabCloud: Sendable {
                                    guard issueContext.enabled else { return }
                                    issues.add(QuranLabCloud.issue(kind: "update_failed", code: "update:" + (IssueQueue.classify(e)?.code ?? "other"),
                                                                   app: issueContext.app, backend: nil, revision: rev))
-                               })
+                               },
+                               stopped: { gate.stop })
     }
 
     /// Network calls are off for this launch (a revoked key, a blocked app, an SDK too old for the key).
     var isStopped: Bool { stopped.withLock { $0 } }
 
     private func stopIfFatal(_ e: CloudError) {
+        // a refusal of the key or the app that stops the model on the device is remembered (SPEC 15.3)
+        gate.note(e, from: .api)
         guard case .rejected(let status, let code, let message, let reason) = e else { return }
-        // the network follows the status and the answer's `error`; its `reason` only says which words the app reads
+        // the network follows the status and the answer's `error`, as before 3.1.0; an answer whose `reason` stops
+        // the model stops this launch's calls too, whatever its `error` (a token whose key was revoked)
         let fatal = ["invalid_key", "unauthorized", "developer_not_approved", "not_a_member", "key_type_mismatch",
                      "origin_not_allowed", "app_not_allowed", "app_blocked", "environment_mismatch", "sdk_too_old"]
-        if (status == 401 || status == 403) && fatal.contains(code) {
+        if ((status == 401 || status == 403) && fatal.contains(code)) || ModelGate.stops(reason: reason) {
             stopped.withLock { $0 = true }
             refusal.withLock { $0 = (status, code, message, reason) }
         } else if status == 403, !code.hasPrefix("http_"), !isStopped {
@@ -136,9 +181,11 @@ final class QuranLabCloud: Sendable {
         }
     }
 
-    /// The server answered this install: a refusal that did not stop the launch's calls is over.
+    /// The server answered this install: a refusal that did not stop the launch's calls is over, and so is a
+    /// remembered refusal of the API that stopped the model (the answer accepts the key).
     private func answered() {
         if !isStopped { refusal.withLock { $0 = nil } }
+        gate.accepted(.api)
     }
 
     // MARK: launch
@@ -193,6 +240,7 @@ final class QuranLabCloud: Sendable {
             }
             pendingRegistration.delete()
             try? Data(today.utf8).write(to: registeredDay, options: .atomic)
+            gate.accepted(.api)
             return true
         } catch {
             stopIfFatal(error)
@@ -213,7 +261,8 @@ final class QuranLabCloud: Sendable {
                 answered()
                 return fetched
             } catch {
-                guard case .rejected(401, _, _, _) = error else { throw error }
+                // a 401 that names why the key is refused is not answered with a new token
+                guard case .rejected(401, _, _, let reason) = error, !ModelGate.stops(reason: reason) else { throw error }
                 await tokens.invalidate()
                 let fetched = try await config.fetch(http: http, apiURL: options.apiURL, token: try await tokens.token().token)
                 answered()
@@ -334,7 +383,8 @@ final class QuranLabCloud: Sendable {
         }
     }
 
-    /// Sends a request with the token, getting a new token once after a 401.
+    /// Sends a request with the token, getting a new token once after a 401 (not after one that names why the key
+    /// is refused: the key was revoked after the token was issued).
     func authed(_ make: (String) throws(CloudError) -> URLRequest) async throws(CloudError) -> HTTPClient.Response {
         guard let tokens else { throw .noKey }
         guard !isStopped else { throw .offline("stopped for this launch") }
@@ -342,7 +392,7 @@ final class QuranLabCloud: Sendable {
         do throws(CloudError) {
             return try await http.checked(try make(t.token))
         } catch {
-            guard case .rejected(401, _, _, _) = error else { throw error }
+            guard case .rejected(401, _, _, let reason) = error, !ModelGate.stops(reason: reason) else { throw error }
             await tokens.invalidate()
             return try await http.checked(try make(try await tokens.token().token))
         }

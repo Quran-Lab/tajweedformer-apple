@@ -19,7 +19,8 @@ public struct TajweedClientOptions: Sendable {
     /// The app's version; nil reads the bundle's short version.
     public var appVersion: String?
     /// Where the SDK keeps models and its queues; nil means `Application Support/QuranLab` (on macOS
-    /// `Application Support/<bundle id>/QuranLab`).
+    /// `Application Support/<bundle id>/QuranLab`). The folder is the SDK's to fill: a model found there that this
+    /// Client did not download itself on this device is not opened; it is deleted and downloaded.
     public var storage: URL?
     public var analytics: Analytics
     public var audience: Audience
@@ -59,6 +60,10 @@ public struct TajweedClientOptions: Sendable {
 ///
 /// One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition
 /// path waits on the network once the model is on the device.
+///
+/// A model comes only from Quran Lab's server, through the Client (3.1.0): the key, the signed config, the SDK's own
+/// download and its verification. No call takes a model folder, and a Client opens only a build it downloaded
+/// itself on this device.
 public final class TajweedClient: Sendable {
     private static let live = Locked<UUID?>(nil)
 
@@ -128,7 +133,10 @@ public final class TajweedClient: Sendable {
     /// `version` pins a model version (`"4.0.0"`): the config request names it, and Quran Lab answers that version's
     /// build for this SDK, or its normal choice when it has none. Nil takes the version Quran Lab's config names.
     /// A first run without a network throws `needs_connection`; `model_unavailable` when Quran Lab has no build for
-    /// this SDK version yet.
+    /// this SDK version yet. When Quran Lab has refused the key or the app (`invalid_key`, or `server_rejected`
+    /// with its reason), no model is opened and the downloaded model is removed from the device; once the server
+    /// accepts the key again the model is downloaded again. A Model that was open before the refusal keeps
+    /// running until the app closes it.
     public func model(version: String? = nil) async throws(TajweedError) -> TajweedModel {
         try check()
         if let version, !ModelVersion.isVersion(version) { throw .argument("version \(version) is not x.y.z") }
@@ -138,7 +146,15 @@ public final class TajweedClient: Sendable {
             await cloud.pin(version: version)
         }
         let model = TajweedModel(try await install(progress: nil), client: self)
-        try await model.warm()
+        // from here the Client holds an open Model: a refusal that arrives now leaves its files until it is closed
+        let gate = QuranLab.cloud?.gate
+        gate?.modelOpen(true)
+        do throws(TajweedError) {
+            try await model.warm()
+        } catch {
+            gate?.modelOpen(false)
+            throw error
+        }
         held.withLock { $0 = model }
         return model
     }
@@ -158,24 +174,30 @@ public final class TajweedClient: Sendable {
         _ = try await install(progress: onProgress)
     }
 
-    /// The model folder in the SDK's store or the app bundle, when one is there and verifies.
+    /// The model folder in the SDK's store, when one is there, is this Client's own download (its install record)
+    /// and verifies. Nothing is deleted here.
     private func onDevice() -> ModelFolder? {
         let config = QuranLab.configuration
         let id = RecommendedModel.resolve(config: QuranLab.cloud?.currentConfig, storage: config.storageDirectory)
-        let store = ModelStore(config: config)
-        guard let dir = store.cachedDirectory(id) else { return nil }
+        let store = ModelStore.standard
+        guard let dir = try? store.ownedDirectory(id, discard: false) else { return nil }
         return try? ModelFolder.open(directory: dir, verifier: store.verifier, expecting: id)
     }
 
-    /// The model folder: the one on the device, else a download.
+    /// The model folder: the one this Client downloaded to the device, else a download. Nothing else is a source:
+    /// not the app bundle (to 3.0.1 `QuranLabModels/<model id>/` was opened before any network), not a folder the
+    /// app names, not a store filled in advance (a folder without this device's install record is deleted and the
+    /// build downloaded).
     private func install(progress: (@Sendable (Int64, Int64) -> Void)?) async throws(TajweedError) -> ModelFolder {
         let config = QuranLab.configuration
         let cloud = QuranLab.cloud
+        // a Client the server has refused does not run the model, also not one a real download left (SPEC 15.3)
+        if let cloud, let stop = await cloud.modelStop() { throw TajweedError(from: stop) }
         let id = RecommendedModel.resolve(config: cloud?.currentConfig, storage: config.storageDirectory)
-        let store = ModelStore(config: config)
+        let store = ModelStore.standard
         var local: RecognizerError?
         do throws(RecognizerError) {
-            let folder = try await store.resolve(id, sources: [.cache, .bundle], context: nil)
+            let folder = try await store.resolve(id, sources: [.cache], context: nil)
             // a pinned version is served from the device only when the device has that version
             if let want = pinned.withLock({ $0 }), folder.version != want, cloud != nil {
                 local = .modelMissing("version \(want) is not on this device")
@@ -183,6 +205,8 @@ public final class TajweedClient: Sendable {
                 return folder
             }
         } catch {
+            // the device's key store failed: nothing was opened or deleted, and nothing is downloaded now
+            if case .storageFailed = error { throw TajweedError(from: error) }
             local = error
         }
         guard let cloud else {
@@ -205,8 +229,8 @@ public final class TajweedClient: Sendable {
             if let refused = cloud.rejectionError { throw TajweedError(from: refused) }
             // Quran Lab answered and names no model build for this SDK version
             if cloud.currentConfig != nil, cloud.targetRevision(id) == nil {
-                // a model already on the device keeps serving
-                if let folder = try? await store.resolve(id, sources: [.cache, .bundle], context: nil) { return folder }
+                // a model this Client downloaded keeps serving
+                if let folder = try? await store.resolve(id, sources: [.cache], context: nil) { return folder }
                 throw TajweedError(.modelUnavailable)
             }
             if why.contains("space") { throw TajweedError(.storageFull, ["needed": "more", "available": "too few"]) }
@@ -255,6 +279,7 @@ public final class TajweedClient: Sendable {
     public func removeModels() throws(TajweedError) {
         try check()
         held.withLock { $0 = nil }
+        QuranLab.cloud?.gate.modelOpen(false)
         let models = QuranLab.configuration.storageDirectory.appendingPathComponent("models")
         guard FileManager.default.fileExists(atPath: models.path) else { return }
         do {
@@ -266,9 +291,13 @@ public final class TajweedClient: Sendable {
 
     /// The Model this Client made is closed: the next `model()` opens it again.
     func forget(_ model: TajweedModel) {
-        held.withLock { (m: inout TajweedModel?) in
-            if m === model { m = nil }
+        let was = held.withLock { (m: inout TajweedModel?) -> Bool in
+            guard m === model else { return false }
+            m = nil
+            return true
         }
+        // when the server has refused the Client while the Model was open, its files go now (SPEC 15.3)
+        if was { QuranLab.cloud?.gate.modelOpen(false) }
     }
 
     /// What a Session with the default options (`backend: .auto`) would run on now in `context`, read from the stored

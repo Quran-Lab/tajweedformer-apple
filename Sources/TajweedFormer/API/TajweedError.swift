@@ -168,15 +168,26 @@ extension TajweedError {
         case .cancelled: self.init(.cancelled)
         case .serviceUnavailable: self.init(.sharingUnavailable)
         case .offline(let why): self.init(.downloadFailed, ["detail": why])
-        case .serverRejected(_, let code, let message, let reason):
+        case .serverRejected(let status, let code, let message, let reason):
             // a reason that names the page's origin names the app id here (an app has no origin)
             let app = QuranLab.cloud?.app.bundleID ?? Bundle.main.bundleIdentifier ?? "this app"
-            if let named = Self.knownReason(reason) {
+            if let reason, ModelGate.keyReasons.contains(reason) {
+                // a key Quran Lab revoked or never issued, whatever the answer's `error` (also a token whose key was
+                // revoked after it was issued, and the CDN's 401 to a model request)
+                self.init(.invalidKey)
+            } else if let named = Self.knownReason(reason) {
                 // the answer's `reason` is read first: the API answers an origin, key-type or allow-list refusal as a
                 // bad key (401 `invalid_key`) and names the check that refused there
                 self.init(.serverRejected, ["detail": named, "origin": app], reason: named)
-            } else if code == "invalid_key" {
+            } else if code == "invalid_key" || (status == 401 && code == Self.cdnBareRefusal) {
+                // a key the server does not know; the CDN's bare 401 says the same of a model request
                 self.init(.invalidKey)
+            } else if status == 429 && code == "model_limit" {
+                // a model request over Quran Lab's daily limit: the download stopped, try later; never a refusal
+                self.init(.downloadFailed, ["detail": "Quran Lab's daily limit for model downloads is reached; try again later"])
+            } else if status == 401 && code == "invalid_token" {
+                // the token was renewed once and the repeat was refused too: the download failed, as any download does
+                self.init(.downloadFailed, ["detail": "Quran Lab did not accept this install's token"])
             } else if code == "sdk_too_old" {
                 self.init(.sdkTooOld, ["version": Self.version(in: message) ?? "a newer version"])
             } else {
@@ -193,6 +204,9 @@ extension TajweedError {
         }
     }
 
+    /// The `error` of the CDN's 401 to a model request without a key it knows.
+    static let cdnBareRefusal = "missing or invalid x-qlab-key"
+
     /// The entry of `server_rejected`'s reasons that an answer's `reason` names; nil when the answer has none, or
     /// one the catalogue does not know.
     static func knownReason(_ reason: String?, catalogue c: ErrorCatalogue = .shared) -> String? {
@@ -203,8 +217,9 @@ extension TajweedError {
     /// The code a refusal is raised with: `server_rejected` when the answer's `reason` names an entry of the
     /// catalogue, else by the answer's `error` (`invalid_key` and `sdk_too_old` keep their own codes).
     static func refusalCode(code: String, reason: String?) -> ErrorCode {
+        if let reason, ModelGate.keyReasons.contains(reason) { return .invalidKey }
         if knownReason(reason) != nil { return .serverRejected }
-        if code == "invalid_key" { return .invalidKey }
+        if code == "invalid_key" || code == cdnBareRefusal { return .invalidKey }
         if code == "sdk_too_old" { return .sdkTooOld }
         return .serverRejected
     }

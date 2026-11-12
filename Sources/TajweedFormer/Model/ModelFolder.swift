@@ -113,21 +113,15 @@ struct ModelFolder: Sendable {
 
     // MARK: loading
 
-    /// Loads `id` from the configured sources (`QuranLab.Options.modelSource`, or `sources`): a folder, the app
-    /// bundle, the SDK's store, or the CDN (this device's download profile, installed into the store). Verified.
+    /// Loads `id` from the configured sources (`QuranLab.Options.modelSource`, or `sources`): the SDK's store, or
+    /// the CDN (this device's download profile, installed into the store). Verified.
     /// `context`: the context the app will run first (its CPU files must be there); nil for the config's or the
     /// manifest's default.
     static func load(_ id: ModelID = .recommended, sources: [ModelSource]? = nil,
                      context: String? = nil) async throws(RecognizerError) -> ModelFolder {
         let config = QuranLab.configuration
         let model = id.isRecommended ? RecommendedModel.resolve(config: QuranLab.cloud?.currentConfig, storage: config.storageDirectory) : id
-        return try await ModelStore(config: config).resolve(model, sources: sources ?? config.options.modelSource, context: context)
-    }
-
-    /// The model in one folder (manifest.json and the decoded files), verified.
-    static func load(directory: URL) async throws(RecognizerError) -> ModelFolder {
-        let verifier = ManifestVerifier.standard
-        return try await detached { () throws(RecognizerError) in try open(directory: directory, verifier: verifier) }
+        return try await ModelStore.standard.resolve(model, sources: sources ?? config.options.modelSource, context: context)
     }
 
     /// Opens and verifies a folder: the manifest (its signature, format 3, a version, the SDK version, the engine

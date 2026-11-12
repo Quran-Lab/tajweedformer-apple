@@ -81,7 +81,7 @@ final class SharingWordingTests: XCTestCase {
         XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
         Contributions.answer(share: true)
         XCTAssertTrue(Contributions.isActive)
-        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-09")
+        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-12")
         XCTAssertNil(Contributions.state().consentTextSHA256)
 
         let mine = "The audio of your recitation sessions goes to Quran Lab, with the model version and device type."
@@ -92,7 +92,7 @@ final class SharingWordingTests: XCTestCase {
         XCTAssertTrue(Contributions.isActive, "a wording change does not pause a grant")
         XCTAssertNotNil(Contributions.capture(revision: "r", backend: .exact, weightsSHA256: nil))
         for _ in 0..<30 { XCTAssertNil(Contributions.sessionCompleted(feedback: true), "never asked again") }
-        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-09", "the version agreed to")
+        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-12", "the version agreed to")
         XCTAssertNil(Contributions.grantedTextSHA256)
 
         // another install agrees under the app's words
@@ -144,7 +144,7 @@ final class SharingWordingTests: XCTestCase {
         _ = try await settled(otherCloud.outbox, count: 1)
         let plain = try XCTUnwrap(SharingTests.starts.last?.json)
         XCTAssertEqual(SharingTests.starts.count, 2)
-        XCTAssertEqual(plain["consent_version"] as? String, "share-2026-11-09")
+        XCTAssertEqual(plain["consent_version"] as? String, "share-2026-11-12")
         XCTAssertNil(plain["consent_text_sha256"], "no hash without the app's own wording (a 2.0.0 server refuses unknown fields)")
     }
 
@@ -243,7 +243,7 @@ final class SharingWordingTests: XCTestCase {
         await Contributions.setSharing(true)
         try Contributions.setWording(["sheet.title": "New words"])
         XCTAssertTrue(Contributions.isActive)
-        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-09")
+        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-12")
         await Contributions.setSharing(false)
         XCTAssertEqual(Contributions.consent, .final)
         XCTAssertFalse(Contributions.isActive)

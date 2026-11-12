@@ -1,0 +1,627 @@
+{
+ "format": "quranlab.sdk-model-gate-vectors/3",
+ "about": "SDK 3.1.0: which answers of the server stop a model already on the device (make_model_gate.py; SPEC.md 15.3 and 15.4; every message and fix is the catalogue's). The rule: an answer stops a model exactly when its body carries a `reason` that is one of `stop_reasons`; an answer without a reason never does. `from` is `api` or `cdn` (a model request); `status` and `body` are the answer (both null: no answer). `expect.stops_model`: the refusal is remembered and client.model() and prefetch fail with `expect.error` until a later answer accepts the key. `expect.removes_models` (format 3, always equal to stops_model): with the stop the SDK removes every model build it holds from the device, so the model is downloaded again once the key is accepted. `expect.error`: the error the call raises when it cannot give a model, or null. A stop's error is server_rejected with the reason's entry, or invalid_key for the reasons of `key_reasons`. `model_request_reasons` are refusals of a model request that never stop a model. `app` fills {origin}; `sdk` fills {sdk}.",
+ "sdk": "3.1.0",
+ "app": "org.example.halaqa",
+ "stop_reasons": [
+  "key_revoked",
+  "key_unknown",
+  "app_not_allowed",
+  "origin_not_allowed",
+  "key_type_mismatch",
+  "app_blocked",
+  "developer_not_approved"
+ ],
+ "key_reasons": [
+  "key_revoked",
+  "key_unknown"
+ ],
+ "model_request_reasons": [
+  "model_attestation_required",
+  "model_not_allowed"
+ ],
+ "cases": [
+  {
+   "name": "API 401 invalid_key, reason key_revoked",
+   "about": "A key Quran Lab revoked, or one it never issued.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "key_revoked"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "invalid_key",
+     "reason": null,
+     "message": "Quran Lab does not accept this key.",
+     "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+    }
+   }
+  },
+  {
+   "name": "API 401 invalid_key, reason key_unknown",
+   "about": "A key Quran Lab revoked, or one it never issued.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "key_unknown"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "invalid_key",
+     "reason": null,
+     "message": "Quran Lab does not accept this key.",
+     "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+    }
+   }
+  },
+  {
+   "name": "API 401 invalid_token, reason key_revoked",
+   "about": "A token whose key was revoked after the token was issued. With this reason the token is NOT renewed: the key is refused.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_token",
+    "message": "The key of this token was revoked.",
+    "reason": "key_revoked"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "invalid_key",
+     "reason": null,
+     "message": "Quran Lab does not accept this key.",
+     "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+    }
+   }
+  },
+  {
+   "name": "API 401 invalid_key, reason app_not_allowed",
+   "about": "The API answers these as a bad key and says which check refused in `reason`.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "app_not_allowed"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "server_rejected",
+     "reason": "app_not_allowed",
+     "message": "This key belongs to another app (app_not_allowed).",
+     "fix": "A key works for the first app that used it. Make a key for this app at https://sdk.quranlab.ai/keys, or allow this app's identifier on the key's page."
+    }
+   }
+  },
+  {
+   "name": "API 401 invalid_key, reason origin_not_allowed",
+   "about": "The API answers these as a bad key and says which check refused in `reason`.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "origin_not_allowed"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "server_rejected",
+     "reason": "origin_not_allowed",
+     "message": "This page's origin, org.example.halaqa, is not on the key (origin_not_allowed).",
+     "fix": "Add this page's origin (scheme, host and port, for example https://app.example.org) to the key on its page at https://sdk.quranlab.ai/keys."
+    }
+   }
+  },
+  {
+   "name": "API 401 invalid_key, reason key_type_mismatch",
+   "about": "The API answers these as a bad key and says which check refused in `reason`.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "key_type_mismatch"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "server_rejected",
+     "reason": "key_type_mismatch",
+     "message": "This key is of the wrong type for this platform (key_type_mismatch).",
+     "fix": "Use an apps key on Android and iOS, a desktop key on macOS, Windows and Linux, and a web key in a browser page; sdk.quranlab.ai makes each of them under the same app."
+    }
+   }
+  },
+  {
+   "name": "API 403 app_blocked, reason app_blocked",
+   "about": "The app is blocked by Quran Lab or paused by its developer. It ends when a later answer accepts the key.",
+   "from": "api",
+   "status": 403,
+   "body": {
+    "error": "app_blocked",
+    "message": "This app is not served.",
+    "reason": "app_blocked"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "server_rejected",
+     "reason": "app_blocked",
+     "message": "Quran Lab does not serve this app at the moment: it is blocked by Quran Lab or paused by its developer (app_blocked).",
+     "fix": "Open the app's page on sdk.quranlab.ai: unpause the app there, or read the reason for the block and write to Quran Lab from the account that owns the app."
+    }
+   }
+  },
+  {
+   "name": "API 403 developer_not_approved, reason developer_not_approved",
+   "about": "The account behind the key has no access.",
+   "from": "api",
+   "status": 403,
+   "body": {
+    "error": "developer_not_approved",
+    "message": "No access yet.",
+    "reason": "developer_not_approved"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "server_rejected",
+     "reason": "developer_not_approved",
+     "message": "The account behind this key has no access to Quran Lab yet (developer_not_approved).",
+     "fix": "Open https://sdk.quranlab.ai/start with the account that owns the key and finish the access request; the key works as soon as access is given."
+    }
+   }
+  },
+  {
+   "name": "CDN 401, reason key_revoked",
+   "about": "A model request refused for the key or the app: the unchanged sentence and a reason.",
+   "from": "cdn",
+   "status": 401,
+   "body": {
+    "error": "missing or invalid x-qlab-key",
+    "reason": "key_revoked"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "invalid_key",
+     "reason": null,
+     "message": "Quran Lab does not accept this key.",
+     "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+    }
+   }
+  },
+  {
+   "name": "CDN 401, reason key_unknown",
+   "about": "A model request refused for the key or the app: the unchanged sentence and a reason.",
+   "from": "cdn",
+   "status": 401,
+   "body": {
+    "error": "missing or invalid x-qlab-key",
+    "reason": "key_unknown"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "invalid_key",
+     "reason": null,
+     "message": "Quran Lab does not accept this key.",
+     "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+    }
+   }
+  },
+  {
+   "name": "CDN 401, reason origin_not_allowed",
+   "about": "A model request refused for the key or the app: the unchanged sentence and a reason.",
+   "from": "cdn",
+   "status": 401,
+   "body": {
+    "error": "missing or invalid x-qlab-key",
+    "reason": "origin_not_allowed"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "server_rejected",
+     "reason": "origin_not_allowed",
+     "message": "This page's origin, org.example.halaqa, is not on the key (origin_not_allowed).",
+     "fix": "Add this page's origin (scheme, host and port, for example https://app.example.org) to the key on its page at https://sdk.quranlab.ai/keys."
+    }
+   }
+  },
+  {
+   "name": "CDN 401, reason key_type_mismatch",
+   "about": "A model request refused for the key or the app: the unchanged sentence and a reason.",
+   "from": "cdn",
+   "status": 401,
+   "body": {
+    "error": "missing or invalid x-qlab-key",
+    "reason": "key_type_mismatch"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "server_rejected",
+     "reason": "key_type_mismatch",
+     "message": "This key is of the wrong type for this platform (key_type_mismatch).",
+     "fix": "Use an apps key on Android and iOS, a desktop key on macOS, Windows and Linux, and a web key in a browser page; sdk.quranlab.ai makes each of them under the same app."
+    }
+   }
+  },
+  {
+   "name": "CDN 401, reason app_not_allowed",
+   "about": "A model request refused for the key or the app: the unchanged sentence and a reason.",
+   "from": "cdn",
+   "status": 401,
+   "body": {
+    "error": "missing or invalid x-qlab-key",
+    "reason": "app_not_allowed"
+   },
+   "expect": {
+    "stops_model": true,
+    "removes_models": true,
+    "error": {
+     "code": "server_rejected",
+     "reason": "app_not_allowed",
+     "message": "This key belongs to another app (app_not_allowed).",
+     "fix": "A key works for the first app that used it. Make a key for this app at https://sdk.quranlab.ai/keys, or allow this app's identifier on the key's page."
+    }
+   }
+  },
+  {
+   "name": "API 401 invalid_key without a reason",
+   "about": "No reason: not a stop. The network calls of this launch stop, as before.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "invalid_key",
+     "reason": null,
+     "message": "Quran Lab does not accept this key.",
+     "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+    }
+   }
+  },
+  {
+   "name": "API 401 invalid_key with a reason this SDK does not know",
+   "about": "A reason that is not in the list is no stop.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "This key is not valid.",
+    "reason": "a_reason_from_later"
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "invalid_key",
+     "reason": null,
+     "message": "Quran Lab does not accept this key.",
+     "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+    }
+   }
+  },
+  {
+   "name": "API 403 app_blocked without a reason",
+   "about": "The same code as a stop and no `reason`: the error says what it says, and a model on the device keeps running. Only a reason stops a model.",
+   "from": "api",
+   "status": 403,
+   "body": {
+    "error": "app_blocked",
+    "message": "This app is not served."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "server_rejected",
+     "reason": "app_blocked",
+     "message": "Quran Lab does not serve this app at the moment: it is blocked by Quran Lab or paused by its developer (app_blocked).",
+     "fix": "Open the app's page on sdk.quranlab.ai: unpause the app there, or read the reason for the block and write to Quran Lab from the account that owns the app."
+    }
+   }
+  },
+  {
+   "name": "CDN 401 without a reason",
+   "about": "The CDN's generic 401.",
+   "from": "cdn",
+   "status": 401,
+   "body": {
+    "error": "missing or invalid x-qlab-key"
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "invalid_key",
+     "reason": null,
+     "message": "Quran Lab does not accept this key.",
+     "fix": "Copy the key for this app and platform again from sdk.quranlab.ai; a revoked key has to be replaced by a new one there."
+    }
+   }
+  },
+  {
+   "name": "API 401 invalid_token without a reason",
+   "about": "Renew the token once and repeat the request once. No error of its own.",
+   "from": "api",
+   "status": 401,
+   "body": {
+    "error": "invalid_token",
+    "message": "Renew the token."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "CDN 401 invalid_token on a model request",
+   "about": "The same on a model request.",
+   "from": "cdn",
+   "status": 401,
+   "body": {
+    "error": "invalid_token",
+    "message": "Renew the token."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "API 503 network_blocked",
+   "about": "The network the request came from is not served (`retry_after`). Not a refusal of the key: try later or from another network.",
+   "from": "api",
+   "status": 503,
+   "body": {
+    "error": "network_blocked",
+    "message": "This network is not served.",
+    "retry_after": 3600
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "CDN 503 network_blocked",
+   "about": "The same on a model request (the header `retry-after`).",
+   "from": "cdn",
+   "status": 503,
+   "body": {
+    "error": "network_blocked",
+    "message": "This network is not served."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "CDN 403 model_attestation_required",
+   "about": "This install's token is valid and not attested where the server asks for an attested one. A refusal of this install's request, not of the key: the download fails with this error, and a model already on the device keeps running.",
+   "from": "cdn",
+   "status": 403,
+   "body": {
+    "error": "model_attestation_required",
+    "message": "An attested token is required."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "server_rejected",
+     "reason": "model_attestation_required",
+     "message": "Quran Lab could not confirm that this is the app as its store delivers it, running on a real device, and does not send it the model (model_attestation_required).",
+     "fix": "Run the app as the store or TestFlight installs it, on a real device: a simulator, an emulator and a changed app or device cannot be confirmed. While you develop, use this app's development key, which is not asked for this."
+    }
+   }
+  },
+  {
+   "name": "CDN 403 model_not_allowed",
+   "about": "The platform is switched off for model files.",
+   "from": "cdn",
+   "status": 403,
+   "body": {
+    "error": "model_not_allowed",
+    "message": "Not for this platform."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "server_rejected",
+     "reason": "model_not_allowed",
+     "message": "Quran Lab does not send model files to this platform at the moment (model_not_allowed).",
+     "fix": "Nothing in the app is wrong. See sdk.quranlab.ai for the state of this platform, or write to Quran Lab from the account that owns the app."
+    }
+   }
+  },
+  {
+   "name": "CDN 429 model_limit",
+   "about": "A daily limit of the install or the key (`scope`), with `retry-after`: try later, never a refusal. The download fails with download_failed and is not repeated in a loop.",
+   "from": "cdn",
+   "status": 429,
+   "body": {
+    "error": "model_limit",
+    "message": "The daily limit is reached.",
+    "scope": "install"
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "download_failed",
+     "reason": null,
+     "message": "The model download stopped: Quran Lab's daily limit for model downloads is reached; try again later.",
+     "fix": "Call model() or prefetch() again when the network is back; the download resumes where it stopped."
+    }
+   }
+  },
+  {
+   "name": "API 429 rate_limited",
+   "about": "Back off; not a refusal.",
+   "from": "api",
+   "status": 429,
+   "body": {
+    "error": "rate_limited",
+    "message": "Slow down."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "API 403 sdk_too_old",
+   "about": "The floor's answer keeps doing what it did in 3.0: its own error when the server is needed, and a model on the device keeps running.",
+   "from": "api",
+   "status": 403,
+   "body": {
+    "error": "sdk_too_old",
+    "message": "This key needs a newer SDK.",
+    "min_sdk": "3.2.0"
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "sdk_too_old",
+     "reason": null,
+     "message": "This key needs SDK 3.2.0 or later; this is 3.1.0.",
+     "fix": "Upgrade the TajweedFormer SDK to 3.2.0 or later (the min_sdk of the server's answer), with the install line of the README."
+    }
+   }
+  },
+  {
+   "name": "API 403 environment_mismatch",
+   "about": "A development key in a published build, or the other way round: an error that says so, not a stop.",
+   "from": "api",
+   "status": 403,
+   "body": {
+    "error": "environment_mismatch",
+    "message": "Wrong environment."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "server_rejected",
+     "reason": "environment_mismatch",
+     "message": "This key's environment (development or production) does not match this app (environment_mismatch).",
+     "fix": "Use the development key in the builds you run yourself and the production key in the build you publish; both are on the app's page on sdk.quranlab.ai."
+    }
+   }
+  },
+  {
+   "name": "API 403 a code this SDK does not know",
+   "about": "server_rejected with the code as {detail}; not a stop.",
+   "from": "api",
+   "status": 403,
+   "body": {
+    "error": "a_code_from_later",
+    "message": "Refused."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": {
+     "code": "server_rejected",
+     "reason": null,
+     "message": "Quran Lab refused this app: a_code_from_later.",
+     "fix": "Check in sdk.quranlab.ai that the key belongs to this app id and platform and that the app is not blocked."
+    }
+   }
+  },
+  {
+   "name": "API 500",
+   "about": "The server failed: retry with backoff.",
+   "from": "api",
+   "status": 500,
+   "body": {
+    "error": "internal",
+    "message": "Failed."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "CDN 503 storage_unavailable",
+   "about": "The same.",
+   "from": "cdn",
+   "status": 503,
+   "body": {
+    "error": "storage_unavailable",
+    "message": "Later."
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "no answer",
+   "about": "No network, a timeout, a connection that ends: a learner without a connection keeps working after a real download.",
+   "from": "api",
+   "status": null,
+   "body": null,
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "a config that does not verify",
+   "about": "200 with a signature that does not verify: the config is not used, and it stops nothing.",
+   "from": "api",
+   "status": 200,
+   "body": {
+    "note": "the signature over these bytes does not verify"
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  }
+ ]
+}

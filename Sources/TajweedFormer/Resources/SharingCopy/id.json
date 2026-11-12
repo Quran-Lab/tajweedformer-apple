@@ -1,10 +1,10 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-09.1",
+ "version": "2026-11-12.1",
  "lang": "id",
  "dir": "ltr",
  "source_lang": "en",
- "consent_version": "share-2026-11-09",
+ "consent_version": "share-2026-11-12",
  "delete_days": 0,
  "delete_timing": "immediate",
  "strings": {
@@ -14,7 +14,7 @@
   "sheet.hadith_ref": "Shahih Muslim 1631",
   "sheet.mistakes": "Kekeliruan bacaan Anda justru bagian yang paling berharga. Dari situ, model ini belajar cara mengoreksi pembelajar berikutnya dengan lembut.",
   "sheet.what": "Audio dari sesi bacaan Anda di aplikasi ini saat aplikasi menyimak, serta informasi teknis dasar seperti versi model dan jenis perangkat. Tanpa nama, tanpa kontak, tanpa lokasi.",
-  "sheet.who": "Quran Lab, sebuah inisiatif wakaf. Model yang dilatih di sini gratis untuk siapa saja, selamanya, dan tidak pernah diperjualbelikan.",
+  "sheet.who": "Quran Lab, sebuah inisiatif wakaf. Model yang dilatih di sini gratis untuk siapa saja, selamanya, dan tidak pernah diperjualbelikan. Tidak ada manusia yang mendengarkan rekaman Anda, kapan pun: hanya perangkat lunak yang belajar darinya.",
   "sheet.control": "Anda bisa berhenti kapan saja dan menghapus apa yang telah Anda bagikan melalui menu pengaturan.",
   "sheet.share": "Bagikan bacaan saya",
   "sheet.not_now": "Nanti saja",
@@ -26,7 +26,7 @@
   "settings.toggle": "Bagikan bacaan saya",
   "settings.what": "Data yang dibagikan",
   "settings.delete": "Hapus rekaman yang dibagikan",
-  "what.detail": "Ketika fitur berbagi aktif, rekaman audio tilawah Anda di aplikasi ini akan dikirim ke Quran Lab, bersama rincian teknis umum (versi model, tipe perangkat, versi sistem, hari), dan kode acak untuk instalasi ini. Sama sekali tanpa nama, akun, kontak, lokasi, ataupun tanda pengenal perangkat Anda. Data disimpan di Uni Eropa dan hanya digunakan untuk menyempurnakan model tilawah Al-Qur'an gratis. Mematikan fitur berbagi akan langsung menghentikan pengiriman, dan Anda dapat menghapus semua yang telah dibagikan kapan saja melalui pengaturan: data akan langsung dihapus dari server Quran Lab saat itu juga.",
+  "what.detail": "Ketika fitur berbagi aktif, rekaman audio tilawah Anda di aplikasi ini akan dikirim ke Quran Lab, bersama rincian teknis umum (versi model, tipe perangkat, versi sistem, hari), dan kode acak untuk instalasi ini. Sama sekali tanpa nama, akun, kontak, lokasi, ataupun tanda pengenal perangkat Anda. Data disimpan di Uni Eropa dan hanya digunakan untuk menyempurnakan model tilawah Al-Qur'an gratis. Tidak ada manusia yang mendengarkan rekaman Anda, kapan pun: hanya perangkat lunak yang belajar darinya. Mematikan fitur berbagi akan langsung menghentikan pengiriman, dan Anda dapat menghapus semua yang telah dibagikan kapan saja melalui pengaturan: data akan langsung dihapus dari server Quran Lab saat itu juga.",
   "delete.confirm": "Rekaman tilawah yang Anda bagikan akan langsung dihapus dari server Quran Lab saat itu juga. Tindakan ini tidak dapat dibatalkan.",
   "delete.action": "Hapus rekaman",
   "delete.cancel": "Batal hapus",
@@ -62,7 +62,7 @@
    "sheet.hadith_ref": "Sahih Muslim 1631",
    "sheet.mistakes": "The mistakes in your recitation are actually the most valuable part. From there, this model learns how to gently correct the next learner.",
    "sheet.what": "Audio from your recitation sessions in this app while the app is listening, as well as basic technical information such as model version and device type. No name, no contact, no location.",
-   "sheet.who": "Quran Lab, a waqf initiative. The model trained here is free for anyone, forever, and is never bought or sold.",
+   "sheet.who": "Quran Lab, a waqf initiative. The model trained here is free for anyone, forever, and is never bought or sold. No human listens to your recordings, at any time: only software learns from them.",
    "sheet.control": "You can stop at any time and delete what you have shared through the settings menu.",
    "sheet.share": "Share my recitation",
    "sheet.not_now": "Later",
@@ -74,7 +74,7 @@
    "settings.toggle": "Share my recitation",
    "settings.what": "Data that is shared",
    "settings.delete": "Delete shared recordings",
-   "what.detail": "When the sharing feature is active, your recitation audio recordings in this app will be sent to Quran Lab, along with general technical details (model version, device type, system version, day), and a random code for this installation. Completely without your name, account, contacts, location, or device identifier. Data is stored in the European Union and is only used to improve the free Quran recitation model. Turning off the sharing feature will immediately stop sending, and you can delete everything that has been shared at any time through settings: data will be immediately deleted from Quran Lab servers right then.",
+   "what.detail": "When the sharing feature is active, your recitation audio recordings in this app will be sent to Quran Lab, along with general technical details (model version, device type, system version, day), and a random code for this installation. Completely without your name, account, contacts, location, or device identifier. Data is stored in the European Union and is only used to improve the free Quran recitation model. No human listens to your recordings, at any time: only software learns from them. Turning off the sharing feature will immediately stop sending, and you can delete everything that has been shared at any time through settings: data will be immediately deleted from Quran Lab servers right then.",
    "delete.confirm": "The recitation recordings you shared will be immediately deleted from the Quran Lab server right then. This action cannot be undone.",
    "delete.action": "Delete recordings",
    "delete.cancel": "Cancel deletion",
@@ -100,6 +100,11 @@
     "version": "2026-11-09.1",
     "change": "removed the recited ayah from sheet.what and what.detail: the SDKs do not send it",
     "method": "exact phrase removal from the reviewed 2026-11-07.3 text, no re-translation"
+   },
+   {
+    "version": "2026-11-12.1",
+    "change": "one sentence added to sheet.who and what.detail: no human ever listens to the recordings, only software learns from them",
+    "method": "a new sentence written for this language on 2026-11-12 and placed without touching the reviewed 2026-11-09.1 text; not yet read by a native reviewer"
    }
   ],
   "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"

@@ -1,10 +1,10 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-09.1",
+ "version": "2026-11-12.1",
  "lang": "bn",
  "dir": "ltr",
  "source_lang": "en",
- "consent_version": "share-2026-11-09",
+ "consent_version": "share-2026-11-12",
  "delete_days": 0,
  "delete_timing": "immediate",
  "strings": {
@@ -14,7 +14,7 @@
   "sheet.hadith_ref": "সহিহ মুসলিম 1631",
   "sheet.mistakes": "আপনার ভুলগুলোই এখানে সবচেয়ে মূল্যবান অংশ। এগুলো পরবর্তী শিক্ষার্থীকে নম্রভাবে ভুল শুধরে দিতে মডেলটিকে শেখায়।",
   "sheet.what": "অ্যাপটি শোনার সময় এতে আপনার তিলাওয়াতের অডিও এবং মডেল ভার্সন ও ডিভাইসের ধরনের মতো সাধারণ কিছু কারিগরি তথ্য। কোনো নাম, যোগাযোগের তথ্য বা লোকেশন নয়।",
-  "sheet.who": "Quran Lab, একটি ওয়াকফ। এর তৈরি মডেলগুলো সবার জন্য চিরকাল সম্পূর্ণ বিনামূল্যে এবং এগুলো কখনোই বিক্রি করা হয় না।",
+  "sheet.who": "Quran Lab, একটি ওয়াকফ। এর তৈরি মডেলগুলো সবার জন্য চিরকাল সম্পূর্ণ বিনামূল্যে এবং এগুলো কখনোই বিক্রি করা হয় না। কোনো মানুষ কখনোই আপনার রেকর্ডিং শোনে না: এগুলো থেকে কেবল সফটওয়্যারই শেখে।",
   "sheet.control": "আপনি যেকোনো সময় এটি বন্ধ করতে পারেন এবং যা শেয়ার করেছেন তা সেটিংস থেকে মুছে ফেলতে পারেন।",
   "sheet.share": "আমার তিলাওয়াত শেয়ার করুন",
   "sheet.not_now": "এখন নয়",
@@ -26,7 +26,7 @@
   "settings.toggle": "আমার তিলাওয়াত শেয়ার করুন",
   "settings.what": "যা শেয়ার করা হয়",
   "settings.delete": "শেয়ার করা তিলাওয়াত মুছুন",
-  "what.detail": "শেয়ারিং চালু থাকলে, এই অ্যাপে আপনার তিলাওয়াত সেশনের অডিও Quran Lab-এ পাঠানো হয়। এর সাথে থাকে সাধারণ কিছু কারিগরি তথ্য (মডেল সংস্করণ, ডিভাইসের ধরন, সিস্টেম সংস্করণ, দিন) এবং এই ইনস্টলেশনের জন্য একটি র‍্যান্ডম কোড। আপনার নাম, অ্যাকাউন্ট, কনট্যাক্ট, লোকেশন বা ডিভাইস শনাক্তকারী তথ্য কখনোই নেওয়া হয় না। এটি ইইউ (EU)-তে সংরক্ষিত থাকে এবং কেবল বিনামূল্যে ব্যবহারযোগ্য কুরআন তিলাওয়াত মডেলগুলোর মানোন্নয়নে ব্যবহৃত হয়। শেয়ারিং বন্ধ করলে সাথে সাথেই আপলোড বন্ধ হয়ে যায়, আর সেটিংস থেকে যেকোনো সময় আপনি শেয়ার করা সবকিছু মুছে ফেলতে পারেন: Quran Lab-এর সার্ভার থেকে এটি সাথে সাথেই মুছে ফেলা হয়।",
+  "what.detail": "শেয়ারিং চালু থাকলে, এই অ্যাপে আপনার তিলাওয়াত সেশনের অডিও Quran Lab-এ পাঠানো হয়। এর সাথে থাকে সাধারণ কিছু কারিগরি তথ্য (মডেল সংস্করণ, ডিভাইসের ধরন, সিস্টেম সংস্করণ, দিন) এবং এই ইনস্টলেশনের জন্য একটি র‍্যান্ডম কোড। আপনার নাম, অ্যাকাউন্ট, কনট্যাক্ট, লোকেশন বা ডিভাইস শনাক্তকারী তথ্য কখনোই নেওয়া হয় না। এটি ইইউ (EU)-তে সংরক্ষিত থাকে এবং কেবল বিনামূল্যে ব্যবহারযোগ্য কুরআন তিলাওয়াত মডেলগুলোর মানোন্নয়নে ব্যবহৃত হয়। কোনো মানুষ কখনোই আপনার রেকর্ডিং শোনে না: এগুলো থেকে কেবল সফটওয়্যারই শেখে। শেয়ারিং বন্ধ করলে সাথে সাথেই আপলোড বন্ধ হয়ে যায়, আর সেটিংস থেকে যেকোনো সময় আপনি শেয়ার করা সবকিছু মুছে ফেলতে পারেন: Quran Lab-এর সার্ভার থেকে এটি সাথে সাথেই মুছে ফেলা হয়।",
   "delete.confirm": "আপনার শেয়ার করা তিলাওয়াতগুলো সাথে সাথেই Quran Lab-এর সার্ভার থেকে মুছে ফেলা হবে। এটি আর ফিরিয়ে আনা সম্ভব নয়।",
   "delete.action": "মুছে ফেলুন",
   "delete.cancel": "বাতিল করুন",
@@ -63,7 +63,7 @@
    "sheet.hadith_ref": "Sahih Muslim 1631",
    "sheet.mistakes": "Your mistakes are the most valuable part here. These teach the model to gently correct mistakes for the next student.",
    "sheet.what": "Audio of your recitation in it while the app is listening, and some general technical information like model version and device type. No name, contact info, or location.",
-   "sheet.who": "Quran Lab, a waqf. The models it creates are completely free for everyone forever, and they are never sold.",
+   "sheet.who": "Quran Lab, a waqf. The models it creates are completely free for everyone forever, and they are never sold. No human ever listens to your recordings: only software learns from them.",
    "sheet.control": "You can turn this off at any time and delete what you have shared from settings.",
    "sheet.share": "Share my recitation",
    "sheet.not_now": "Not now",
@@ -75,7 +75,7 @@
    "settings.toggle": "Share my recitation",
    "settings.what": "What is shared",
    "settings.delete": "Delete shared recitation",
-   "what.detail": "If sharing is enabled, the audio of your recitation sessions in this app is sent to Quran Lab. Along with this, some general technical information (model version, device type, system version, day), and a random code for this installation are included. Your name, account, contacts, location, or device identifiers are never collected. It is stored in the EU and used solely to improve free-to-use Quran recitation models. Disabling sharing stops uploads immediately, and you can delete everything you have shared at any time from settings: it is deleted immediately from Quran Lab's servers.",
+   "what.detail": "If sharing is enabled, the audio of your recitation sessions in this app is sent to Quran Lab. Along with this, some general technical information (model version, device type, system version, day), and a random code for this installation are included. Your name, account, contacts, location, or device identifiers are never collected. It is stored in the EU and used solely to improve free-to-use Quran recitation models. No human ever listens to your recordings: only software learns from them. Disabling sharing stops uploads immediately, and you can delete everything you have shared at any time from settings: it is deleted immediately from Quran Lab's servers.",
    "delete.confirm": "Your shared recitations will be deleted immediately from Quran Lab's servers. This cannot be undone.",
    "delete.action": "Delete",
    "delete.cancel": "Cancel",
@@ -110,6 +110,11 @@
     "version": "2026-11-09.1",
     "change": "removed the recited ayah from sheet.what and what.detail: the SDKs do not send it",
     "method": "exact phrase removal from the reviewed 2026-11-07.3 text, no re-translation"
+   },
+   {
+    "version": "2026-11-12.1",
+    "change": "one sentence added to sheet.who and what.detail: no human ever listens to the recordings, only software learns from them",
+    "method": "a new sentence written for this language on 2026-11-12 and placed without touching the reviewed 2026-11-09.1 text; not yet read by a native reviewer"
    }
   ],
   "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"
