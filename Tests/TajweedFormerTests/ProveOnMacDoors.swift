@@ -80,9 +80,13 @@ extension ProveDoors {
                 return out.isEmpty ? nil : out
             },
             hasBuild: { (model: TajweedModel, build: String, context: String) -> Bool in
-                guard DownloadProfile.osRunsCoreML, !ModelContexts.isCPUOnly(context) else { return false }
+                // the manifest says which contexts a build serves (SPEC 5.4): the profile lists nothing for the others
+                guard DownloadProfile.osRunsCoreML else { return false }
                 let profile = DownloadProfile(context: context, coreML: true, compact: build == "coreml-compact")
                 return !profile.appleFiles(model.folder.manifest).isEmpty
+            },
+            servedByKey: { (model: TajweedModel, build: String, context: String) -> Bool in
+                model.folder.manifest.serving(build: build, context: context)?.by == .tolerance
             },
             promotion: { (model: TajweedModel, build: String, context: String) -> ProvePromotion? in
                 let store = PromotionStore(dir: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"))

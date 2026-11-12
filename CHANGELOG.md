@@ -1,5 +1,70 @@
 # Changelog
 
+## 3.0.2 (unreleased)
+
+A CoreML package can carry its keep table inside, and the model's signed manifest says which contexts an
+accelerator build serves. The same engine as 3.0.0, the same behaviour with the model builds of 4.0.0, and nothing
+to change in an app's code.
+
+### CoreML packages that carry their keep table inside
+- Until now a CoreML package took its keep rows from a keep table file next to it (`coreml/<context>/keeps.bin`,
+  one per context) through the inputs `zf_keepf` and `zf_keepb`. A package can now carry the table inside: its
+  front and back functions take one small input, `keep_sel` (a one-hot selector of the table's row), and the model
+  lists no keep table file for it.
+- The SDK tells the two kinds apart by the package's own inputs when it loads the package, never by a version or by
+  the package's metadata, and runs both. The packages of 4.0.0 run exactly as before, and a device can hold a build
+  of each kind.
+- A package the SDK cannot run (front and back of different kinds, or a package that needs a keep table the model
+  does not list for the context) is set aside when it is loaded, like any package that fails to load: the promotion
+  ends with `compile_error` and Sessions stay on the CPU engine.
+- The model builds released so far (4.0.0) all have keep tables. A package of the new kind has run through this
+  SDK's host code in the tests only, on a stand-in that has the package's interface and no model; it has not run on
+  a Neural Engine through this SDK yet.
+
+### Which contexts an accelerator build serves
+- This is now read from the model's signed manifest. A build (`coreml`, `coreml-compact`) serves a context when the
+  manifest signs a tolerance for that build and context (the key `coreml:c16_l64`), or lists a keep table for the
+  context, as the builds of 4.0.0 do. The golden test of a context judges the build by the tolerance signed for
+  that context.
+- For a context a build does not serve, nothing of the build is downloaded, no promotion is started or recorded,
+  and Sessions run on the exact CPU engine. `diagnose()` reports such a context as it reports any context without
+  accelerator files.
+- The list of CPU-only contexts in the SDK's code is gone (it held `c8_l64`). The manifest decides for every
+  context. With the builds of 4.0.0 nothing changes: they list no accelerator files for `c8_l64`, and it runs on
+  the CPU engine.
+- A Backend's name, the promotion records and the reports name a build `coreml` or `coreml-compact`, as before; the
+  context is not part of the name.
+
+### The model files of another model
+- When a device moves to another model (the signed config recommends a model with another id), the files of the
+  model it leaves are now removed from the SDK's store, once the new model is downloaded, verified and the one in
+  use. Until now they stayed on the device for ever. Only the SDK's own model folders are removed; a download that
+  fails leaves the old model whole and in use; the build in use and the one before it are kept, as before; an app
+  pinned to a model version, or to a revision, keeps what it has. `client.storage` and `diagnose().storage` list
+  what is on disk: both models while the new one is being installed, then only the one in use.
+
+### The proof on a Mac (`scripts/prove-on-mac.sh`)
+- It passes on a model build that has no accelerator for any context (no CoreML files, or a package for which the
+  manifest signs no context): the pipeline step says so in one sentence, and nothing is counted as a promotion.
+- It names no model version of its own. The version a run expects is the one the signed config names for the key
+  (or the one `QURANLAB_EXPECT_VERSION` names).
+- For a build whose packages carry their keep tables inside, it runs the pipeline in every context the manifest
+  signs a tolerance for, prints the golden stage's measures per build and context whatever the verdict, and prints
+  its proposed tolerance per build and context, under the key `<build>:<context>`. For a build with keep tables
+  the proposal is unchanged: one entry per build. The line above the entries says which form it is.
+
+### Tests and sources
+- The situations the TajweedFormer SDKs share for this rule (`accelerator_serves.json`, 14 signed manifests) run in
+  the test suite.
+- The test of the decoded layer against the shared reference vectors matched a clip by its name alone; 12 clips are
+  in the reference in two contexts. It now matches by name and context.
+- The sources no longer carry a table of the tokens one bundled clip decodes to (a test read it, nothing else): what
+  a model's sample clips decode to is in the model's folder.
+- The config test holds a signed config of channel `alpha`: it is taken like `beta` and `stable`, and nothing the
+  SDK sends names the channel.
+- Three comments in the sources and tests still described the 3.0.1 sharing fix in the words 3.0.1's CHANGELOG
+  replaced; they now say what that entry says.
+
 ## 3.0.1
 
 One fix for sharing and two for `diagnose()`. The same engine and the same model builds as 3.0.0, and nothing to

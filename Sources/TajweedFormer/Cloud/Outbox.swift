@@ -17,9 +17,11 @@ import Foundation
 /// status: it is retried with the same backoff until it is accepted or dropped, across relaunches.
 ///
 /// Sharing off during an upload (3.0.1, the four rules of the shared `sharing_off.json`): when the learner turns
-/// sharing off or deletes what they shared, no byte of audio leaves the device after the call returns, whatever
-/// was in flight; the call returns within 3 s even when a request hangs; nothing unsent stays on the device; and
-/// turning sharing on again works at once. For that every request of a pass is its own task and is cancelled by
+/// sharing off or deletes what they shared, from the moment the call returns the SDK hands nothing more to the
+/// system and has ended the request that was in flight (what the system had already taken into its send buffer
+/// may still go out, which can be the whole segment that was being sent; nothing after it is sent); the call
+/// returns within 3 s even when a request hangs; nothing unsent stays on the device; and turning sharing on again
+/// works at once. For that every request of a pass is its own task and is cancelled by
 /// a stop (`transmit`, `abort`), the pass asks `may` before every request and after every answer, a recording
 /// that was taken out stays out (`gone`: no record, no write, no request, and its folder is deleted again at the
 /// second look), and no pass starts while a stop is at work (`stops`).

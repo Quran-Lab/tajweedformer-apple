@@ -6,10 +6,12 @@ import Foundation
 /// folder was opened; a file the manifest does not list is never opened. A folder is one build of a model version.
 struct ModelFolder: Sendable {
     /// One CoreML build of a context: the package (multifunction: functions `front_<ctx>` / `back_<ctx>`; a
-    /// single-context package: `front` / `back`) and the context's keep table.
+    /// single-context package: `front` / `back`) and the context's keep table when the manifest lists one. A
+    /// package that carries its keep table inside (it takes `keep_sel`) has none; which kind a package is, its own
+    /// inputs say when it is loaded (`TajweedNeuralEngine`), never the manifest.
     struct CoreMLBuild: Sendable, Hashable {
         let package: URL
-        let keeps: URL
+        let keeps: URL?
         let context: String
         let frontFunction: String
         let backFunction: String
@@ -64,14 +66,17 @@ struct ModelFolder: Sendable {
 
     /// The CoreML build for `context`, when the folder has a verified one on disk. `compact` names the build: true
     /// the compact (int8) one, false the fp16 one, and neither stands in for the other; nil takes whichever is there,
-    /// the fp16 one first. The multifunction package (context `*`) comes before a context's own package. Always nil
-    /// for a CPU-only context (`ModelContexts`).
+    /// the fp16 one first. The multifunction package (context `*`) comes before a context's own package. Nil for a
+    /// context the build does not serve (`ModelManifest.serving`, SPEC 5.4): the manifest decides, for every
+    /// context. A keep table the manifest lists for the context must be on disk and verified too; a build whose
+    /// manifest lists none for the context has none (`keeps` is nil).
     func coreML(context: String, compact: Bool? = nil) -> CoreMLBuild? {
-        guard !ModelContexts.isCPUOnly(context), coreMLProblem == nil, manifest.contexts.contains(context) else { return nil }
-        guard let keeps = manifest.files.first(where: { $0.role == "coreml-keeps" && $0.context == context }),
-              verifiedFiles.contains(keeps.localPath) else { return nil }
+        guard coreMLProblem == nil, manifest.contexts.contains(context) else { return nil }
+        let keeps = manifest.files.first { $0.role == "coreml-keeps" && $0.context == context }
+        if let keeps, !verifiedFiles.contains(keeps.localPath) { return nil }
         var order: [(String, String)] = []
         for role in ["coreml", "coreml-compact"] where compact == nil || compact == (role == "coreml-compact") {
+            guard manifest.serving(build: role, context: context) != nil else { continue }
             order += [(role, "*"), (role, context)]
         }
         for (role, scope) in order {
@@ -80,7 +85,7 @@ struct ModelFolder: Sendable {
             let inPkg = files.filter { $0.localPath.hasPrefix(pkg + "/") }
             guard !inPkg.isEmpty, inPkg.allSatisfy({ verifiedFiles.contains($0.localPath) }) else { continue }
             let multi = scope == "*"
-            return CoreMLBuild(package: directory.appendingPathComponent(pkg), keeps: directory.appendingPathComponent(keeps.localPath),
+            return CoreMLBuild(package: directory.appendingPathComponent(pkg), keeps: keeps.map { directory.appendingPathComponent($0.localPath) },
                                context: context, frontFunction: multi ? "front_\(context)" : "front",
                                backFunction: multi ? "back_\(context)" : "back", compact: role == "coreml-compact")
         }

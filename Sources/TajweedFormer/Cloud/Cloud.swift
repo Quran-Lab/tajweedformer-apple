@@ -492,7 +492,11 @@ final class QuranLabCloud: Sendable {
         guard key != nil else { return .deferred("no developer key configured") }
         if config.current == nil { _ = await refreshConfig() }
         guard let target = targetRevision(id) else { return .deferred("no revision in the config yet") }
-        return await updater.update(id, to: target, version: targetVersion(id), context: context, activate: activate)
+        let outcome = await updater.update(id, to: target, version: targetVersion(id), context: context, activate: activate)
+        // The model of this id is installed, verified and the one in use: the store folders of every other model id
+        // go (`ModelStore.removeOtherModels`). An install pinned to a model version stays as it is.
+        if activate, case .installed(let model, _) = outcome, config.pinnedVersion == nil { store.removeOtherModels(inUse: model) }
+        return outcome
     }
 
     // MARK: sharing routes for the learner

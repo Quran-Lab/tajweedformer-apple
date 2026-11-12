@@ -227,8 +227,62 @@ struct ModelManifest: Sendable, Hashable {
     /// The builds whose `golden_raw_tolerance` entry is malformed: judged on tokens only.
     var tokensOnlyBuilds: [String] { goldenRawSigned ? GoldenRawTolerance.parse(goldenRawField).bad : [] }
 
-    /// The raw golden tolerance of `build` (`coreml`, `coreml-compact`), when the signed manifest gives one.
+    /// The entry of the signed `golden_raw_tolerance` under the key `build` (`coreml`, `coreml:c16_l64`,
+    /// `npu:exynos2500:c16_l64`), when it is well formed. The golden stage of an Apple build asks
+    /// `rawTolerance(build:context:)`, which knows which key is in force for a context.
     func rawTolerance(build: String) -> GoldenRawTolerance? { goldenRaw[build] }
+
+    /// How an Apple accelerator build serves a context (SDK 3.0.2, SPEC 5.4).
+    struct Serving: Sendable, Hashable {
+        enum By: String, Sendable, Hashable {
+            /// The signed tolerance has a well-formed entry under `<build>:<context>`.
+            case tolerance
+            /// A keep table (role `coreml-keeps`) is listed for the context, as in every build before 3.0.2.
+            case keepTable = "keep table"
+        }
+
+        let by: By
+        /// The key of `golden_raw_tolerance` whose entry the golden stage uses in this context: `<build>:<context>`,
+        /// or the plain `<build>` of a context served by its keep table; nil when the signed tolerance has no
+        /// such entry (the build is then judged on identical tokens).
+        let toleranceKey: String?
+    }
+
+    /// Whether the Apple build `build` (`coreml`, `coreml-compact`) serves `context`, and by what; nil when it does
+    /// not: a Session in that context runs on the CPU engine, nothing of the build is fetched for it and no
+    /// promotion is started. In this order (the reference is the contract's `manifest30.py serves`, the vector
+    /// `accelerator_serves.json`):
+    /// 1. the context is one of `contexts`, and the manifest lists the build's package for Apple with context `*`
+    ///    or this context; else not served;
+    /// 2. the SIGNED tolerance has a well-formed entry under `<build>:<context>`: served, and that entry is the
+    ///    golden stage's tolerance;
+    /// 3. else a keep table is listed for Apple for this context: served as before 3.0.2, the tolerance is the plain
+    ///    entry `<build>`, or none;
+    /// 4. else not served.
+    /// An unsigned tolerance counts as absent, its keys with it, and a malformed entry names nothing (`goldenRaw`
+    /// holds only the well-formed entries of a signed field). No list of contexts written into the SDK takes part.
+    /// Tried before (2.0.x to 3.0.1): a context was served when the package and a keep table were listed, unless
+    /// the SDK's own list of CPU-only contexts (`c8_l64`) named it. A package that carries its keep table inside
+    /// lists none, so nothing in the manifest said which contexts it has functions for.
+    func serving(build: String, context: String) -> Serving? {
+        guard DownloadProfile.packageRoles.contains(build), contexts.contains(context) else { return nil }
+        let apple = DownloadProfile.platform
+        guard files.contains(where: { $0.role == build && $0.isFor(platform: apple) && ($0.context == "*" || $0.context == context) }) else {
+            return nil
+        }
+        let key = "\(build):\(context)"
+        if goldenRaw[key] != nil { return Serving(by: .tolerance, toleranceKey: key) }
+        if files.contains(where: { $0.role == "coreml-keeps" && $0.isFor(platform: apple) && $0.context == context }) {
+            return Serving(by: .keepTable, toleranceKey: goldenRaw[build] != nil ? build : nil)
+        }
+        return nil
+    }
+
+    /// The tolerance the golden stage uses for the Apple build `build` in `context`: the entry under the key in
+    /// force there (`serving`), or nil (identical tokens decide) when the build is served without one or not served.
+    func rawTolerance(build: String, context: String) -> GoldenRawTolerance? {
+        serving(build: build, context: context)?.toleranceKey.flatMap { goldenRaw[$0] }
+    }
 
     init(modelID: String, family: String = "tajweedformer", revision: String, version: String = "4.0.0", minSDKVersion: String = "3.0.0",
          engineFormat: Int = 3, coremlFormat: Int = 9, tokens: String = "tokens.txt", tokensSHA256: String,

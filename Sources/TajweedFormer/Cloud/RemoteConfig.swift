@@ -10,7 +10,8 @@ struct RemoteConfig: Codable, Sendable, Equatable {
         let revision: String
         /// The model version of that build, `4.0.0` (SDK 3.0.0).
         let version: String?
-        /// "pin", "stable" or "beta".
+        /// Where the build comes from: "pin", or the name of a channel ("stable", "beta", "alpha"). A free string: the
+        /// SDK does not compare it with a list, send it back or act on it, as it does not with the config's `channel`.
         let source: String
         /// The model id (the folder name under sdk/ in the repository), when the server knows it.
         let model_id: String?
@@ -273,6 +274,9 @@ final class ConfigStore: Sendable {
     private let state = Locked<RemoteConfig?>(nil)
     /// The model version the config request pins (`model_version`), when the app pinned one.
     private let pinned = Locked<String?>(nil)
+
+    /// The model version the app pinned, when it pinned one.
+    var pinnedVersion: String? { pinned.withLock { $0 } }
 
     /// Sets the pin; true when it changed.
     func pin(_ version: String?) -> Bool {

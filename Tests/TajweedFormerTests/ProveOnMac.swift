@@ -118,6 +118,9 @@ struct ProveDoors: Sendable {
     var expectedTokens: @Sendable (_ model: TajweedModel, _ context: String) -> [String: [Int]]?
     /// Whether the model lists a CoreML build (`coreml`, `coreml-compact`) this Mac can run for a context.
     var hasBuild: @Sendable (_ model: TajweedModel, _ build: String, _ context: String) -> Bool
+    /// Whether the build serves the context by a tolerance signed under `<build>:<context>` (a build without keep
+    /// tables, SPEC 5.4); false for a context served by its keep table, and for one that is not served.
+    var servedByKey: @Sendable (_ model: TajweedModel, _ build: String, _ context: String) -> Bool = { _, _, _ in false }
     /// The promotion's record for a build and context of the model.
     var promotion: @Sendable (_ model: TajweedModel, _ build: String, _ context: String) -> ProvePromotion?
     /// Sends the day's telemetry now: deltas the server accepted, and deltas still waiting. Nil when telemetry is off.
@@ -305,6 +308,9 @@ struct ProveMeasured: Sendable, Equatable {
     var measures: ProveMeasures
     /// The golden stage's verdict on this run.
     var passed = true
+    /// The build serves this context by a tolerance signed under `<build>:<context>` (a build without keep tables):
+    /// the proposal then has an entry for this build and context, under that key.
+    var keyed = false
 }
 
 /// What goes with every record of measures: the model they belong to, the self-test clips compared, and the device
@@ -685,21 +691,42 @@ enum ProveOnMac {
         return out
     }
 
-    /// A tolerance made from the measures, as a PROPOSAL for the model side and named as such: per build the largest
-    /// value of each measure over its records (the ones the golden stage did not pass included), in the shape of a
+    /// The proposal's line of words for a build with keep tables: one entry per build.
+    static let proposalPerBuild = "a proposal for the model side, not a tolerance in force: per build the largest value of each measure over the "
+        + "records above, no margin added (the margin and the signing are the model side's)"
+    /// The proposal's line of words for a build without keep tables: one entry per build and context, and why.
+    static let proposalPerContext = "a proposal for the model side, not a tolerance in force: one entry per build and context, under the key "
+        + "<build>:<context>, because this build has no keep tables: it is tried only in a context whose tolerance is signed under that key, "
+        + "and judged there by that entry (a build with keep tables gets one entry per build, the largest over its contexts); each entry is "
+        + "what was measured in its context, no margin added (the margin and the signing are the model side's)"
+
+    /// A tolerance made from the measures, as a PROPOSAL for the model side and named as such, in the shape of a
     /// manifest's `golden_raw_tolerance`, with no margin added. The margin and the signing are the model side's.
-    /// Empty when nothing was measured.
+    /// Empty when nothing was measured. Two forms, by how the build serves its contexts (SPEC 5.1 and 5.4):
+    /// - a build with keep tables: one entry per build under the plain key, the largest value of each measure over
+    ///   its records (the ones the golden stage did not pass included), as since 3.0.0;
+    /// - a build without keep tables (`keyed` records): one entry per build and context under `<build>:<context>`,
+    ///   what was measured there. Such a build is tried only where that key is signed, so its first build signs the
+    ///   identical-tokens entry per context and its next build is signed from these entries.
+    /// The line of words above the field says which form follows, and for the second why. A run that measured
+    /// both kinds prints both lines and both kinds of entry.
     static func proposalBlock(_ measured: [ProveMeasured]) -> [String] {
         guard !measured.isEmpty else { return [] }
-        var out = ["a proposal for the model side, not a tolerance in force: per build the largest value of each measure over the "
-            + "records above, no margin added (the margin and the signing are the model side's)"]
+        var out: [String] = []
+        if measured.contains(where: { !$0.keyed }) { out.append(proposalPerBuild) }
+        if measured.contains(where: { $0.keyed }) { out.append(proposalPerContext) }
         out.append("\"golden_raw_tolerance\": {")
         var builds: [String] = []
         for m in measured where !builds.contains(m.build) { builds.append(m.build) }
-        for (i, b) in builds.enumerated() {
-            let top = largest(measured.filter { $0.build == b }.map(\.measures))
-            out.append(" \"\(b)\": \(entry(top))" + (i + 1 < builds.count ? "," : ""))
+        var entries: [String] = []
+        for b in builds {
+            let plain = measured.filter { $0.build == b && !$0.keyed }
+            if !plain.isEmpty { entries.append(" \"\(b)\": \(entry(largest(plain.map(\.measures))))") }
+            for m in measured where m.build == b && m.keyed {
+                entries.append(" \"\(b):\(m.context)\": \(entry(m.measures))")
+            }
         }
+        for (i, e) in entries.enumerated() { out.append(e + (i + 1 < entries.count ? "," : "")) }
         out.append("}")
         return out
     }
@@ -978,8 +1005,22 @@ enum ProveOnMac {
     /// none, is the pipeline doing its job). It fails only on a fault of the pipeline: a crash, a stage that did not
     /// end, a promotion outside the tolerance (with token edits, for a build that has none). Its line says how many
     /// ended each way.
-    static func pipelineVerdict(_ ended: [ProveEnded]) -> (verdict: ProveVerdict, note: String) {
-        guard !ended.isEmpty else { return (.fail, "the model lists no CoreML build for this Mac") }
+    /// `served`: how many build and context pairs of the run the model's manifest has an accelerator build serve
+    /// (nil when the caller does not say). With none, there is nothing for the pipeline to do and the step passes
+    /// with `nothingServed`, one sentence that says so: a build without CoreML files, or one whose manifest signs no
+    /// context for its package, runs every context on the CPU engine, and that is not a failed promotion.
+    /// Tried before (to the first 3.0.2 candidate): a run in which no build went through the pipeline failed the
+    /// step with "the model lists no CoreML build for this Mac", so the proof could not pass on such a build.
+    static func pipelineVerdict(_ ended: [ProveEnded], served: Int? = nil,
+                                nothingServed: String = ProveOnMac.nothingServed(builds: [], others: [], contexts: nil)) -> (verdict: ProveVerdict, note: String) {
+        if served == 0, ended.isEmpty { return (.pass, nothingServed) }
+        guard !ended.isEmpty else {
+            if let served, served > 0 {
+                return (.fail, "no build went through the pipeline, although the model has \(served) build and context "
+                    + (served == 1 ? "pair" : "pairs") + " served")
+            }
+            return (.fail, "the model lists no CoreML build for this Mac")
+        }
         var promoted = 0
         var stayed: [(words: String, count: Int)] = []
         var faults: [String] = []
@@ -1023,6 +1064,19 @@ enum ProveOnMac {
             note += "; \(faults.count) pipeline " + (faults.count == 1 ? "error" : "errors") + ": " + faults[0]
         }
         return (faults.isEmpty ? .pass : .fail, note)
+    }
+
+    /// Step 4's sentence when the model's manifest has no accelerator build of the run serve any of its contexts.
+    /// `builds`: the builds of the run; `others`: accelerator builds that are not of the run and do serve one of
+    /// its contexts; `contexts`: the run's contexts when it was held to a part of the model's, else nil.
+    static func nothingServed(builds: [String], others: [String], contexts: [String]?) -> String {
+        let end = "every context runs on the CPU engine, and there is nothing to promote"
+        guard !others.isEmpty else {
+            if let contexts { return "no accelerator build serves the contexts of this run (\(contexts.joined(separator: " "))): \(end)" }
+            return "no accelerator build serves any context of this build: \(end)"
+        }
+        return "the builds of this run (\(builds.joined(separator: " "))) serve none of its contexts; \(others.joined(separator: " and ")) "
+            + "does, and was not asked for: in this run \(end)"
     }
 
     /// The summary's line about the SDK: its version and, in words, how it stands to the newest release the signed
@@ -1247,7 +1301,11 @@ enum ProveOnMac {
             return report()
         }
         let p = progress.snapshot
-        let checked = doors.verify(model, config.expectVersion, config.expectBuild)
+        // The version the model must have: the one the run was told to expect, else the one the signed config names
+        // for this key. The proof names no model version of its own (until 3.0.2 the script expected 4.0.0 unless
+        // told otherwise, so it could not pass on another version).
+        let wantVersion = config.expectVersion ?? named.version
+        let checked = doors.verify(model, wantVersion, config.expectBuild)
         out.say("    model \(model.version), build \(model.build); the manifest verifies with the release key \(doors.releaseKeyID): "
             + (checked.ok ? "yes" : "NO"))
         out.say("    \(checked.files) of the \(checked.listed) listed files are on this Mac, each checked by size and SHA-256 "
@@ -1258,9 +1316,9 @@ enum ProveOnMac {
         if !checked.ok {
             steps[2].verdict = .fail
             steps[2].note = checked.problem ?? "the folder does not verify"
-        } else if let v = config.expectVersion, model.version != v {
+        } else if let v = wantVersion, model.version != v {
             steps[2].verdict = .fail
-            steps[2].note = "the model is version \(model.version), expected \(v)"
+            steps[2].note = "the model is version \(model.version), " + (config.expectVersion == nil ? "the signed config names \(v)" : "expected \(v)")
         } else if let b = config.expectBuild, model.build != b {
             steps[2].verdict = .fail
             steps[2].note = "the model is build \(model.build), expected \(b)"
@@ -1310,10 +1368,12 @@ enum ProveOnMac {
             let r = await promote(model, context: ctx, build: build, clip: first, config: config, doors: doors, out: out)
             let record = doors.promotion(model, build, ctx)
             var end = ProveEnded(build: build, context: ctx, outcome: r.outcome, measures: nil)
+            // a build without keep tables is judged, and proposed for, per context: under `<build>:<context>`
+            let keyed = doors.servedByKey(model, build, ctx)
             /// What the golden stage measured against what it was judged by, as lines of the run: per head the
             /// measure next to the signed bound, so a line shows why the build passed or which measure was outside.
             func golden(_ m: ProveMeasures) {
-                for (i, line) in judgement(m, build: build).enumerated() {
+                for (i, line) in judgement(m, build: keyed ? "\(build):\(ctx)" : build).enumerated() {
                     out.say((i == 0 ? "        " : "          ") + line)
                 }
             }
@@ -1321,7 +1381,7 @@ enum ProveOnMac {
             case .promoted:
                 end.measures = record?.measures
                 if let m = record?.measures {
-                    measured.append(ProveMeasured(build: build, context: ctx, measures: m))
+                    measured.append(ProveMeasured(build: build, context: ctx, measures: m, keyed: keyed))
                     golden(m)
                     var timing: [String] = []
                     if let ms = record?.compileMs { timing.append(String(format: "compile %.1f s", ms / 1000)) }
@@ -1338,7 +1398,7 @@ enum ProveOnMac {
                 // a golden stage that did not pass measured something too: its record goes with the others, as not passed
                 if record?.stage == "golden", let m = record?.measures {
                     end.measures = m
-                    measured.append(ProveMeasured(build: build, context: ctx, measures: m, passed: false))
+                    measured.append(ProveMeasured(build: build, context: ctx, measures: m, passed: false, keyed: keyed))
                     golden(m)
                 }
             case .failed(let why):
@@ -1406,8 +1466,15 @@ enum ProveOnMac {
             }
             steps[3].verdict = takes > 0 && matched == takes && clipProblems.isEmpty ? .pass : .fail
             steps[3].note = engineNotes.joined(separator: ", ")
-            // step 4: a build that ended on the CPU engine for a reason the pipeline names is the pipeline's answer
-            let pipeline = pipelineVerdict(ended)
+            // step 4: a build that ended on the CPU engine for a reason the pipeline names is the pipeline's answer.
+            // A model whose manifest has no accelerator build serve any context of the run (no CoreML files, or a
+            // package with no context signed for it) has nothing for the pipeline to do: the step says so and passes.
+            var served = 0
+            for ctx in contexts { for build in config.builds where doors.hasBuild(model, build, ctx) { served += 1 } }
+            let others = ["coreml", "coreml-compact"].filter { b in !config.builds.contains(b) && contexts.contains { doors.hasBuild(model, b, $0) } }
+            let nothing = nothingServed(builds: config.builds, others: others, contexts: config.contexts == nil ? nil : contexts)
+            let pipeline = pipelineVerdict(ended, served: served, nothingServed: nothing)
+            if served == 0 { out.say("    the promotion pipeline: \(nothing)") }
             steps[4].verdict = pipeline.verdict
             steps[4].note = pipeline.note
             for line in clipProblems.prefix(12) { out.say("    problem: \(line)") }

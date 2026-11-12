@@ -17,12 +17,24 @@ final class LayersVectorTests: XCTestCase {
         let widths = try XCTUnwrap(meta["head_widths"]?.array).compactMap { $0.number.map(Int.init) }
         let rates = try XCTUnwrap(meta["head_ms"]?.array).compactMap { $0.number.map(Int.init) }
         let want = try XCTUnwrap(JSONValue(data: Data(contentsOf: URL(fileURLWithPath: vpath))))
-        let byName = Dictionary((want["vectors"]?.array ?? []).compactMap { v in v["name"]?.string.map { ($0, v) } }, uniquingKeysWith: { a, _ in a })
+        // A reference belongs to a clip in a context: 12 clips are in the fixture twice, once per context (48 vectors,
+        // 36 names). Tried before (to 3.0.1): matched by the clip's name alone, so a clip's second context was held
+        // against the reference of its first.
+        func key(_ v: JSONValue) -> String? {
+            guard let name = v["name"]?.string, let context = v["context"]?.string else { return nil }
+            return "\(context) \(name)"
+        }
+        var byClip: [String: JSONValue] = [:]
+        for v in want["vectors"]?.array ?? [] {
+            let k = try XCTUnwrap(key(v), "a reference vector without a name or a context")
+            XCTAssertNil(byClip[k], "\(k) is in the reference vectors twice")
+            byClip[k] = v
+        }
         let vocab = try Vocabulary(tokensFile: base.appendingPathComponent("model/tokens.txt"))
         var decodedOK = 0, total = 0
         for v in try XCTUnwrap(meta["vectors"]?.array) {
-            let name = try XCTUnwrap(v["name"]?.string)
-            guard let ref = byName[name] else { continue }
+            let name = try XCTUnwrap(key(v), "a fixture vector without a name or a context")
+            guard let ref = byClip[name] else { continue }
             let n40 = Int(v["n40"]!.number!), n20 = Int(v["n20"]!.number!)
             let raw = try Data(contentsOf: base.appendingPathComponent(v["heads"]!.string!))
             let floats: [Float] = raw.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }

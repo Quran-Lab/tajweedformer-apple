@@ -60,18 +60,18 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
   no tajweed settings (SDK 2.x did; see [docs/migrating-to-3.md](docs/migrating-to-3.md)). It hosts only V4.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon. The Neural Engine backend needs iOS 18 or macOS 15; on older
   systems the exact CPU engine runs.
-- **Status:** released; this is version 3.0.1. CI builds every push for iOS and macOS and runs the tests on macOS.
+- **Status:** released; this is version 3.0.2. CI builds every push for iOS and macOS and runs the tests on macOS.
   The whole path through the public API (the key and the signed config, the download, the verified model, the
   promotion pipeline, takes on the CPU engine and on the Neural Engine) has run on an Apple silicon Mac against
   Quran Lab's servers with `scripts/prove-on-mac.sh` (version 3.0.0); that proof has not been run on an iPhone.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.0.1. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.0.2. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.0.1"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.0.2"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -209,7 +209,9 @@ With `unmeteredOnly: true` it downloads on Wi-Fi or Ethernet and does nothing on
 network in Low Data Mode or no network (call it again later). Where the system does not say what the connection is
 (`diagnose().connection` is `unknown`) the option cannot be honoured, and it downloads.
 `client.storage` says what is on disk (bytes per model build, and of the sharing queue), and
-`client.removeModels()` removes the model files, never the learner's sharing choice or the upload queue.
+`client.removeModels()` removes the model files, never the learner's sharing choice or the upload queue. When Quran
+Lab's config moves an app to another model, the SDK removes the files of the model it leaves once the new one is
+downloaded, verified and in use (an app pinned to a model version keeps what it has).
 `TajweedModel.open(_:)` opens a folder already on disk, verified the same way.
 
 ## Backends and the CPU fallback
@@ -220,8 +222,10 @@ network in Low Data Mode or no network (call it again later). Where the system d
   same bits on every device, for every head of every chunk.
 
 The default context is `c16_l64` (320 ms chunks); Quran Lab's signed config can name another for an app
-(`inference.context`), and `TajweedSessionOptions.context` wins over both. `c8_l64` (160 ms chunks) has no CoreML
-package: it always runs on the exact CPU engine.
+(`inference.context`), and `TajweedSessionOptions.context` wins over both. Which contexts a CoreML build serves
+is the model's signed manifest's to say (a tolerance signed for the build and the context, or a keep table listed
+for the context); a context no build serves runs on the exact CPU engine. In the builds of 4.0.0 that is `c8_l64`
+(160 ms chunks).
 
 ### CPU first, then the accelerator
 
@@ -240,10 +244,11 @@ With `backend: .auto` (the default, no code needed):
    take never waits for it.
 2. **In the background,** one pipeline per model build, context, OS build and device model, with its state kept on
    disk after each stage (an app killed in the middle resumes at the next launch where it stopped): download (the
-   CoreML build, its keep table and the self-test set, on Wi-Fi or Ethernet only, resumable, every file verified),
-   compile (the first load with the Neural Engine allowed, 10 minutes at most), warm-up (silence and a self-test
-   clip; no NaN or inf), golden test, measure, promote. It runs only while the device is in good shape (not in Low
-   Power Mode, battery at least 20 % or charging, thermal state nominal or fair) and waits otherwise.
+   CoreML build, its keep table when the build has one, and the self-test set, on Wi-Fi or Ethernet only,
+   resumable, every file verified), compile (the first load with the Neural Engine allowed, 10 minutes at most),
+   warm-up (silence and a self-test clip; no NaN or inf), golden test, measure, promote. It runs only while the
+   device is in good shape (not in Low Power Mode, battery at least 20 % or charging, thermal state nominal or
+   fair) and waits otherwise.
 3. **The golden test** runs every clip of the model's self-test set through the Neural Engine and through the CPU
    engine, with the same streaming code a take uses, and compares the raw outputs: per CTC head the greedy tokens
    (edit distance) and the distance of the log-probabilities (mean and 99th percentile), and the mean difference of
@@ -380,7 +385,10 @@ sample clip in every context on the CPU engine and on the Neural Engine, the pro
 build with the golden stage's measures, `diagnose()`) and prints a one-screen summary. A build the golden stage does
 not pass (measures outside the tolerance its signed manifest gives it, or tokens that differ from the CPU engine's
 when the manifest gives it none) stays on the CPU engine, which is the pipeline's answer and no failure of the run.
-The summary ends with the measures and a tolerance made from them, a proposal for Quran Lab's model side. `--compact`
+The summary ends with the measures and a tolerance made from them, a proposal for Quran Lab's model side: one entry
+per build for a model with keep tables, one per build and context (under `<build>:<context>`) for a model whose
+packages carry their keep tables inside. A model with no accelerator for any context passes too: the pipeline step
+says that there is nothing to promote. The run takes the model version from the signed config. `--compact`
 takes the compact CoreML build through the pipeline as well. Nothing it prints names the key, the install or the app; the run
 registers as "SDK proof (Mac)". `--check` only checks the Mac; `--help` says what the run sends. CI rehearses the
 script over the test suite's stub server (`--rehearse`).

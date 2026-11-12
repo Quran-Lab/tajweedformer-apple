@@ -31,8 +31,10 @@
 #      every file's size and SHA-256, the model's version and build.
 #   3  every sample clip of the model through listen(from:), in every context, on the CPU engine and, where a
 #      build was promoted, on the Neural Engine: the take's tokens against the folder's expected tokens.
-#   4  the promotion pipeline to its end for coreml (and coreml-compact with --compact) in every context it has:
-#      download, assembly, compile, warm-up, the golden stage. The golden stage judges a build by the tolerance
+#   4  the promotion pipeline to its end for coreml (and coreml-compact with --compact) in every context the
+#      model's signed manifest has that build serve: download, assembly, compile, warm-up, the golden stage. A model
+#      with no accelerator build for any context (no CoreML files, or a package with no context signed for it) has
+#      nothing for the pipeline to do: the step says so in one sentence and passes. The golden stage judges a build by the tolerance
 #      its signed manifest gives it, and on identical tokens when it gives none; for each build and context the
 #      run prints, per head, what was measured next to the signed bound (token_edits, lp_mean, lp_p99; p_mean for
 #      the attribute heads), so a line shows why a build passed or which measure was outside, or it says that the
@@ -45,9 +47,11 @@
 #   6  client.diagnose() as JSON.
 #   7  the summary: one line per step (PASS, FAIL, SKIPPED), then the golden stage's measures: one record per
 #      build and context (token_edits, lp_mean and lp_p99 in nats, p_mean a probability, the model, the device's
-#      os_build, device_model and chip), and under them a tolerance made from the records (per build the largest
-#      value of each measure, no margin added). That tolerance is a proposal for the model side: the margin and
-#      the signing are theirs.
+#      os_build, device_model and chip), and under them a tolerance made from the records, no margin added: for a
+#      build with keep tables one entry per build (the largest value of each measure over its contexts); for a
+#      build without keep tables, whose package carries the table inside, one entry per build and context under
+#      the key <build>:<context>, since such a build is tried only where that key is signed. The line above the
+#      entries says which. That tolerance is a proposal for the model side: the margin and the signing are theirs.
 #
 # What it sends is what the SDK sends for any app's first launch with that key (docs/platform-client.md): the key
 # and an app id for a session token (the app id is ai.quranlab.sdk.prove unless QURANLAB_APP_ID names another;
@@ -66,9 +70,11 @@
 # Nothing it prints names the key, the install, the app or the account. Exit status: 0 when every step that ran
 # passed, 1 when a step failed, 2 when the run could not start (a check of step 0, or the build).
 #
-# More environment, all optional: QURANLAB_EXPECT_VERSION (the model version the signed config must name, 4.0.0
-# unless set; "any" accepts whatever it names), QURANLAB_EXPECT_BUILD (a build id the signed config must name;
-# unset, the run takes the build the config names and prints it: a build id changes with every signing),
+# More environment, all optional: QURANLAB_EXPECT_VERSION (a model version the signed config must name; unset, or
+# "any", the run takes the version the config names for this key, checks that the downloaded model is that
+# version, and prints it: the script names no model version of its own), QURANLAB_EXPECT_BUILD (a build id the
+# signed config must name; unset, the run takes the build the config names and prints it: a build id changes with
+# every signing),
 # QURANLAB_PROVE_CONTEXTS (a part of the contexts, as words separated by spaces) and QURANLAB_PROVE_BUILDS (the
 # builds and their order, in place of what --compact chooses).
 # --rehearse runs the same script over the test suite's stub server with stand-in
@@ -76,7 +82,6 @@
 
 set -u
 
-EXPECT_VERSION="4.0.0"
 NEED_MACOS=15
 NEED_XCODE=16
 NEED_SWIFT=6
@@ -375,7 +380,8 @@ trap interrupted INT TERM
     export QURANLAB_PROVE_DIR="$work"
     export QURANLAB_PROVE_CLIPS="$clips"
     export QURANLAB_PROVE_EXPECTED="$expected"
-    export QURANLAB_EXPECT_VERSION="${QURANLAB_EXPECT_VERSION:-$EXPECT_VERSION}"
+    # no model version is expected unless the caller names one: the signed config says which version this key gets
+    export QURANLAB_EXPECT_VERSION="${QURANLAB_EXPECT_VERSION:-any}"
     # no build id is expected unless the caller names one: the signed config says which build this SDK gets
     export QURANLAB_EXPECT_BUILD="${QURANLAB_EXPECT_BUILD:-any}"
     export QURANLAB_PROVE_BUILDS="${QURANLAB_PROVE_BUILDS:-$builds}"

@@ -380,8 +380,9 @@ enum Contributions {
     /// The settings switch (not a sheet answer). On: granted, to the consent version in force at that moment (a
     /// children's app needs the guardian's confirmation); already on, nothing changes (the learner keeps the version
     /// they agreed to). Off: final, never asked again, and every queued upload stops at once (the unsent queue is
-    /// deleted, and a request in flight is cancelled: no byte of audio leaves the device after this returns); it
-    /// works whatever version the learner agreed to, and returns within 3 s whatever the network does.
+    /// deleted, and a request in flight is cancelled: from the moment this returns the SDK hands nothing more to
+    /// the system; what the system had already taken into its send buffer may still go out, and nothing after it);
+    /// it works whatever version the learner agreed to, and returns within 3 s whatever the network does.
     static func setSharing(_ on: Bool, guardianConfirmed: Bool = false) async {
         if on {
             if state().consent == .granted { return }

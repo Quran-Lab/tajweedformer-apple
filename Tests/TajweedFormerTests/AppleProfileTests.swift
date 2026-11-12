@@ -1,4 +1,5 @@
 import CoreML
+import CryptoKit
 import Foundation
 import XCTest
 @testable import TajweedFormer
@@ -9,15 +10,67 @@ import XCTest
 /// first, then the build's files (never a correction); the CPU engine runs; the recognizer starts on the CPU engine,
 /// runs the promotion pipeline (compile, warm-up, golden test, measure) and is promoted at the next take, or stays on
 /// the CPU engine with the reason.
+///
+/// A folder whose packages carry their keep tables inside has no `keeps.bin`, and an accelerator build serves a
+/// context only by a signed tolerance under `<build>:<context>` (SPEC 5.4). The folder has no signed manifest of its
+/// own (the test writes one for it), so since 3.0.2 the test signs that manifest with a key of its own and gives each
+/// build the identical-tokens entry for every context its package has functions for (read from the function names of
+/// the package's program) and the manifest has no keep table for. A folder with keep tables gets no such entry and no
+/// signature: it runs exactly as before. Until then a folder without keep tables had nothing to run and the test
+/// failed.
 final class AppleProfileTests: XCTestCase {
     func source() throws -> URL {
         guard let p = ProcessInfo.processInfo.environment["TAJWEED_V4_APPLE"] else { throw XCTSkip("set TAJWEED_V4_APPLE") }
         return URL(fileURLWithPath: p)
     }
 
+    /// The contexts a compiled package has a front and a back function for, sorted: read from the function names
+    /// of its program (`model.mil`: `func front_<context><...>(`). Empty for a package that is not multifunction.
+    static func contexts(ofPackage package: URL) -> [String] {
+        guard let text = try? String(contentsOf: package.appendingPathComponent("model.mil"), encoding: .utf8),
+              let pattern = try? NSRegularExpression(pattern: #"func\s+(front|back)_(c[0-9]+_l[0-9]+)\s*<"#) else { return [] }
+        var halves: [String: Set<String>] = [:]
+        let whole = NSRange(text.startIndex..., in: text)
+        for match in pattern.matches(in: text, range: whole) {
+            guard let half = Range(match.range(at: 1), in: text), let context = Range(match.range(at: 2), in: text) else { continue }
+            halves[String(text[context]), default: []].insert(String(text[half]))
+        }
+        return halves.filter { $0.value == ["front", "back"] }.keys.sorted()
+    }
+
+    /// The identical-tokens entry a first build without keep tables signs per context (SPEC 5.1): zero token edits
+    /// on every compared head, no bound on a distance.
+    static var identicalTokens: [String: Any] { ["log_probs": ["token_edits": 0, "lp_mean": 30.0, "lp_p99": 30.0]] }
+
+    /// `m` (the manifest the test made for `folder`) as the test runs it: for each build whose package has functions
+    /// for a context the manifest lists no keep table for, the identical-tokens entry under `<build>:<context>`,
+    /// signed with a key made here, and the verifier that trusts that key. `added`: the keys of those entries. A
+    /// folder with a keep table for every such context gets none: the manifest and the verifier are the ones the
+    /// test always used (unsigned, no signature required).
+    static func served(_ m: ModelManifest, folder: URL) throws -> (manifest: ModelManifest, verifier: ManifestVerifier, added: [String]) {
+        var entries: [String: Any] = [:]
+        for build in ["coreml", "coreml-compact"] {
+            guard let package = ModelFolder.packages(m.files(role: build)).first else { continue }
+            for context in contexts(ofPackage: folder.appendingPathComponent(package)) where m.contexts.contains(context) {
+                if m.files.contains(where: { $0.role == "coreml-keeps" && $0.context == context }) { continue }
+                entries["\(build):\(context)"] = identicalTokens
+            }
+        }
+        guard !entries.isEmpty else { return (m, ManifestVerifier(trustedKeys: [], requireSignature: false), []) }
+        var signed = m
+        signed.goldenRawField = JSONValue(any: try JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: entries)))
+        let key = Curve25519.Signing.PrivateKey()
+        signed.signature = try key.signature(for: Data(signed.signedText().utf8)).base64EncodedString()
+        let verifier = ManifestVerifier(trustedKeys: [key.publicKey.rawRepresentation], requireSignature: false)
+        return (try verifier.verifySignature(signed, required: true), verifier, entries.keys.sorted())
+    }
+
     func testBothBuilds() async throws {
         let src = try source()
-        let m = try Fixtures.manifest(for: src, revision: "apple-test")
+        let made = try Self.served(try Fixtures.manifest(for: src, revision: "apple-test"), folder: src)
+        let m = made.manifest
+        print("v4-apple: " + (made.added.isEmpty ? "the folder has keep tables: the manifest is unsigned, as before"
+                                                 : "no keep table for \(made.added): the test signed the identical-tokens entry under each"))
         var ran = 0
         for compact in [false, true] {
             let profile = DownloadProfile(context: m.defaultContext, coreML: true, compact: compact)
@@ -25,13 +78,57 @@ final class AppleProfileTests: XCTestCase {
                 print("v4-apple \(compact ? "compact" : "default"): not in the folder, skipped")
                 continue
             }
-            try await check(src, m, profile)
+            try await check(src, m, profile, made.verifier)
             ran += 1
         }
         XCTAssertGreaterThan(ran, 0)
     }
 
-    func check(_ src: URL, _ m: ModelManifest, _ profile: DownloadProfile) async throws {
+    /// What can be checked without a real Apple folder (the public runner has none): on a folder whose fp16 package
+    /// is the stand-in of a one-file package, the contexts are read from the package's function names; the test's
+    /// manifest gets an entry for each context that has functions, is a context of the folder and has no keep
+    /// table, and for no other; with it the build serves those contexts, by that tolerance. On a folder with keep
+    /// tables nothing is added and nothing is signed.
+    func testAFolderWithoutKeepTablesIsServedByTheEntriesTheTestSigns() async throws {
+        guard #available(macOS 15.0, iOS 18.0, *) else { throw XCTSkip("needs macOS 15 / iOS 18") }
+        let dir = try await TajweedOneFilePackageTests.bareFolder()
+        XCTAssertEqual(Self.contexts(ofPackage: dir.appendingPathComponent("coreml/tajweedformer_v4.mlmodelc")), ["c16_l64", "c24_l256", "c24_l72"])
+        let plain = try Fixtures.manifest(for: dir, revision: "apple-test")
+        XCTAssertEqual(plain.contexts.sorted(), ["c16_l64", "c24_l72", "c8_l64"], "the folder's contexts")
+        XCTAssertTrue(DownloadProfile(context: plain.defaultContext, coreML: true).appleFiles(plain).isEmpty, "unsigned: nothing is served")
+        let made = try Self.served(plain, folder: dir)
+        // c24_l256 has functions and is not a context of the folder; c8_l64 is one and has no functions
+        XCTAssertEqual(made.added, ["coreml:c16_l64", "coreml:c24_l72"])
+        let m = made.manifest
+        XCTAssertTrue(m.goldenRawSigned)
+        for context in ["c16_l64", "c24_l72"] {
+            XCTAssertEqual(m.serving(build: "coreml", context: context)?.by, .tolerance, context)
+            XCTAssertEqual(m.rawTolerance(build: "coreml", context: context)?.heads["log_probs"], GoldenRawTolerance.Head(tokenEdits: 0, lpMean: 30, lpP99: 30), context)
+        }
+        XCTAssertNil(m.serving(build: "coreml", context: "c8_l64"), "no functions for c8_l64: not signed, not served")
+        XCTAssertNil(m.serving(build: "coreml-compact", context: "c16_l64"), "the folder has no compact package")
+        XCTAssertFalse(DownloadProfile(context: m.defaultContext, coreML: true).appleFiles(m).isEmpty, "the test's run finds the build")
+        // written and opened as the test's install does: the entries are trusted again from the file
+        try m.write(to: dir)
+        let model = try ModelFolder.open(directory: dir, verifier: made.verifier)
+        let build = try XCTUnwrap(model.coreML(context: "c16_l64"))
+        XCTAssertNil(build.keeps)
+        XCTAssertEqual(build.frontFunction, "front_c16_l64")
+
+        // a folder with keep tables: nothing added, nothing signed, the same manifest
+        let tables = FileManager.default.temporaryDirectory.appendingPathComponent("tf-apple-tables-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: Fixtures.v4mini().appendingPathComponent("decoded"), to: tables)
+        let before = try Fixtures.manifest(for: tables, revision: "apple-test")
+        let same = try Self.served(before, folder: tables)
+        XCTAssertEqual(same.added, [])
+        XCTAssertEqual(same.manifest, before)
+        XCTAssertNil(same.manifest.signature)
+        XCTAssertFalse(same.verifier.requireSignature)
+        XCTAssertTrue(same.verifier.trustedKeys.isEmpty)
+        XCTAssertFalse(DownloadProfile(context: before.defaultContext, coreML: true).appleFiles(same.manifest).isEmpty, "served by its keep tables, as before")
+    }
+
+    func check(_ src: URL, _ m: ModelManifest, _ profile: DownloadProfile, _ verifier: ManifestVerifier) async throws {
         let name = profile.compact ? "compact" : "default"
         let ctx = profile.context
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tf-apple-\(UUID().uuidString)")
@@ -48,7 +145,7 @@ final class AppleProfileTests: XCTestCase {
         let other = profile.compact ? "coreml/tajweedformer_v4.mlmodelc" : "coreml-compact/tajweedformer_v4.mlmodelc"
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent(other).path), "\(name): never both builds")
         Fixtures.configure(storage: Fixtures.storage())
-        let model = try ModelFolder.open(directory: dir, verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+        let model = try ModelFolder.open(directory: dir, verifier: verifier)
         XCTAssertTrue(model.isUsable(context: ctx))
         let build = try XCTUnwrap(model.coreML(context: ctx))
         XCTAssertEqual(build.compact, profile.compact)

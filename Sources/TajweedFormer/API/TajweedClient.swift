@@ -180,6 +180,9 @@ public final class TajweedClient: Sendable {
             if let want = pinned.withLock({ $0 }), folder.version != want, cloud != nil {
                 local = .modelMissing("version \(want) is not on this device")
             } else {
+                // the model in use is on the device and verified: the store folders of any other model id go (a
+                // move to another model id leaves the old one's behind). A pinned install stays as it is.
+                if pinned.withLock({ $0 }) == nil { store.removeOtherModels(inUse: folder) }
                 return folder
             }
         } catch {
@@ -280,7 +283,7 @@ public final class TajweedClient: Sendable {
     /// the CPU engine or in another context a promoted default build read as `cpu`. Without an open Model it said
     /// `cpu` whatever was promoted.
     static func storedBackend(_ folder: ModelFolder, context: String) -> TajweedBackend {
-        guard DownloadProfile.osRunsCoreML, TajweedRecognizer.mayUseAccelerator(requested: .automatic, context: context) else { return .cpu }
+        guard DownloadProfile.osRunsCoreML, TajweedRecognizer.mayUseAccelerator(requested: .automatic, model: folder, context: context) else { return .cpu }
         let compact = TajweedRecognizer.unnamedBuildIsCompact(model: folder, context: context)
         let build = compact ? "coreml-compact" : "coreml"
         let store = PromotionStore(dir: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"))

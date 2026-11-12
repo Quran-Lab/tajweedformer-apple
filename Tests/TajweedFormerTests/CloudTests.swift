@@ -102,6 +102,48 @@ final class RegistrationAndConfigTests: XCTestCase {
         XCTAssertNotNil(later.currentConfig, "an offline refresh keeps the last verified config")
     }
 
+    /// A config's `channel` and a model's `source` are free strings to the SDK (PLATFORM_CLIENT.md section 3): a
+    /// config of channel `alpha` decodes and is taken exactly as one of `beta` or `stable`: the same model entry, the
+    /// same target build and version, no refusal, a fresh config; and nothing the SDK sends afterwards names the
+    /// channel (the config request again, a registration, a telemetry send point).
+    func testAConfigOfChannelAlphaIsTakenLikeBetaAndStable() async throws {
+        struct Taken: Equatable {
+            var revision: String?
+            var version: String?
+            var target: String?
+            var targetVersion: String?
+            var status: String
+            var refused: Bool
+            var flags: Bool
+        }
+        var taken: [String: Taken] = [:]
+        for channel in ["stable", "beta", "alpha"] {
+            let models: [String: Any] = ["Quran-Lab/tajweedformer-v4": ["revision": "rev-b", "version": "4.0.0", "source": channel]]
+            StubProtocol.reset(CloudFixtures.server(config: CloudFixtures.config(extra: ["channel": channel, "models": models])))
+            let cloud = CloudFixtures.cloud(storage: CloudFixtures.storage())
+            let got = await cloud.refreshConfig()
+            let cfg = try XCTUnwrap(got, "\(channel): the config is taken")
+            XCTAssertEqual(cfg.channel, channel)
+            XCTAssertEqual(cfg.models["Quran-Lab/tajweedformer-v4"]?.source, channel)
+            taken[channel] = Taken(revision: cfg.models["Quran-Lab/tajweedformer-v4"]?.revision, version: cfg.models["Quran-Lab/tajweedformer-v4"]?.version,
+                                   target: cloud.targetRevision(.v4_0), targetVersion: cloud.targetVersion(.v4_0), status: cloud.config.status,
+                                   refused: cloud.rejection != nil, flags: cfg.flags.analytics && cfg.flags.issues && cfg.flags.contributions)
+            // what the SDK sends once it holds that config: the config request again, a send point
+            _ = await cloud.refreshConfig()
+            _ = await cloud.flush()
+            XCTAssertGreaterThan(StubProtocol.seen.count, 1, channel)
+            guard channel == "alpha" else { continue }
+            for s in StubProtocol.seen {
+                let sent = [s.url.absoluteString, s.headers.map { "\($0.key): \($0.value)" }.joined(separator: "\n"), String(decoding: s.body, as: UTF8.self)]
+                XCTAssertFalse(sent.contains { $0.lowercased().contains("alpha") }, "\(s.method) \(s.path) names the channel")
+            }
+        }
+        let stable = try XCTUnwrap(taken["stable"])
+        XCTAssertEqual(stable, Taken(revision: "rev-b", version: "4.0.0", target: "rev-b", targetVersion: "4.0.0", status: "fresh", refused: false, flags: true))
+        XCTAssertEqual(taken["beta"], stable, "beta is taken like stable")
+        XCTAssertEqual(taken["alpha"], stable, "alpha is taken like stable and beta")
+    }
+
     func testConfigSignatureFailuresAreRefused() async throws {
         let other = Curve25519.Signing.PrivateKey()
         var tampered = CloudFixtures.config()

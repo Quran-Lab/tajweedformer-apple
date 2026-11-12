@@ -290,6 +290,22 @@ final class ProveOnMacTests: XCTestCase {
         v = ProveOnMac.pipelineVerdict([ProveEnded(build: "coreml-compact", context: "c16_l64", outcome: .promoted, measures: nil)])
         XCTAssertEqual(v.verdict, .fail)
         XCTAssertEqual(ProveOnMac.pipelineVerdict([]).verdict, .fail)
+        // served pairs and nothing through the pipeline is a fault; no served pair at all is not (SDK 3.0.2): the
+        // step passes with one sentence
+        v = ProveOnMac.pipelineVerdict([], served: 2)
+        XCTAssertEqual(v.verdict, .fail)
+        XCTAssertEqual(v.note, "no build went through the pipeline, although the model has 2 build and context pairs served")
+        v = ProveOnMac.pipelineVerdict([], served: 0)
+        XCTAssertEqual(v.verdict, .pass)
+        XCTAssertEqual(v.note, "no accelerator build serves any context of this build: every context runs on the CPU engine, and there is nothing to promote")
+        XCTAssertEqual(ProveOnMac.nothingServed(builds: ["coreml"], others: [], contexts: ["c16_l64", "c24_l72"]),
+                       "no accelerator build serves the contexts of this run (c16_l64 c24_l72): every context runs on the CPU engine, and there is nothing to promote")
+        XCTAssertEqual(ProveOnMac.nothingServed(builds: ["coreml"], others: ["coreml-compact"], contexts: nil),
+                       "the builds of this run (coreml) serve none of its contexts; coreml-compact does, and was not asked for: in this run every context "
+                       + "runs on the CPU engine, and there is nothing to promote")
+        // builds that ended are judged as before, whatever `served` says
+        v = ProveOnMac.pipelineVerdict([ended("coreml-compact", "c16_l64", .promoted)], served: 1)
+        XCTAssertEqual(v.verdict, .pass)
         // a build whose signed manifest gives it a tolerance: a promotion with token edits inside it is the tolerance
         // at work, a promotion outside it is the pipeline's fault, and a build that did not pass is outside it
         func judged(_ outcome: ProveOutcome, edits: Int, allowed: Int) -> ProveEnded {
@@ -533,7 +549,9 @@ final class ProveOnMacTests: XCTestCase {
         var config = ProveConfig(key: CloudFixtures.key, storage: storage)
         config.clips = clips
         config.expectedRows = clips
-        config.expectVersion = "4.0.0"
+        // no version is told to the run: it takes the one the signed config names, as the script does since 3.0.2
+        XCTAssertNil(config.expectVersion)
+        let version = try ModelManifest.parse(Data(contentsOf: server.appendingPathComponent("manifest.json"))).version
         config.expectBuild = build
         config.contexts = ["c16_l64"]   // the stand-in engine's chunk is 320 ms
         config.builds = ["coreml", "coreml-compact"]   // as the script with --compact: the default build, then the compact one
@@ -576,7 +594,7 @@ final class ProveOnMacTests: XCTestCase {
         XCTAssertEqual(verdicts, [.pass, .pass, .pass, .pass, .pass, .pass, .pass], report.steps.map { "\($0.number) \($0.verdict.rawValue) \($0.note)" }.joined(separator: " | "))
         XCTAssertEqual(report.status, 0)
         // step 1 and 2: what the config named is what was downloaded and verified with the folder's key, with progress
-        XCTAssertEqual(report.steps[1].note, "model 4.0.0, build \(build)")
+        XCTAssertEqual(report.steps[1].note, "model \(version), build \(build)")
         XCTAssertTrue(StubProtocol.seen.contains { $0.path.hasSuffix("/sdk/v4.0/manifest.json") }, "the manifest came from the CDN")
         XCTAssertTrue(out.lines.contains { $0.contains(" MB") && $0.hasPrefix("        ") }, "the download's progress was said")
         // step 3: three sample clips on the CPU engine and on the build that was promoted
@@ -628,7 +646,7 @@ final class ProveOnMacTests: XCTestCase {
         XCTAssertTrue(report.summary.contains { $0.hasPrefix("{\"build\": \"coreml\", \"context\": \"c16_l64\"") && $0.contains("\"passed\": false") },
                       "the fp16 build's record, not passed")
         // each record names the model, the clips compared, the verdict and the device, in the server notes' fields
-        let wanted = "{\"build\": \"coreml-compact\", \"context\": \"c16_l64\", \"model_version\": \"4.0.0\", \"model_build\": \"\(build)\", "
+        let wanted = "{\"build\": \"coreml-compact\", \"context\": \"c16_l64\", \"model_version\": \"\(version)\", \"model_build\": \"\(build)\", "
             + "\"clips\": 3, \"clean_clips\": 2, \"tokens_expected\": 12, \"heads\": {\"log_probs\": {\"token_edits\": 0, \"lp_mean\": 0.012346, "
             + "\"lp_p99\": 0.45679, \"frames\": 24}, \"inter1_log_probs\": {\"token_edits\": 0, \"lp_mean\": 0.02, \"lp_p99\": 0.7, \"frames\": 24}, "
             + "\"attr\": {\"p_mean\": 0.001235, \"values\": 480}}, \"passed\": true, \"platform\": \"macos\", "

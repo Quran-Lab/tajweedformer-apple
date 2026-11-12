@@ -51,14 +51,9 @@ struct SelfTestClips {
 
     let clips: [Clip]
 
-    /// The exact CPU engine's greedy tokens for the bundled clip `Saood_112002`, by context (the same values as the
-    /// Android SDK's self-test). The engine gives the same tokens on every device.
-    static let saood112002Tokens: [String: [Int]] = [
-        "c16_l64": [2, 31, 24, 34, 27, 33, 15, 31, 25, 31, 9],
-        "c8_l64": [2, 31, 24, 34, 27, 33, 15, 31, 25, 31, 9],
-        "c24_l72": [2, 31, 24, 34, 27, 33, 15, 31, 25, 31, 9],
-        "c24_l256": [2, 31, 24, 34, 27, 33, 15, 31, 25, 31, 9],
-    ]
+    // No expected tokens live here. Until 3.0.1 the sources carried a table of the CPU engine's tokens for one
+    // bundled clip in four contexts of one model version, which only a test read: what a clip must decode to is the
+    // model's to say (`selftest/expected_<context>.json` of its folder), and the test keeps its own expectation.
 
     static func load() throws(RecognizerError) -> SelfTestClips {
         guard let dir = Bundle.module.url(forResource: "SelfTest", withExtension: nil),

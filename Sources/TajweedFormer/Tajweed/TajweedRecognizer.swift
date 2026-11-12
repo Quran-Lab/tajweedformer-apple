@@ -41,7 +41,8 @@ actor TajweedRecognizer {
         /// The exact CPU engine first; the Neural Engine once it is promoted (downloaded, compiled, golden-tested).
         case automatic
         /// Tests and measurements only: the Neural Engine at once, without the pipeline; throws where it cannot load
-        /// (the build must be in the folder). A CPU-only context (`ModelContexts`) stays on the exact CPU engine.
+        /// (the build must be in the folder). A context no build of the model serves (`ModelManifest.serving`) stays on
+        /// the exact CPU engine.
         case neuralEngine
         /// The exact CPU engine only.
         case exact
@@ -136,7 +137,7 @@ actor TajweedRecognizer {
     }
     /// Whether this model, context and device have a build promoted in an earlier launch (the persisted verdict).
     static func promotedEarlier(model: ModelFolder, context: String, requested: Backend, compact: Bool = false) -> Bool {
-        guard requested == .automatic, mayUseAccelerator(requested: requested, context: context), DownloadProfile.osRunsCoreML,
+        guard requested == .automatic, mayUseAccelerator(requested: requested, model: model, context: context), DownloadProfile.osRunsCoreML,
               model.coreML(context: context, compact: compact) != nil else { return false }
         let key = AcceleratorController.key(revision: model.identity, context: context, build: compact ? "coreml-compact" : "coreml")
         let store = PromotionStore(dir: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"))
@@ -248,7 +249,7 @@ actor TajweedRecognizer {
         guard !acceleratorSetUp else { return }
         acceleratorSetUp = true
         let ctx = context
-        guard Self.mayUseAccelerator(requested: requested, context: ctx) else { return }
+        guard Self.mayUseAccelerator(requested: requested, model: model, context: ctx) else { return }
         guard DownloadProfile.osRunsCoreML else {
             if requested == .neuralEngine { throw .neuralEngineUnavailable("the V4 CoreML package needs iOS 18 or macOS 15") }
             if model.manifest.files.contains(where: { DownloadProfile.packageRoles.contains($0.role) }) {
@@ -316,9 +317,14 @@ actor TajweedRecognizer {
         }
     }
 
-    /// Whether the Neural Engine is considered at all. Never for a CPU-only context, even when it is asked for.
-    static func mayUseAccelerator(requested: Backend, context: String) -> Bool {
-        requested != .exact && !ModelContexts.isCPUOnly(context)
+    /// Whether the Neural Engine is considered at all for `context`: never for the exact backend, and only where the
+    /// model's manifest has an accelerator build serve the context (SPEC 5.4: a signed tolerance under
+    /// `<build>:<context>`, or a keep table listed for it). A context no build serves runs on the CPU engine, even
+    /// when the Neural Engine is asked for.
+    /// Tried before (to 3.0.1): the SDK's own list of CPU-only contexts (`c8_l64`) answered this, whatever the
+    /// manifest listed.
+    static func mayUseAccelerator(requested: Backend, model: ModelFolder, context: String) -> Bool {
+        requested != .exact && DownloadProfile.packageRoles.contains { model.manifest.serving(build: $0, context: context) != nil }
     }
 
     private func idleDelayPassed() {
@@ -482,7 +488,9 @@ actor TajweedRecognizer {
             clips = bundled.clips.map { Clip(id: $0.name, samples: $0.samples, planted: false, expected: nil) }
         }
         guard !clips.isEmpty else { return .failed(PromotionFailure(.other, "no self-test clips")) }
-        let tolerance = m.manifest.rawTolerance(build: buildKey)
+        // the entry in force for this build in this context: `<build>:<context>`, or the plain `<build>` of a context
+        // served by its keep table (SPEC 5.4); none: identical tokens decide
+        let tolerance = m.manifest.rawTolerance(build: buildKey, context: context)
         // the CPU run computes every head the test compares, whatever the Session selected; the selection is put
         // back when the test ends, before the next take
         let session = HeadSelection(selection.heads.union(HeadID.kept)).engineMask
@@ -634,7 +642,7 @@ actor TajweedRecognizer {
         let m = acceleratorModel.withLock { $0 }
         // the build that runs: this recognizer's, or (a build forced in a debug build) the one in the folder
         let running = forced == nil ? buildKey : m.coreMLBuildKey(context: context)
-        p.blankTokenTolerance = m.manifest.rawTolerance(build: running)?.heads["log_probs"]?.tokenEdits ?? 0
+        p.blankTokenTolerance = m.manifest.rawTolerance(build: running, context: context)?.heads["log_probs"]?.tokenEdits ?? 0
         if let m = c?.record?.cpuMedianMs, m > 0 { p.cpuChunkMs = m }
         if let o = runner?.lastOpenMs, o > 0 { p.cpuOpenMs = o }
         p.minReplayChunks = Self.cacheSpanChunks(context: context) + 1

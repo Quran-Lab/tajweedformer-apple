@@ -8,18 +8,14 @@ import Foundation
 /// - The accelerator files, fetched later by the promotion pipeline (`AcceleratorController`, stage `download`) on
 ///   iOS 18 / macOS 15 when the folder ships them: ONE CoreML build, by default the fp16 package (role `coreml`,
 ///   `coreml/tajweedformer_v4.mlmodelc`), with `compact` the int8 package (`coreml-compact`), plus the context's keep
-///   table (`coreml-keeps`) and the self-test set (`selftest`) the build must pass before it is used.
+///   table (`coreml-keeps`) when the manifest lists one, and the self-test set (`selftest`) the build must pass
+///   before it is used. Only for a context the build serves (`ModelManifest.serving`, SPEC 5.4): the signed
+///   tolerance names the context under `<build>:<context>`, or a keep table is listed for it. For any other context
+///   nothing of the build is fetched. Until 3.0.1 the SDK carried its own list of CPU-only contexts (`c8_l64`);
+///   since 3.0.2 the manifest decides, also for a context that list named.
 ///   Not fetched since 2.0.1: the correction files (`correction`, `correction-compact`). They rebuilt the CPU weights
 ///   from the package so the package could be downloaded instead of the weights; with the CPU set first, the weights
 ///   are already on disk when the package arrives, and the CPU engine must run from them at once on a failover.
-enum ModelContexts {
-    /// Contexts with no CoreML package: the exact CPU engine runs them on every device, whatever backend is requested.
-    /// c8_l64 is 8 frames at 20 ms per step (160 ms chunks) with 64 left frames.
-    static let cpuOnly: Set<String> = ["c8_l64"]
-
-    static func isCPUOnly(_ context: String) -> Bool { cpuOnly.contains(context) }
-}
-
 struct DownloadProfile: Sendable, Hashable {
     static let platform = "apple"
     /// The roles of every Apple file (both builds); never part of the CPU set.
@@ -29,8 +25,8 @@ struct DownloadProfile: Sendable, Hashable {
     static let packageRoles: Set<String> = ["coreml", "coreml-compact"]
 
     let context: String
-    /// Whether the Apple files are part of the profile (the OS can run the CoreML package, the app allows it, and the
-    /// context is not CPU-only).
+    /// Whether the Apple files may be part of the profile (the OS can run the CoreML package and the app allows
+    /// it). Whether they are is the manifest's to say: `appleFiles` is empty for a context the build does not serve.
     let coreML: Bool
     /// The compact (int8) CoreML build (`coreml-compact`) instead of the fp16 one (`coreml`). The SDK asks for the
     /// fp16 build, as in 2.x; it asks for the compact one only for a Session whose `backend` names `coreml-compact`.
@@ -38,7 +34,7 @@ struct DownloadProfile: Sendable, Hashable {
 
     init(context: String, coreML: Bool = DownloadProfile.osRunsCoreML, compact: Bool = false) {
         self.context = context
-        self.coreML = coreML && !ModelContexts.isCPUOnly(context)
+        self.coreML = coreML
         self.compact = compact
     }
 
@@ -66,18 +62,17 @@ struct DownloadProfile: Sendable, Hashable {
             && $0.role != "selftest" }
     }
 
-    /// The accelerator files of this profile's build for this context: the package, the context's keep table and the
-    /// self-test set (empty without `coreML`, or when the folder ships none of that build).
+    /// The accelerator files of this profile's build for this context: the package, the context's keep table when
+    /// the manifest lists one (a package that carries its keep table inside lists none) and the self-test set.
+    /// Empty without `coreML`, and for a context the build does not serve (`ModelManifest.serving`): nothing of a
+    /// build is fetched for such a context.
+    /// Tried before (to 3.0.1): the list was empty unless the manifest listed both the package and a keep table for
+    /// the context, so a one-file package was never fetched.
     func appleFiles(_ m: ModelManifest) -> [ModelManifest.File] {
-        guard coreML else { return [] }
+        guard coreML, m.serving(build: packageRole, context: context) != nil else { return [] }
         // the self-test set comes with either build: the accelerator is promoted only after it passes it
         let roles: Set<String> = [packageRole, "coreml-keeps", "selftest"]
-        let a = m.files.filter { $0.isFor(platform: Self.platform) && roles.contains($0.role) && inContext($0) }
-        // the package and the keep table belong together: without either, no Apple file is worth fetching
-        guard a.contains(where: { $0.role == packageRole }), a.contains(where: { $0.role == "coreml-keeps" && $0.context == context }) else {
-            return []
-        }
-        return a
+        return m.files.filter { $0.isFor(platform: Self.platform) && roles.contains($0.role) && inContext($0) }
     }
 
     /// The delta role of this profile's build (QLPD1: its program rebuilt from the CPU weights on the device).
