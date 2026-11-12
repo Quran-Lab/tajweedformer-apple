@@ -1,5 +1,68 @@
 # Changelog
 
+## 3.0.1
+
+One fix for sharing and two for `diagnose()`. The same engine and the same model builds as 3.0.0, and nothing to
+change in an app's code.
+
+### Sharing: off means off, whatever was being uploaded
+- What was wrong, since 2.0.0: when a learner turned sharing off, or deleted what they shared, while a segment of
+  a recording was being uploaded, that upload was not cancelled. The rest of the segment still went to Quran Lab's
+  storage after the call had returned: at most the remainder of one segment (a segment holds 10 to 60 s of audio;
+  60 s is 1.44 MB at the top bitrate). Nothing followed it: no further segment, no further request, and the unsent
+  queue was deleted from the device as documented. In production the sharing sheet has been on for iOS and macOS
+  only, so this SDK is the one whose learners could share.
+- How it was found: after 3.0.0 was released, by the test of the situations the four TajweedFormer SDKs share
+  (`sharing_off.json`: a server that holds a segment upload, the start of an upload, a batch of upload URLs or the
+  take list in flight, while the learner turns sharing off or deletes; 12 situations, 20 runs each). With a
+  segment in flight, audio left after the call in 60 of 60 runs: up to 275,412 bytes of a 279,508 byte segment.
+- Fixed: every request of an upload is cancelled the moment sharing goes off (the start of the upload, the upload
+  URLs, each segment, the take list, the wait for a token, and on iOS the uploads of the background session), and
+  the upload checks that sharing is still on before every request and after every answer. After `setOn(false)` or
+  `delete()` has returned, no byte of audio leaves the device; in the test the server takes 0 bytes more.
+- `setOn(false)` returns within 3 s whatever the network does, and turning sharing on again works at once. Until
+  now a request that hung kept the queue busy, and the next recording waited behind it for up to 30 s.
+- `delete()` stops the queue before it asks the server. Until now it asked first, and segments could still be
+  sent while the server was deleting. As before in this SDK, a delete the server accepted turns sharing off (the
+  learner turns it on again with the switch, and is not asked again); a delete the server did not take throws and
+  changes nothing: sharing stays on, nothing on the device is deleted, and the queue goes on.
+- A take list that had not been sent when sharing went off is deleted with it. Until now its file (the start and
+  the gap of each take, no audio) stayed in the folder of the uploaded recording.
+
+### Sharing: a recording made before an off is never uploaded later
+- What was wrong, since 2.0.0: turning sharing off deletes the unsent queue, and nothing else kept those recordings
+  from being sent. When the process ended after the off was saved and before the queue was deleted, or a recording
+  could not be deleted, the recordings stayed on the device; the next launch took them back into the queue, and
+  when sharing was turned on again they were uploaded. The fault needed all of: sharing turned off (or a deletion),
+  the process ending before the queue was deleted or a recording that could not be deleted, and sharing turned on
+  again.
+- What the test saw (the restart cases of `sharing_off.json`: nine recordings in the queue, the deletes made to
+  fail, a new process on the same storage, sharing on again): before this fix all nine were uploaded whole, 18
+  requests and 88,529 bytes of audio in a run, and a launch with sharing off deleted none of them.
+- Fixed: the learner's answer carries a count of their changes of mind (sharing on, sharing off, an accepted
+  deletion), written in the same write as the answer, and every recording is stamped with the count it was begun
+  under, on the device only. A recording with another count, and every unsent recording while the learner's yes is
+  not in force, is never taken into the queue and is deleted when the SDK starts and before every upload pass; one
+  that cannot be deleted yet is tried again. A pause of sharing by Quran Lab's config is not the learner's no and
+  keeps the queue. A queue left by an earlier SDK is uploaded as before while sharing stays on.
+- `delete()` writes on the device that a deletion is being asked before it asks the server. A process that ends
+  before the answer is written finds that at its next launch and turns sharing off. When the device cannot store
+  the off (a full disk), the server is asked all the same, and the off is stored as soon as the device can. One
+  case remains and is accepted: the device stored that a deletion was being asked, the server did not take the
+  deletion, the write that puts the earlier state back failed, and the process ended before a retry succeeded.
+  Sharing is then off at the next launch, and nothing is uploaded; the learner turns sharing on again with the
+  switch and is not asked again.
+
+### `diagnose()`
+- `backend` is what a Session with the default options would run on now, for the model's default context: a
+  promoted CoreML build reads `accelerator`, its name, `promoted`, with or without an open Model; a build that was
+  set aside reads `cpu`, `demoted`, with its reason. Until now it was the Backend of the engine of the Model's last
+  Session, so after a Session on the CPU engine or in another context a promoted build read as `cpu`; and without
+  an open Model it was always `cpu`.
+- `scripts/prove-on-mac.sh`: the summary's line about the SDK is made from the last `diagnose()` of the run, the
+  one step 6 prints. It was made from the first, so the two could disagree when the newest release changed while
+  the run went on.
+
 ## 3.0.0
 
 A breaking release. The SDK is an inference engine: audio in, the model's output out (every head of the network,

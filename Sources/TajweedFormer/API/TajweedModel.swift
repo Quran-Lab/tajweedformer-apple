@@ -110,6 +110,21 @@ public final class TajweedModel: Sendable {
         }
     }
 
+    /// The Backend a Session with the default options would use now (the default context, `backend: .auto`): what
+    /// `diagnose()` reports. A promoted build reads `promoted` from the stored promotion state, whatever Session
+    /// the Model ran last. While the Model's engine is the default Session's, a promotion that is still running
+    /// shows the stage it is at.
+    func defaultBackend() async -> TajweedBackend {
+        let f = folder
+        let context = Self.defaultContext(f)
+        let stored = TajweedClient.storedBackend(f, context: context)
+        if stored.stage == .promoted { return stored }
+        let mine = "\(f.directory.path)|\(context)|\(TajweedSessionOptions.Backend.auto.rawValue)|"
+        let engine = state.withLock { (s: inout State) -> TajweedRecognizer? in s.recognizerKey.hasPrefix(mine) ? s.recognizer : nil }
+        if let engine { return await engine.backendNext }
+        return stored
+    }
+
     // MARK: takes
 
     /// A Session fed by the SDK's microphone: asks for the permission, captures at the device's rate and carries

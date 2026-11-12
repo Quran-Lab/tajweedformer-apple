@@ -15,6 +15,26 @@ import Foundation
 /// once it has closed and every segment is up, the item is uploaded, and a recording of two or more takes then sends
 /// its take list (`POST /v1/uploads/{id}/takes`, the body of `takes.json`). That call never changes the item's
 /// status: it is retried with the same backoff until it is accepted or dropped, across relaunches.
+///
+/// Sharing off during an upload (3.0.1, the four rules of the shared `sharing_off.json`): when the learner turns
+/// sharing off or deletes what they shared, no byte of audio leaves the device after the call returns, whatever
+/// was in flight; the call returns within 3 s even when a request hangs; nothing unsent stays on the device; and
+/// turning sharing on again works at once. For that every request of a pass is its own task and is cancelled by
+/// a stop (`transmit`, `abort`), the pass asks `may` before every request and after every answer, a recording
+/// that was taken out stays out (`gone`: no record, no write, no request, and its folder is deleted again at the
+/// second look), and no pass starts while a stop is at work (`stops`).
+/// A recording made under an earlier consent is never uploaded (rule R5): the learner's answer carries a count of
+/// their changes of mind, every recording's folder is stamped with the count it was begun under, and `earlier`
+/// finds every unsent recording with another count, and every unsent recording when the learner's yes is not in
+/// force. They are deleted when the outbox is made (a launch) and before every pass, and are never loaded into
+/// the queue; one that cannot be deleted yet stays out and is tried again. The signed config's pause is not the
+/// learner's no: it keeps the queue. What refuses them is on the device and survives the end of the process.
+/// Tried before (3.0.0, and the first 3.0.1 candidate): only the list in memory (`gone`). A process that ended
+/// between the saved off and the delete, or a stop that could not delete, left recordings that the next launch
+/// took into the queue and uploaded once sharing came on again.
+/// Tried before (3.0.0): the off call removed the record and the folder and let the request in flight run to its
+/// end. No new request started and nothing was put back, but the rest of the segment that was being sent went
+/// out after the call had returned, and a request that hung kept the next recording waiting behind it.
 actor ContributionOutbox {
     static let itemName = "item.json"
     /// The most item changes that wait unread on `updates()`.
@@ -73,6 +93,21 @@ actor ContributionOutbox {
     private var records: [String: Record] = [:]
     /// PUTs running now ("<id>/<file>").
     private var inFlight: Set<String> = []
+    /// The requests of the pass that this process runs now, by "<id>/<what>" (a segment's file name, `call` for the
+    /// start and the URLs, `takes`): each is its own task, so that a stop can cancel it.
+    private var sending: [String: Task<Result<HTTPClient.Response, CloudError>, Never>] = [:]
+    /// The requests a stop cancelled: what comes back from them is not an upload that failed.
+    private var aborted: Set<String> = []
+    /// The recordings sharing-off took out of the queue: nothing is written or sent for them again, and a folder of
+    /// one that shows up again is deleted. (An id is a recording's own and is never used twice.)
+    private var gone: Set<String> = []
+    /// Stops at work (sharing is going off, or "delete what I shared" is asking the server): no pass starts and no
+    /// request goes out while this is above 0.
+    private var stops = 0
+    /// How long a stop waits for the pass to leave. The off call's own bound is 3 s (rule R2).
+    static let stopWait: TimeInterval = 2.5
+    /// The pass's wait for a token, while it waits: a stop ends the wait through it.
+    private var tokenWait: AsyncStream<Result<APIToken, CloudError>?>.Continuation?
     private var offline: Set<String> = []
     private var running: Task<Void, Never>?
     private var again = false
@@ -107,6 +142,47 @@ actor ContributionOutbox {
         } else {
             transport = .inProcess
         }
+        // a launch: what was left unsent under an earlier consent goes before any pass is asked for
+        for name in Self.earlier(root: root, storage: storage, launch: true) {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(name, isDirectory: true))
+        }
+    }
+
+    /// What the device says of the learner's answer in `storage`: whether their yes is in force (the signed config's
+    /// pause is not looked at: it keeps the queue), and the count of their changes of mind. At a launch, a state that
+    /// says a deletion was being asked is an off: the process that asked ended before the answer was written. While
+    /// this process itself is asking, it is not: a deletion the server does not take changes nothing.
+    ///
+    /// In the process that holds this storage's state, the state in force there is asked, not the file: a write of
+    /// the state that failed (a full disk) leaves the file behind the state in force, and recordings begun under the
+    /// count in force must not read as earlier ones. At a launch the file is all there is.
+    static func consentOnDevice(_ storage: URL, launch: Bool = false) -> (on: Bool, count: Int) {
+        if !launch, QuranLab.configuration.storageDirectory.path == storage.path {
+            let s = Contributions.state()
+            return (s.consent == .granted, s.consentCount)
+        }
+        guard let s = Contributions.stateFile(storage: storage).read() else { return (false, 0) }
+        return (s.consent == .granted && !(launch && s.deleting), s.consentCount)
+    }
+
+    /// The unsent recordings in `root` that were made under an earlier consent (rule R5): every recording still to
+    /// send whose stamp is not the count in force, and every one when the learner's yes is not in force. A recording
+    /// that is being captured now is not looked at (its capture ends it), nor one that is sent or has failed (they
+    /// hold no audio).
+    static func earlier(root: URL, storage: URL, launch: Bool = false) -> [String] {
+        let now = consentOnDevice(storage, launch: launch)
+        let fm = FileManager.default
+        var out: [String] = []
+        for name in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] where name.count == 32 && name.allSatisfy(\.isHexDigit) {
+            if ShareCapture.active.withLock({ $0.contains(name) }) { continue }
+            let f = root.appendingPathComponent(name, isDirectory: true)
+            if let d = try? Data(contentsOf: f.appendingPathComponent(itemName)), let item = try? JSONDecoder().decode(Record.self, from: d),
+               item.state != .active {
+                continue
+            }
+            if !now.on || ShareFiles.consentCount(f) != now.count { out.append(name) }
+        }
+        return out
     }
 
     // MARK: public
@@ -154,13 +230,123 @@ actor ContributionOutbox {
     /// A capture closed a segment or ended.
     func poke() async { await drain() }
 
-    /// Sharing was turned off: every session not yet fully uploaded goes (the server marks a
-    /// started one abandoned after 48 hours without activity).
-    func cancelQueued() {
+    /// Sharing was turned off (the settings switch, an accepted "delete what I shared"): every session not yet fully
+    /// uploaded goes (the server marks a started one abandoned after 48 hours without activity).
+    ///
+    /// In this order (3.0.1): the queue is marked stopped; every request in flight is cancelled; the unsent
+    /// recordings leave the queue in memory, so nothing is written or sent for them from here on; the call waits
+    /// until the pass has left (at most `wait`); then their folders are deleted; then a second look deletes whatever
+    /// is unsent on disk after that. A take list still to send is dropped with its file (its recording stays
+    /// uploaded).
+    func cancelQueued(wait: TimeInterval = ContributionOutbox.stopWait) async {
+        stops += 1
+        abort()
+        var out = takeOut()
+        await left(within: wait)
+        for id in out { try? FileManager.default.removeItem(at: folder(id)) }
+        // the second look: a recording that ended meanwhile, and anything a pass put back on its way out
+        out += takeOut()
+        for id in out { try? FileManager.default.removeItem(at: folder(id)) }
+        stops -= 1
+    }
+
+    /// "Delete what I shared" is about to ask the server, and sharing is still on: the queue stops (no pass starts,
+    /// no request goes out, what is in flight is cancelled), and the call returns when the pass has left, at most
+    /// `stopWait` later. Nothing is deleted. `release()` ends it.
+    func hold() async {
+        stops += 1
+        abort()
+        await left(within: Self.stopWait)
+    }
+
+    /// The end of a `hold()`: the queue goes on with what it has (a delete the server did not take changes nothing;
+    /// after an accepted one there is nothing left to send).
+    func release() {
+        stops = max(0, stops - 1)
+        if stops == 0 { resume() }
+    }
+
+    /// Takes every unsent recording out of the queue in memory, and drops the take lists still to send; the ids of
+    /// the recordings taken out.
+    private func takeOut() -> [String] {
         scan()
-        for r in records.values where r.state == .active && !ShareCapture.active.withLock({ $0.contains(r.id) }) { remove(r.id) }
-        // a take list still to send goes too (its recording stays uploaded)
-        for r in records.values where r.takes == .pending { endTakes(r.id, .dropped) }
+        var out: [String] = []
+        for r in records.values where r.state == .active && !ShareCapture.active.withLock({ $0.contains(r.id) }) {
+            gone.insert(r.id)
+            records[r.id] = nil
+            out.append(r.id)
+        }
+        for r in records.values where r.takes == .pending {
+            endTakes(r.id, .dropped)
+            // the list was not sent and will not be: its file goes (the recording's status then counts one take)
+            try? FileManager.default.removeItem(at: folder(r.id).appendingPathComponent(ShareFiles.takesFile))
+        }
+        return out
+    }
+
+    /// Cancels every request in flight: those this process runs, and the background session's uploads; and ends the
+    /// pass's wait for a token.
+    private func abort() {
+        tokenWait?.yield(nil)
+        tokenWait?.finish()
+        tokenWait = nil
+        aborted.formUnion(sending.keys)
+        aborted.formUnion(inFlight)
+        for task in sending.values { task.cancel() }
+        if case .background(let bg) = transport { bg.cancel(prefix: "") }
+    }
+
+    /// Waits until the pass has left, at most `seconds`.
+    private func left(within seconds: TimeInterval) async {
+        let start = Date()
+        while running != nil, Date().timeIntervalSince(start) < seconds {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    /// Whether the pass may send or write for `id` now: no stop is at work, sharing is still on, and the recording
+    /// is still in the queue. Asked before every request and after every answer.
+    private func may(_ id: String) -> Bool {
+        stops == 0 && !gone.contains(id) && records[id] != nil && Contributions.isActive
+    }
+
+    /// A token for the pass. The wait for one is a wait for the network (an attestation, a token request), so a stop
+    /// ends it: nil then, and the pass leaves. The token request itself goes on and serves the next pass.
+    private func tokenOrStop(_ tokens: TokenProvider) async -> Result<APIToken, CloudError>? {
+        guard stops == 0 else { return nil }
+        let (answers, c) = AsyncStream<Result<APIToken, CloudError>?>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        Task.detached(priority: .utility) {
+            let r: Result<APIToken, CloudError>
+            do throws(CloudError) { r = .success(try await tokens.token()) } catch { r = .failure(error) }
+            c.yield(r)
+            c.finish()
+        }
+        tokenWait = c
+        var got: Result<APIToken, CloudError>?
+        for await answer in answers {
+            got = answer
+            break
+        }
+        tokenWait = nil
+        return stops > 0 ? nil : got
+    }
+
+    /// One request of a pass, as its own task so that a stop can cancel it. Nil when the pass may not send for `id`
+    /// (before the request, or by the time it came back) or when a stop cancelled the request: the pass then leaves,
+    /// and what came back counts for nothing (no retry, no step down the bitrate ladder).
+    private func transmit(_ id: String, _ what: String, _ request: URLRequest) async -> Result<HTTPClient.Response, CloudError>? {
+        guard may(id) else { return nil }
+        let http = self.http
+        let task = Task.detached(priority: .utility) { () async -> Result<HTTPClient.Response, CloudError> in
+            do throws(CloudError) { return .success(try await http.send(request)) } catch { return .failure(error) }
+        }
+        let key = "\(id)/\(what)"
+        sending[key] = task
+        let result = await task.value
+        sending[key] = nil
+        if aborted.remove(key) != nil { return nil }
+        guard may(id) else { return nil }
+        return result
     }
 
     /// Whether the pending take list of an item waits for a later pass (its last try was answered or failed).
@@ -183,13 +369,14 @@ actor ContributionOutbox {
     private nonisolated let closedFlag = Locked(false)
 
     func drain(ignoringBackoff: Bool = false) async {
-        if isClosed { return }
+        // no pass starts while a stop is at work (the one who stopped it starts the queue again when it goes on)
+        if isClosed || stops > 0 { return }
         if running != nil {
             again = true
             // the pass that runs for this request honours it, whichever caller starts that pass
             againIgnoringBackoff = againIgnoringBackoff || ignoringBackoff
             while let t = running { await t.value }
-            if !again { return }
+            if !again || stops > 0 { return }
         }
         let ignore = ignoringBackoff || againIgnoringBackoff
         again = false
@@ -202,13 +389,13 @@ actor ContributionOutbox {
         }
         running = t
         await t.value
-        if again { await drain() }
+        if again, stops == 0 { await drain() }
     }
 
     private func pass(ignoringBackoff: Bool) async {
         scan()
         expireTakes()
-        guard let tokens, Contributions.isActive else { return }
+        guard let tokens, stops == 0, Contributions.isActive else { return }
         let now = clock()
         let due = records.values.filter { $0.waiting && (ignoringBackoff || ($0.due ?? .distantPast) <= now) }
             .sorted { $0.seq < $1.seq }.map(\.id)
@@ -218,13 +405,16 @@ actor ContributionOutbox {
             return
         }
         for id in due {
-            if Task.isCancelled { return }
+            if Task.isCancelled || stops > 0 { return }
             // an uploaded recording whose take list waits: a token that cannot be had never changes its status
             let listOnly = records[id]?.state == .uploaded
+            // the wait for a token is a wait for the network: a stop ends it, and the pass leaves
+            guard let answer = await tokenOrStop(tokens) else { return }
             let token: APIToken
-            do throws(CloudError) {
-                token = try await tokens.token()
-            } catch {
+            switch answer {
+            case .success(let t):
+                token = t
+            case .failure(let error):
                 if listOnly {
                     retryTakes(id)
                     if error.retryable { return }
@@ -253,6 +443,8 @@ actor ContributionOutbox {
         let markers = ShareFiles.markers(folder)
         let end = ShareFiles.read(ShareFiles.End.self, folder.appendingPathComponent(ShareFiles.end))
         guard var rec = records[id] else { return true }
+        // before the first write and the first request for this recording: is sharing still on, and no stop at work?
+        guard may(id) else { return false }
         // uploaded, its take list still to send
         if rec.state != .active { return await sendTakes(id, token: token) }
         // the server hears of a session only once it has a segment (a short failed session never
@@ -273,6 +465,8 @@ actor ContributionOutbox {
         for m in markers {
             let name = ShareFiles.name(m.n) + ".opus"
             guard !rec.uploaded.contains(name), !inFlight.contains("\(id)/\(name)") else { continue }
+            // sharing can go off while this pass runs: from then on nothing more is sent
+            guard may(id) else { return false }
             if rec.urls?.first(where: { $0.n == m.n })?.fresh(at: clock()) != true {
                 // none for this segment yet (the next batch did not come in time), or it expired
                 guard await fetchURLs(id, from: m.n, token: token) else { return !isOffline(id) }
@@ -288,8 +482,11 @@ actor ContributionOutbox {
             case .inProcess:
                 var r = request
                 r.httpBodyStream = InputStream(url: file)
-                let result: Result<HTTPClient.Response, CloudError>
-                do throws(CloudError) { result = .success(try await http.send(r)) } catch { result = .failure(error) }
+                guard let result = await transmit(id, name, r) else {
+                    // stopped: the segment is not up, and the pass leaves
+                    inFlight.remove("\(id)/\(name)")
+                    return false
+                }
                 if !put(id, name, result) { return false }
                 guard let now = records[id], now.state == .active else { return true }
                 rec = now
@@ -317,6 +514,7 @@ actor ContributionOutbox {
         // the item, the markers, the end, the session JSON and the take list stay (they give the status its numbers)
         for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         where name != Self.itemName && name != ShareFiles.end && name != ShareFiles.session && name != ShareFiles.takesFile
+            && name != ShareFiles.stampFile
             && !(name.hasPrefix("seg-") && name.hasSuffix(".json")) {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
         }
@@ -342,10 +540,14 @@ actor ContributionOutbox {
         let contributor = sessionField(id, "contributor") ?? Contributor.id(storage: storage)
         rec.takesAttempts = (rec.takesAttempts ?? 0) + 1
         save(rec)
+        // stopped (sharing went off, a delete is asking the server): the pass leaves, and nothing is written
+        guard let sent = await transmit(id, "takes", client.takesRequest(id: id, takes: list, contributor: contributor, token: token)) else {
+            return false
+        }
         let resp: HTTPClient.Response
-        do throws(CloudError) {
-            resp = try await http.send(client.takesRequest(id: id, takes: list, contributor: contributor, token: token))
-        } catch {
+        switch sent {
+        case .success(let r): resp = r
+        case .failure:
             retryTakes(id)
             return false
         }
@@ -428,8 +630,9 @@ actor ContributionOutbox {
     private func fetchURLs(_ id: String, from: Int, token: String) async -> Bool {
         let contributor = Contributor.id(storage: storage)
         guard let urls = await call(id, client.urlsRequest(id: id, from: from, contributor: contributor, token: token)) else {
-            // a failed call counts toward the backoff; the batches of a long session do not
-            if var r = records[id] { r.attempts += 1; save(r) }
+            // a failed call counts toward the backoff; the batches of a long session do not. A call a stop ended is
+            // not a failed one.
+            if may(id), var r = records[id] { r.attempts += 1; save(r) }
             return false
         }
         guard var rec = records[id] else { return false }
@@ -447,10 +650,15 @@ actor ContributionOutbox {
 
     /// A Worker call: the response on 2xx; otherwise the item is retried or failed and nil comes back.
     private func send(_ id: String, _ request: URLRequest) async -> HTTPClient.Response? {
+        guard let sent = await transmit(id, "call", request) else {
+            // stopped: the pass leaves (as when offline), and nothing is written for the item
+            offline.insert(id)
+            return nil
+        }
         let resp: HTTPClient.Response
-        do throws(CloudError) {
-            resp = try await http.send(request)
-        } catch {
+        switch sent {
+        case .success(let r): resp = r
+        case .failure(let error):
             ladder.uploadFailed()
             retry(id, "\(error)")
             offline.insert(id)
@@ -478,7 +686,9 @@ actor ContributionOutbox {
     @discardableResult
     func put(_ id: String, _ name: String, _ result: Result<HTTPClient.Response, CloudError>) -> Bool {
         inFlight.remove("\(id)/\(name)")
-        guard var rec = records[id], rec.state == .active else { return true }
+        // an upload a stop cancelled is not one that failed: it goes again when the queue goes on
+        if aborted.remove("\(id)/\(name)") != nil, case .failure = result { return false }
+        guard !gone.contains(id), var rec = records[id], rec.state == .active else { return true }
         switch result {
         case .failure(let e):
             ladder.uploadFailed()
@@ -564,11 +774,26 @@ actor ContributionOutbox {
 
     private func folder(_ id: String) -> URL { root.appendingPathComponent(id, isDirectory: true) }
 
-    /// Picks up folders the captures made, and recovers the ones a killed app left.
+    /// Picks up folders the captures made, and recovers the ones a killed app left. A recording made under an
+    /// earlier consent is not picked up: it leaves the queue and the disk first (rule R5), and the take list of a
+    /// sent recording of an earlier consent is dropped.
     private func scan() {
+        for name in Self.earlier(root: root, storage: storage) {
+            gone.insert(name)
+            records[name] = nil
+            try? FileManager.default.removeItem(at: folder(name))
+        }
+        defer {
+            let now = Self.consentOnDevice(storage)
+            for r in records.values where r.state == .uploaded && r.takes == .pending {
+                guard !now.on || ShareFiles.consentCount(folder(r.id)) != now.count else { continue }
+                endTakes(r.id, .dropped)
+                try? FileManager.default.removeItem(at: folder(r.id).appendingPathComponent(ShareFiles.takesFile))
+            }
+        }
         let fm = FileManager.default
         let names = ((try? fm.contentsOfDirectory(atPath: root.path)) ?? []).filter { $0.count == 32 && $0.allSatisfy(\.isHexDigit) }
-        for name in names where records[name] == nil {
+        for name in names where records[name] == nil && !gone.contains(name) {
             let f = folder(name)
             if let d = try? Data(contentsOf: f.appendingPathComponent(Self.itemName)),
                let rec = try? JSONDecoder().decode(Record.self, from: d), rec.id == name {
@@ -593,8 +818,9 @@ actor ContributionOutbox {
     }
 
     private func remove(_ id: String) {
-        try? FileManager.default.removeItem(at: folder(id))
+        gone.insert(id)
         records[id] = nil
+        try? FileManager.default.removeItem(at: folder(id))
     }
 
     private func snapshot(_ r: Record) -> Contribution {
@@ -617,6 +843,8 @@ actor ContributionOutbox {
     }
 
     private func save(_ rec: Record) {
+        // a recording sharing-off took out stays out: nothing is written for it again
+        if gone.contains(rec.id) { return }
         records[rec.id] = rec
         if let d = try? JSONEncoder().encode(rec) {
             try? d.write(to: folder(rec.id).appendingPathComponent(Self.itemName), options: .atomic)
@@ -675,6 +903,13 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate, @unchecked Sen
         let t = session.uploadTask(with: request, fromFile: file)
         t.taskDescription = key
         t.resume()
+    }
+
+    /// Cancels the uploads whose key starts with `prefix` ("" for all of them): a stop of the queue.
+    func cancel(prefix: String) {
+        session.getAllTasks { tasks in
+            for t in tasks where t.taskDescription?.hasPrefix(prefix) == true { t.cancel() }
+        }
     }
 
     func running() async -> Set<String> {

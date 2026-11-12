@@ -591,7 +591,7 @@ final class ClientTests: XCTestCase {
         XCTAssertEqual(d.lastError, "needs_connection")
         XCTAssertEqual(d.config, "none")
         XCTAssertNil(d.model)
-        XCTAssertEqual(d.sdkVersion, "3.0.0")
+        XCTAssertEqual(d.sdkVersion, SDKInfo.version)
         XCTAssertNotNil(try JSONSerialization.jsonObject(with: Data(d.json.utf8)) as? [String: Any])
     }
 

@@ -266,7 +266,9 @@ final class ShareFeedTests: XCTestCase {
                         w.on.withLock { $0 = on }
                         if !on { w.recorder.stop() }
                     case "delete":
-                        // "Delete what I shared": the open recording goes, and the count starts again
+                        // "Delete what I shared", accepted by the server: sharing goes off (the learner turns it on again
+                        // with the switch, an event of its own), the open recording goes, and the count starts again
+                        w.on.withLock { $0 = false }
                         w.recorder.stop()
                         ShareSequencer.reset(w.sequenceFile)
                     default:

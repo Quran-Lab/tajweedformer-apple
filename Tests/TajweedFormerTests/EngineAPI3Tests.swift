@@ -8,7 +8,12 @@ import TajweedFormerCore
 final class EngineAPI3Tests: XCTestCase {
     func testHeadBitsAreTheEngines() {
         XCTAssertEqual(zf_tajweed_api_version(), 4)
-        XCTAssertEqual(String(cString: zf_tajweed_version()), SDKInfo.version, "the engine and the SDK are one release")
+        // the engine is the tagged release this package pins; the SDK is of the same line (3.0) and not older
+        let engine = String(cString: zf_tajweed_version())
+        XCTAssertEqual(engine, "3.0.0", "the pinned engine")
+        XCTAssertEqual(engine.split(separator: ".").prefix(2).joined(separator: "."), SDKInfo.version.split(separator: ".").prefix(2).joined(separator: "."),
+                       "the engine and the SDK are one line of releases")
+        XCTAssertTrue(ModelManifest.version(SDKInfo.version, isAtLeast: engine), "the SDK is not older than its engine")
         let c: [(HeadID, Int)] = [
             (.logProbs, Int(ZF_TAJWEED_HEAD_LOG_PROBS)), (.inter1LogProbs, Int(ZF_TAJWEED_HEAD_INTER1)),
             (.inter4LogProbs, Int(ZF_TAJWEED_HEAD_INTER4)), (.idLogProbs, Int(ZF_TAJWEED_HEAD_ID)),

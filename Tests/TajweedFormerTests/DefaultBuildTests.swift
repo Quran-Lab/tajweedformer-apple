@@ -127,6 +127,68 @@ final class DefaultBuildTests: XCTestCase {
         await model.close()
     }
 
+    /// `diagnose()` reports, for the model's default context, what a Session with the default options would run on
+    /// now, from the stored promotion state: `cpu` while nothing is promoted; once the build is promoted,
+    /// `accelerator`, `coreml`, `promoted`, whatever Session the Model ran last (one on the CPU engine here), and
+    /// the same when the Client holds no open Model.
+    func testDiagnoseReportsThePromotedBuildWithAndWithoutAnOpenModel() async throws {
+        guard DownloadProfile.osRunsCoreML else { throw XCTSkip("the promotion needs iOS 18 / macOS 15") }
+        try StubbedModelServer.serve()
+        let client = try StubbedModelServer.client()
+        defer { client.close() }
+        let model = try await client.model()
+        var d = await client.diagnose()
+        XCTAssertEqual(d.context, "c16_l64")
+        XCTAssertEqual(d.backend?.kind, .cpu, "nothing is promoted yet")
+        XCTAssertNotEqual(d.backend?.stage, .promoted)
+        _ = try await take(model, .auto)
+        let promoted = await wait(model, for: .promoted)
+        XCTAssertEqual(promoted.stage, .promoted)
+        XCTAssertEqual(record(model, build: "coreml")?.status, .ready)
+        // the Model's last Session names the CPU engine: its engine in hand is now that Session's
+        let onCPU = try await take(model, .cpu)
+        XCTAssertEqual(onCPU.kind, .cpu)
+        let inHand = await model.backend
+        print("the Model's Backend after a Session on the CPU engine: \(inHand)")
+        // with an open Model: the default Session's Backend, from the stored promotion state
+        d = await client.diagnose()
+        XCTAssertEqual(d.context, "c16_l64")
+        XCTAssertEqual(d.backend, TajweedBackend(kind: .accelerator, name: "coreml", stage: .promoted, reason: nil), "with an open Model")
+        XCTAssertTrue(d.json.contains("\"stage\": \"promoted\""), d.json)
+        XCTAssertNil(DiagnosisTests.problem(try DiagnosisTests.report(d)))
+        // without an open Model: the same
+        await model.close()
+        d = await client.diagnose()
+        XCTAssertNotNil(d.model, "the model is on the device")
+        XCTAssertEqual(d.context, "c16_l64")
+        XCTAssertEqual(d.backend, TajweedBackend(kind: .accelerator, name: "coreml", stage: .promoted, reason: nil), "without an open Model")
+        XCTAssertNil(DiagnosisTests.problem(try DiagnosisTests.report(d)))
+    }
+
+    /// And `cpu` only when nothing is promoted: a build the pipeline gave up on reads `cpu`, `demoted` with the
+    /// reason, with and without an open Model.
+    func testDiagnoseReportsTheCPUEngineWhenNothingIsPromoted() async throws {
+        guard DownloadProfile.osRunsCoreML else { throw XCTSkip("the promotion needs iOS 18 / macOS 15") }
+        differing.withLock { $0 = ["coreml"] }
+        try StubbedModelServer.serve()
+        let client = try StubbedModelServer.client()
+        defer { client.close() }
+        let model = try await client.model()
+        _ = try await take(model, .auto)
+        let demoted = await wait(model, for: .demoted)
+        XCTAssertEqual(demoted.stage, .demoted)
+        let want = TajweedBackend(kind: .cpu, name: "cpu", stage: .demoted, reason: "golden_mismatch")
+        var d = await client.diagnose()
+        XCTAssertEqual(d.backend, want, "with an open Model")
+        _ = try await take(model, .cpu)
+        d = await client.diagnose()
+        XCTAssertEqual(d.backend, want, "after a Session on the CPU engine")
+        await model.close()
+        d = await client.diagnose()
+        XCTAssertEqual(d.backend, want, "without an open Model")
+        XCTAssertNil(DiagnosisTests.problem(try DiagnosisTests.report(d)))
+    }
+
     /// The fp16 build is demoted (its tokens differ): the Session stays on the CPU engine, and in 3.0.0 the compact
     /// build is not fetched or tried in its place, however many takes follow.
     func testAfterTheFp16BuildIsDemotedTheSessionStaysOnTheCPUEngine() async throws {

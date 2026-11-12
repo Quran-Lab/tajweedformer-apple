@@ -199,7 +199,11 @@ final class RefusalReasonTests: XCTestCase {
     /// reports the key as not accepted with that code as its reason, and `lastError` is that code.
     func testEveryCaseOfTheRefusalVector() async throws {
         let v = try Vectors30.json("refusals.json")
-        XCTAssertEqual(v["sdk"] as? String, SDKInfo.version)
+        // `sdk` names the version the file was built with and fills {sdk} in its texts: this SDK is that version or a
+        // later 3.0.x, and puts its own version in its place before it compares
+        let written = try XCTUnwrap(v["sdk"] as? String)
+        XCTAssertTrue(ModelManifest.version(SDKInfo.version, isAtLeast: written), "SDK \(SDKInfo.version) is not older than the vector's \(written)")
+        XCTAssertEqual(SDKInfo.version.split(separator: ".").prefix(2).joined(separator: "."), written.split(separator: ".").prefix(2).joined(separator: "."), "the same line of releases")
         let app = try XCTUnwrap(v["app"] as? String)
         let cases = try XCTUnwrap(v["cases"] as? [[String: Any]])
         XCTAssertEqual(cases.count, 11)
@@ -213,8 +217,10 @@ final class RefusalReasonTests: XCTestCase {
             let got = try await answered(status: status, body: try JSONSerialization.data(withJSONObject: answer), app: app)
             let e = try XCTUnwrap(got.error, "\(name): model() throws")
             XCTAssertEqual(e.code, expect["code"] as? String, name)
-            XCTAssertEqual(e.message, expect["message"] as? String, name)
-            XCTAssertEqual(e.fix, expect["fix"] as? String, name)
+            let message = (expect["message"] as? String)?.replacingOccurrences(of: written, with: SDKInfo.version)
+            let fix = (expect["fix"] as? String)?.replacingOccurrences(of: written, with: SDKInfo.version)
+            XCTAssertEqual(e.message, message, name)
+            XCTAssertEqual(e.fix, fix, name)
             XCTAssertEqual(e.docs, "https://sdk.quranlab.ai/docs/errors#" + e.code, name)
             // the entry of the catalogue's reasons the case names is the one whose words the error has
             if let reason = expect["reason"] as? String {

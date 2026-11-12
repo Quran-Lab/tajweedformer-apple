@@ -12,6 +12,9 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         var body = Data()
         /// Fail as if offline.
         var offline = false
+        /// The answer waits behind this gate: the request stays in flight until the gate opens (an upload the
+        /// server has not answered yet), or until its sender cancels it.
+        var hold: Gate?
 
         static func json(_ o: Any, status: Int = 200, headers: [String: String] = [:]) -> Reply {
             var r = Reply(status: status, body: try! JSONSerialization.data(withJSONObject: o))
@@ -21,21 +24,48 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         static let down = Reply(offline: true)
     }
 
+    /// A gate an answer waits behind. Opening it lets every answer that waits, or comes later, go.
+    final class Gate: @unchecked Sendable {
+        private let semaphore = DispatchSemaphore(value: 0)
+        func open() { semaphore.signal() }
+        func wait() {
+            semaphore.wait()
+            semaphore.signal()
+        }
+    }
+
     struct Seen: Sendable {
         let method: String
         let url: URL
         let headers: [String: String]
         let body: Data
+        /// When the request reached the stub.
+        var at = Date()
         var path: String { url.path }
         var json: [String: Any]? { (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] }
     }
 
     nonisolated(unsafe) static var handler: (@Sendable (Seen) -> Reply)?
     static let log = Locked<[Seen]>([])
+    /// The requests their sender cancelled while the answer was held.
+    static let cancelled = Locked<[Seen]>([])
+    /// This request, while its answer is held.
+    private let waiting = Locked<Seen?>(nil)
+    /// A slow upload: when this names a gate for a request with a body stream, the server takes the first bytes of
+    /// the body at once (the request has started) and the rest only when the gate opens, unless the sender
+    /// cancelled the request meanwhile. The handler answers when the whole body is there.
+    nonisolated(unsafe) static var slowBody: (@Sendable (URLRequest) -> Gate?)?
+    /// The body bytes the server took of slow uploads after their gates opened.
+    static let lateBytes = Locked(0)
+    /// How much of a slow upload's body the server takes at once.
+    static let firstBytes = 4096
 
     static func reset(_ h: @escaping @Sendable (Seen) -> Reply) {
         handler = h
         log.withLock { $0 = [] }
+        cancelled.withLock { $0 = [] }
+        slowBody = nil
+        lateBytes.withLock { $0 = 0 }
     }
 
     static var seen: [Seen] { log.withLock { $0 } }
@@ -51,6 +81,9 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        if let gate = Self.slowBody?(request), let stream = request.httpBodyStream {
+            return startSlowly(stream, gate)
+        }
         var body = request.httpBody ?? Data()
         if body.isEmpty, let s = request.httpBodyStream {
             s.open()
@@ -66,6 +99,63 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         let seen = Seen(method: request.httpMethod ?? "GET", url: request.url!, headers: headers, body: body)
         Self.log.withLock { $0.append(seen) }
         let reply = Self.handler?(seen) ?? Reply(status: 404)
+        guard let gate = reply.hold else { return answer(reply) }
+        // held: the request is in flight until the gate opens; a sender that cancels it meanwhile gets no answer
+        waiting.withLock { $0 = seen }
+        DispatchQueue.global().async { [self] in
+            gate.wait()
+            let still = waiting.withLock { (w: inout Seen?) -> Bool in
+                let had = w != nil
+                w = nil
+                return had
+            }
+            if still { answer(reply) }
+        }
+    }
+
+    /// A slow upload (`slowBody`): the first bytes now, the rest when the gate opens.
+    private func startSlowly(_ stream: InputStream, _ gate: Gate) {
+        stream.open()
+        var buf = [UInt8](repeating: 0, count: Self.firstBytes)
+        let n = stream.read(&buf, maxLength: buf.count)
+        let first = n > 0 ? Data(buf[0..<n]) : Data()
+        let method = request.httpMethod ?? "GET"
+        let url = request.url!
+        let headers = Dictionary((request.allHTTPHeaderFields ?? [:]).map { ($0.key.lowercased(), $0.value) }) { a, _ in a }
+        let started = Seen(method: method, url: url, headers: headers, body: first)
+        Self.log.withLock { $0.append(started) }
+        waiting.withLock { $0 = started }
+        let rest = UncheckedBox(stream)
+        DispatchQueue.global().async { [self] in
+            gate.wait()
+            // cancelled while the server waited: no more of the body is taken
+            let cancelled = waiting.withLock { (w: inout Seen?) -> Bool in w == nil }
+            if cancelled {
+                rest.value.close()
+                return
+            }
+            var body = first
+            var late = 0
+            var more = [UInt8](repeating: 0, count: 65_536)
+            while rest.value.hasBytesAvailable {
+                let k = rest.value.read(&more, maxLength: more.count)
+                if k <= 0 { break }
+                body.append(more, count: k)
+                late += k
+            }
+            rest.value.close()
+            let taken = late
+            StubProtocol.lateBytes.withLock { $0 += taken }
+            let still = waiting.withLock { (w: inout Seen?) -> Bool in
+                let had = w != nil
+                w = nil
+                return had
+            }
+            if still { answer(StubProtocol.handler?(Seen(method: method, url: url, headers: headers, body: body)) ?? Reply(status: 404)) }
+        }
+    }
+
+    private func answer(_ reply: Reply) {
         if reply.offline {
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
             return
@@ -76,7 +166,15 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        // ended before its held answer came: the sender cancelled it
+        let held = waiting.withLock { (w: inout Seen?) -> Seen? in
+            let s = w
+            w = nil
+            return s
+        }
+        if let held { Self.cancelled.withLock { $0.append(held) } }
+    }
 }
 
 /// App Attest stand-in. Keys are "fake-key-1", "fake-key-2", ... in the order they are made; an

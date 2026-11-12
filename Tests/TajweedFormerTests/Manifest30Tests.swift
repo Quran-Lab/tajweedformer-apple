@@ -26,7 +26,10 @@ final class Manifest30VectorTests: XCTestCase {
     func testEveryCaseOfTheVector() throws {
         let v = try Vectors30.json("manifest_30.json")
         let sdk = try XCTUnwrap(v["sdk_version"] as? String)
-        XCTAssertEqual(sdk, SDKInfo.version)
+        // the vector is for the 3.0 line: `sdk_version` names the version it was built with, and this SDK is that
+        // version or a later 3.0.x. The cases are judged as THIS SDK's version: every case holds for 3.0.0 to 3.0.99.
+        XCTAssertTrue(ModelManifest.version(SDKInfo.version, isAtLeast: sdk), "SDK \(SDKInfo.version) is not older than the vector's \(sdk)")
+        XCTAssertEqual(SDKInfo.version.split(separator: ".").prefix(2).joined(separator: "."), sdk.split(separator: ".").prefix(2).joined(separator: "."), "the same line of releases")
         let key = Self.bytes(try XCTUnwrap(v["public_key_hex"] as? String))
         XCTAssertEqual(ConfigVerifier.keyID(key), v["key_id"] as? String)
         XCTAssertNotEqual(key, ManifestVerifier.quranLabPublicKey, "the test key is not the SDK's")
@@ -43,7 +46,7 @@ final class Manifest30VectorTests: XCTestCase {
             let m: ModelManifest
             do {
                 m = try ModelManifest.accept(data, verifier: verifier, build: config?["revision"] as? String,
-                                             version: config?["version"] as? String, sdkVersion: sdk)
+                                             version: config?["version"] as? String, sdkVersion: SDKInfo.version)
             } catch {
                 XCTAssertEqual(expect["outcome"] as? String, "refused", "\(name): refused with \(error)")
                 XCTAssertEqual(Self.code(error), expect["code"] as? String, name)
