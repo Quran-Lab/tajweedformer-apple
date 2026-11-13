@@ -36,9 +36,15 @@ answers "Share", and a learner who never answers never shares.
    for children's apps.
 2. **Themed.** Colours, corner radius and fonts of the SDK's sheets can be set; the words, their order, every
    line and the name at the top stay the SDK's. This does not change the consent version.
-3. **Your own UI.** The app receives the SDK's request to ask, shows its own UI with the SDK's localized
-   strings (the copy deck the SDK exposes), and reports the learner's answer with the SDK's grant and
-   decline calls, only from the learner's own tap. The SDK counts each ask against the same three.
+3. **Your own moment.** An app that knows a better moment than the SDK's calls `client.sharing.ask()`: the
+   SDK shows its own sheet then, if an ask is still allowed, and that counts as one of the three. Drawing
+   the ask itself is not available in this version: the sheet is always the SDK's, and no call hands the
+   app the request to ask or takes the learner's answer from a screen of the app's. What an app changes is
+   the look (item 2) and the words (item 4).
+
+   `client.sharing.setOn` is the learner's own switch in the app's settings, and is called from that switch
+   only. It must not be used to hold the SDK's sheet back or to record an answer given on another screen:
+   the yes it records is to Quran Lab's text, which a learner who saw another screen has not read.
 4. **Your own wording.** An app may replace any string of the deck with its own text. Then the learner
    agrees to that text, so the SDK records the grant under a version derived from it and sends its hash
    with every session, so that Quran Lab can review it:

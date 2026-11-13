@@ -26,6 +26,7 @@ running the 2.x builds.
 | `heads: .default`, `.all`, `.adding([...])` | `TajweedSessionOptions(heads:)` with head names; `defaultHeads`, `allHeads` |
 | `RecognizerError` | `TajweedError` with `code`, `message`, `fix`, `docs`; compare `code` |
 | `Contributions.*`, `endSession(feedback:)` | `client.sharing` (`isAvailable`, `isOn`, `setOn`, `ask`, `items`, `summary`, `delete`, `recoveryCode`, `setWording`, `feed`); the SDK notes the end of a take itself |
+| `Contributions.setPresenter(_:)`, `Contributions.answer(share:)` (your own consent UI) | none in this version: the sheet is the SDK's. `client.sharing.ask()` chooses the moment, `setWording` the words, the theme the look; `setOn` is the settings switch only |
 | `.quranLabSharing()` | `.quranLabSharing(client)` |
 | `recognizer.score(surah:ayah:)`, `TajweedResult`, `TajweedOptions`, presets, word levels | removed: see below |
 
