@@ -100,6 +100,8 @@ final class SpeechSessionTests: XCTestCase {
         var events: [TajweedEvent] = []
         var heads: TajweedHeads
         var telemetry: SessionTelemetry?
+        /// The pieces of audio pushed.
+        var pushed = 0
     }
 
     /// One take through a Session over the scripted engine. Every chunk but the script's last arrives while audio is
@@ -111,10 +113,13 @@ final class SpeechSessionTests: XCTestCase {
         let model = TajweedModel(folder, client: nil)
         let session = try await model.session(options: options)
         let piece = [Float](repeating: 0, count: ScriptedCPUEngine.advance)
+        var pushed = 0
         for _ in 0..<max(0, script.count - 1) {
             guard (try? session.push(piece)) != nil else { break }
+            pushed += 1
         }
         var t = Taken(heads: try await session.finish())
+        t.pushed = pushed
         for await c in session.chunks { t.chunks.append(c) }
         for await e in session.events { t.events.append(e) }
         await model.close()
@@ -165,7 +170,11 @@ final class SpeechSessionTests: XCTestCase {
             let tokens = try XCTUnwrap(expect["tokens"] as? [String: Int], name)
             XCTAssertEqual(t.heads.greedy().count, tokens["log_probs"], "\(name): tokens")
             if case .ended(.silence)? = t.events.last { endedOnSilence += 1 }
-            // the telemetry of the take: the same frames
+            // the telemetry of the take: the same frames; a take without audio records nothing (SDK 3.1.1)
+            guard t.pushed > 0 else {
+                XCTAssertNil(t.telemetry, "\(name): a take without audio records nothing")
+                continue
+            }
             let counted = try XCTUnwrap(t.telemetry, name)
             XCTAssertTrue(counted.counts, name)
             XCTAssertEqual(counted.speechFrames, expect["speech_frames"] as? Int, "\(name): speech frames in the telemetry")

@@ -2,8 +2,21 @@
 
 ## 3.1.1
 
-The sharing sheet has a new design. No word, no consent rule and no consent version changed, and nothing else in
-the SDK changed: the same engine, the same model builds and the same API as 3.1.0.
+The sharing sheet has a new design, and two fixes from a report on real devices. No word, no consent rule and no
+consent version changed; the same engine, the same model builds and the same API as 3.1.0.
+
+### Fixed
+- On a Mac, a command-line tool or any process without an application identifier downloaded the model again at
+  every start: the saved install key was never found. Fixed; iPhone and iPad apps were not affected. (Such a
+  process's reads of the data protection keychain answer "not found" and only its adds "missing entitlement", so
+  the key it had kept in the login keychain was never looked for. Now, on a Mac, a read that finds nothing there
+  or is refused looks in the login keychain before it answers that there is no key, and a key that a second read
+  finds is never replaced.)
+
+### Changed
+- A take that is cancelled or finished before any audio was pushed is no longer counted as a session in the app's
+  statistics. (An app that opens a session and cancels it at once, to have the model ready for its options before
+  the learner starts, added one aborted session a launch. The recognizer is still made and warmed.)
 
 ### The sharing sheet has a new design
 - What a learner sees: at the top the Quran Lab emblem and the name "Quran Lab", then the title and the body; one
@@ -53,6 +66,14 @@ the SDK changed: the same engine, the same model builds and the same API as 3.1.
 The tests below run on the public CI's Mac runner; the sheet is drawn by SwiftUI on that Mac, not on an iPhone.
 Not run on a device: the large detent and the corner radius of the iPhone sheet, the switch's colour, and the text
 size, Bold Text and Increase Contrast read from the device.
+- The install key in the Mac runner's real Keychain, from the test process (a process without an application
+  identifier): its data protection keychain answered a read of a missing item with -25300 (errSecItemNotFound) and
+  an add with -34018 (errSecMissingEntitlement); a key one start keeps is the key the next start finds, and a create
+  after a read that missed it gives that key back (both failed on 3.1.0's rule). The key store's decision for every
+  answer of either keychain, on macOS and on iOS, over a stand-in for the two keychains.
+- A take cancelled or finished without audio (pushed, of empty buffers, or a microphone that gave nothing) records
+  nothing and is not a finished session for the sharing ask; a take with one buffer of audio and then cancelled is a
+  session and aborted, as before.
 - Every line of the sheet is drawn whole, as the deck file has it, in each of the eight languages, in the first
   ask, the re-ask and the guardian's variant, and the name is at the top (also with a theme that sets every field
   and with the app's own wording). The 3.1.0 test of the deck's lines is unchanged and passes.

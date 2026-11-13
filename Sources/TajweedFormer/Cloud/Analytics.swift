@@ -79,7 +79,8 @@ struct SessionTelemetry: Sendable, Hashable {
     /// Milliseconds from the recognizer's creation to its first chunk, for the first session of a launch.
     var coldStartMs: Double?
     /// The take ended with its Heads (`finish()`, or an end by itself that is not an error). A take that was cancelled
-    /// or failed counts as a session and as aborted, and adds nothing to the fields below.
+    /// or failed counts as a session and as aborted, and adds nothing to the fields below. A take that ended before
+    /// any audio was pushed or captured is not recorded at all (SDK 3.1.1).
     var counts = true
     /// The take's input audio, floor(1000 * samples / rate) ms.
     var audioMs = 0

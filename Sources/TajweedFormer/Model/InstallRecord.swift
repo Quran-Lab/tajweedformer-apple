@@ -29,22 +29,55 @@ protocol InstallKeyStoring: Sendable {
     func create() -> InstallKeyLookup
 }
 
+/// What one keychain answered a read of the install key.
+enum KeychainAnswer: Equatable, Sendable {
+    case data(Data)
+    case notFound
+    case missingEntitlement
+    case error(OSStatus)
+}
+
+/// The two keychains the key store uses: the system's, or a test's stand-in.
+protocol InstallKeychains {
+    func readDataProtection() -> KeychainAnswer
+    func readLogin() -> KeychainAnswer
+    /// Puts `key` in place of the item: the add's status.
+    func writeDataProtection(_ key: Data) -> OSStatus
+    func writeLogin(_ key: Data) -> OSStatus
+}
+
 /// The Keychain. On iOS: the data protection keychain, this device only, readable after first unlock, and nothing
-/// else. On macOS the same first; a Mac process without an application identifier (an unsigned or ad hoc signed
-/// binary, a command-line tool, an app signed without a provisioning profile) is refused by that keychain with
-/// `errSecMissingEntitlement`, and only then the Mac's login keychain holds the key, in an item named for the
-/// app's bundle id. A login keychain can travel to another Mac with the user's account. There is no file fallback:
-/// every other answer of either keychain is a failure (`storage_failed`), and "item not found" is "no key".
+/// else. On macOS the same first. A Mac process without an application identifier (an unsigned or ad hoc signed
+/// binary, a command-line tool, an app signed without a provisioning profile) cannot keep an item there: that
+/// keychain answers its read with `errSecItemNotFound` (-25300), as if there were no item, and only its add with
+/// `errSecMissingEntitlement` (-34018) (measured on the CI's Mac runner, whose test process is such a process). So on
+/// macOS, when the data protection keychain finds nothing or refuses the process, the Mac's login keychain is read
+/// before the answer is "no key"; a key is written there only when the data protection keychain refuses the add; the
+/// item there is named for the app's bundle id. A login keychain can travel to another Mac with the user's account.
+/// There is no file fallback: every other answer of either keychain is a failure (`storage_failed`).
+///
+/// Until 3.1.0 the login keychain was read only after a read refused with `errSecMissingEntitlement`, which such a
+/// process never gets: every start found no key, wrote a new one, and deleted and downloaded the model again.
 struct KeychainInstallKeyStore: InstallKeyStoring {
-    static let service = "quranlab.sdk"
-    static let account = "quranlab.model.install.key"
+    static let defaultService = "quranlab.sdk"
+    static let defaultAccount = "quranlab.model.install.key"
     static let keyBytes = 32
+    /// The item's names (a test uses names of its own).
+    var service = KeychainInstallKeyStore.defaultService
+    var account = KeychainInstallKeyStore.defaultAccount
+
+    /// macOS has a second place for the key, the login keychain; iOS has none.
+    #if os(macOS)
+    static let readsLogin = true
+    #else
+    static let readsLogin = false
+    #endif
 
     /// The item in the data protection keychain (per app by its access group).
     var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: Self.service,
-         kSecAttrAccount as String: Self.account,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account,
          kSecUseDataProtectionKeychain as String: true]
     }
 
@@ -52,18 +85,11 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
     var loginQuery: [String: Any] {
         let app = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
         return [kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: Self.service,
-                kSecAttrAccount as String: Self.account + "." + app]
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account + "." + app]
     }
 
-    private enum Answer {
-        case data(Data)
-        case notFound
-        case missingEntitlement
-        case error(OSStatus)
-    }
-
-    private static func read(_ query: [String: Any]) -> Answer {
+    static func read(_ query: [String: Any]) -> KeychainAnswer {
         var q = query
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -78,25 +104,7 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
         return .error(status)
     }
 
-    private static func lookup(_ a: Answer) -> InstallKeyLookup {
-        switch a {
-        // an item of another size is not a key: a new one takes its place
-        case .data(let d): return d.count == keyBytes ? .key(d) : .none
-        case .notFound: return .none
-        case .missingEntitlement: return .failed("the Keychain refuses this process (errSecMissingEntitlement)")
-        case .error(let status): return .failed("the Keychain did not answer (status \(status))")
-        }
-    }
-
-    func load() -> InstallKeyLookup {
-        let first = Self.read(query)
-        #if os(macOS)
-        if case .missingEntitlement = first { return Self.lookup(Self.read(loginQuery)) }
-        #endif
-        return Self.lookup(first)
-    }
-
-    private static func add(_ query: [String: Any], _ key: Data, deviceOnly: Bool) -> OSStatus {
+    static func add(_ query: [String: Any], _ key: Data, deviceOnly: Bool) -> OSStatus {
         SecItemDelete(query as CFDictionary)
         var q = query
         q[kSecValueData as String] = key
@@ -107,18 +115,63 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
         return SecItemAdd(q as CFDictionary, nil)
     }
 
-    func create() -> InstallKeyLookup {
-        var bytes = [UInt8](repeating: 0, count: Self.keyBytes)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            return .failed("the system gave no random bytes for the install key")
+    private static func lookup(_ a: KeychainAnswer) -> InstallKeyLookup {
+        switch a {
+        // an item of another size is not a key: a new one takes its place
+        case .data(let d): return d.count == keyBytes ? .key(d) : .none
+        case .notFound: return .none
+        case .missingEntitlement: return .failed("the Keychain refuses this process (errSecMissingEntitlement)")
+        case .error(let status): return .failed("the Keychain did not answer (status \(status))")
         }
-        let key = Data(bytes)
-        var status = Self.add(query, key, deviceOnly: true)
-        #if os(macOS)
-        if status == errSecMissingEntitlement { status = Self.add(loginQuery, key, deviceOnly: false) }
-        #endif
+    }
+
+    /// The key, as `load` decides it: the data protection keychain's; on macOS (`readsLogin`), when that keychain
+    /// finds nothing or refuses the process, the login keychain's. Every other answer is a failure.
+    static func load(_ keychains: any InstallKeychains, readsLogin: Bool) -> InstallKeyLookup {
+        let first = keychains.readDataProtection()
+        if readsLogin {
+            switch first {
+            case .notFound, .missingEntitlement: return lookup(keychains.readLogin())
+            case .data, .error: break
+            }
+        }
+        return lookup(first)
+    }
+
+    /// A new key kept, as `create` decides it. A key that a second read finds is that key, never replaced: the data
+    /// protection keychain is read again first, and on macOS the login keychain is read again before anything is
+    /// written there. A key goes to the login keychain only when the data protection keychain refuses the add.
+    static func create(_ keychains: any InstallKeychains, readsLogin: Bool, newKey: Data?) -> InstallKeyLookup {
+        guard let key = newKey else { return .failed("the system gave no random bytes for the install key") }
+        if case .data(let d) = keychains.readDataProtection(), d.count == keyBytes { return .key(d) }
+        var status = keychains.writeDataProtection(key)
+        if readsLogin && status == errSecMissingEntitlement {
+            if case .data(let d) = keychains.readLogin(), d.count == keyBytes { return .key(d) }
+            status = keychains.writeLogin(key)
+        }
         return status == errSecSuccess ? .key(key) : .failed("the Keychain did not keep the install key (status \(status))")
     }
+
+    static func randomKey() -> Data? {
+        var bytes = [UInt8](repeating: 0, count: keyBytes)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        return Data(bytes)
+    }
+
+    func load() -> InstallKeyLookup { Self.load(SystemKeychains(store: self), readsLogin: Self.readsLogin) }
+
+    func create() -> InstallKeyLookup {
+        Self.create(SystemKeychains(store: self), readsLogin: Self.readsLogin, newKey: Self.randomKey())
+    }
+}
+
+/// The system's two keychains for one store's item.
+struct SystemKeychains: InstallKeychains {
+    let store: KeychainInstallKeyStore
+    func readDataProtection() -> KeychainAnswer { KeychainInstallKeyStore.read(store.query) }
+    func readLogin() -> KeychainAnswer { KeychainInstallKeyStore.read(store.loginQuery) }
+    func writeDataProtection(_ key: Data) -> OSStatus { KeychainInstallKeyStore.add(store.query, key, deviceOnly: true) }
+    func writeLogin(_ key: Data) -> OSStatus { KeychainInstallKeyStore.add(store.loginQuery, key, deviceOnly: false) }
 }
 
 /// How a build folder stands to this Client.
