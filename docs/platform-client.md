@@ -20,10 +20,9 @@ answers "Share", and a learner who never answers never shares.
   a learner who turned sharing off after a yes is not asked again. After that, only the app's own settings
   entry point (the SDK's settings switch) turns sharing on or off. The count carries over from 2.0.0.
 - The learner agrees to one wording, identified by a consent version, recorded when they agree. The SDK's
-  own copy deck has version `share-2026-11-12` (deck `2026-11-12.1`, eight languages; from SDK 3.1.0 the
-  sheet and "What is shared" say that no human ever listens to the recordings: only software learns from
-  them). Every shared session carries the version the learner actually agreed to (`consent_version`), for
-  example `share-2026-11-09` for a learner who agreed in a 3.0 app, who is not asked again.
+  own copy deck has version `share-2026-11-09` (deck `2026-11-13.1`, eight languages). Every shared session
+  carries the version the learner actually agreed to (`consent_version`), for example `share-2026-11-12`
+  for a learner who agreed in a 3.1.0 or 3.1.1 app, who is not asked again.
 - A grant persists: a new copy deck, a new SDK version or new app wording neither pauses sharing nor asks
   again. A learner who agreed in a 2.0.0 install keeps sharing after the app moves to 2.0.1, with no sheet.
 - The learner can stop at any time (uploads stop at once and the unsent queue is deleted) and delete

@@ -1,10 +1,10 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-12.1",
+ "version": "2026-11-13.1",
  "lang": "ms",
  "dir": "ltr",
  "source_lang": "en",
- "consent_version": "share-2026-11-12",
+ "consent_version": "share-2026-11-09",
  "delete_days": 0,
  "delete_timing": "immediate",
  "strings": {
@@ -14,7 +14,7 @@
   "sheet.hadith_ref": "Sahih Muslim 1631",
   "sheet.mistakes": "Kesilapan anda adalah bahagian yang paling bernilai. Ia mengajar model ini menegur pelajar seterusnya dengan lembut.",
   "sheet.what": "Audio daripada sesi bacaan anda dalam aplikasi ini semasa ia mendengar, serta maklumat teknikal asas seperti versi model dan jenis peranti. Tiada nama, senarai kenalan mahupun lokasi.",
-  "sheet.who": "Quran Lab, sebuah inisiatif wakaf. Model yang dilatih adalah percuma untuk semua, selama-lamanya, dan tidak akan sesekali dijual. Tiada manusia yang mendengar rakaman anda sama sekali: hanya perisian yang belajar daripadanya.",
+  "sheet.who": "Quran Lab, sebuah inisiatif wakaf. Model yang dilatih adalah percuma untuk semua, selama-lamanya, dan tidak akan sesekali dijual.",
   "sheet.control": "Anda boleh berhenti pada bila-bila masa dan memadam apa yang telah dikongsi melalui tetapan.",
   "sheet.share": "Kongsi bacaan saya",
   "sheet.not_now": "Bukan sekarang",
@@ -26,7 +26,7 @@
   "settings.toggle": "Kongsi bacaan saya",
   "settings.what": "Maklumat yang dikongsi",
   "settings.delete": "Padam apa yang dikongsi",
-  "what.detail": "Apabila perkongsian diaktifkan, audio sesi bacaan anda dalam aplikasi ini akan dihantar kepada Quran Lab bersama butiran teknikal umum (versi model, jenis peranti, versi sistem, hari) dan kod rawak bagi pemasangan ini. Nama, akaun, kenalan, lokasi atau pengecam peranti anda tidak akan diambil sama sekali. Data ini disimpan di EU dan hanya digunakan untuk menambah baik model bacaan al-Quran percuma. Tiada manusia yang mendengar rakaman anda sama sekali: hanya perisian yang belajar daripadanya. Mematikan perkongsian akan menghentikan muat naik serta-merta, dan anda boleh memadamkan semua yang telah dikongsi melalui tetapan pada bila-bila masa: ia akan dipadamkan daripada pelayan Quran Lab serta-merta.",
+  "what.detail": "Apabila perkongsian diaktifkan, audio sesi bacaan anda dalam aplikasi ini akan dihantar kepada Quran Lab bersama butiran teknikal umum (versi model, jenis peranti, versi sistem, hari) dan kod rawak bagi pemasangan ini. Nama, akaun, kenalan, lokasi atau pengecam peranti anda tidak akan diambil sama sekali. Data ini disimpan di EU dan hanya digunakan untuk menambah baik model bacaan al-Quran percuma. Mematikan perkongsian akan menghentikan muat naik serta-merta, dan anda boleh memadamkan semua yang telah dikongsi melalui tetapan pada bila-bila masa: ia akan dipadamkan daripada pelayan Quran Lab serta-merta.",
   "delete.confirm": "Rakaman bacaan yang anda kongsi akan dipadamkan daripada pelayan Quran Lab serta-merta. Tindakan ini tidak boleh dibatalkan.",
   "delete.action": "Padam",
   "delete.cancel": "Batal",
@@ -62,7 +62,7 @@
    "sheet.hadith_ref": "Sahih Muslim 1631",
    "sheet.mistakes": "Your mistakes are the most valuable part. It teaches this model to correct the next learner gently.",
    "sheet.what": "Audio from your recitation sessions in this app while it is listening, as well as basic technical information such as model version and device type. No name, contact list, nor location.",
-   "sheet.who": "Quran Lab, a waqf initiative. The trained model is free for everyone, forever, and will never be sold. No human listens to your recordings at all: only software learns from them.",
+   "sheet.who": "Quran Lab, a waqf initiative. The trained model is free for everyone, forever, and will never be sold.",
    "sheet.control": "You can stop at any time and delete what has been shared through settings.",
    "sheet.share": "Share my recitation",
    "sheet.not_now": "Not now",
@@ -74,7 +74,7 @@
    "settings.toggle": "Share my recitation",
    "settings.what": "Information that is shared",
    "settings.delete": "Delete what has been shared",
-   "what.detail": "When sharing is enabled, the audio of your recitation session in this app will be sent to Quran Lab along with general technical details (model version, device type, system version, day), and a random code for this installation. Your name, account, contacts, location, or device identifier will not be collected at all. This data is stored in the EU and is only used to improve the free Quran recitation model. No human listens to your recordings at all: only software learns from them. Disabling sharing will stop uploads immediately, and you can delete everything that has been shared via settings at any time: it will be deleted from the Quran Lab servers immediately.",
+   "what.detail": "When sharing is enabled, the audio of your recitation session in this app will be sent to Quran Lab along with general technical details (model version, device type, system version, day), and a random code for this installation. Your name, account, contacts, location, or device identifier will not be collected at all. This data is stored in the EU and is only used to improve the free Quran recitation model. Disabling sharing will stop uploads immediately, and you can delete everything that has been shared via settings at any time: it will be deleted from the Quran Lab servers immediately.",
    "delete.confirm": "The recitation recordings you shared will be deleted from the Quran Lab servers immediately. This action cannot be undone.",
    "delete.action": "Delete",
    "delete.cancel": "Cancel",
@@ -102,9 +102,9 @@
     "method": "exact phrase removal from the reviewed 2026-11-07.3 text, no re-translation"
    },
    {
-    "version": "2026-11-12.1",
-    "change": "one sentence added to sheet.who and what.detail: no human ever listens to the recordings, only software learns from them",
-    "method": "a new sentence written for this language on 2026-11-12 and placed without touching the reviewed 2026-11-09.1 text; not yet read by a native reviewer"
+    "version": "2026-11-13.1",
+    "change": "the sentence added in 2026-11-12.1 is removed from sheet.who and what.detail; every string is the 2026-11-09.1 string again",
+    "method": "built from the archived 2026-11-09.1 deck: no string was edited"
    }
   ],
   "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"

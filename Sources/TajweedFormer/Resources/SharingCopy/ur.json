@@ -1,10 +1,10 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-12.1",
+ "version": "2026-11-13.1",
  "lang": "ur",
  "dir": "rtl",
  "source_lang": "en",
- "consent_version": "share-2026-11-12",
+ "consent_version": "share-2026-11-09",
  "delete_days": 0,
  "delete_timing": "immediate",
  "strings": {
@@ -14,7 +14,7 @@
   "sheet.hadith_ref": "صحیح مسلم 1631",
   "sheet.mistakes": "آپ کی غلطیاں سب سے زیادہ قیمتی ہیں۔ ان سے ماڈل سیکھتا ہے کہ اگلے سیکھنے والے کی نرمی سے کیسے اصلاح کی جائے۔",
   "sheet.what": "اس ایپ میں آپ کی تلاوت کی آڈیو جب ایپ سن رہی ہو، اور بنیادی تکنیکی تفصیلات جیسے ماڈل کا ورژن اور ڈیوائس کی قسم۔ کوئی نام، رابطے یا لوکیشن شامل نہیں۔",
-  "sheet.who": "Quran Lab، جو کہ ایک وقف ہے۔ اس کے تیار کردہ ماڈلز ہمیشہ سب کے لیے مفت رہیں گے اور کبھی بیچے نہیں جائیں گے۔ کوئی انسان آپ کی ریکارڈنگز کبھی نہیں سنتا: ان سے صرف سافٹ ویئر سیکھتا ہے۔",
+  "sheet.who": "Quran Lab، جو کہ ایک وقف ہے۔ اس کے تیار کردہ ماڈلز ہمیشہ سب کے لیے مفت رہیں گے اور کبھی بیچے نہیں جائیں گے۔",
   "sheet.control": "آپ کسی بھی وقت اسے روک سکتے ہیں اور سیٹنگز سے اپنا شیئر کردہ ڈیٹا ڈیلیٹ کر سکتے ہیں۔",
   "sheet.share": "میری تلاوتیں شیئر کریں",
   "sheet.not_now": "ابھی نہیں",
@@ -26,7 +26,7 @@
   "settings.toggle": "میری تلاوتیں شیئر کریں",
   "settings.what": "کیا شیئر کیا جاتا ہے",
   "settings.delete": "شیئر کردہ مواد مٹائیں",
-  "what.detail": "جب شیئرنگ آن ہو، تو اس ایپ میں آپ کی تلاوت کی آڈیو Quran Lab کو بھیجی جاتی ہے، جس کے ساتھ کچھ بنیادی تکنیکی تفصیلات (ماڈل ورژن، ڈیوائس کی قسم، سسٹم ورژن اور دن) اور اس انسٹالیشن کا ایک بے ترتیب کوڈ شامل ہوتا ہے۔ آپ کا نام، اکاؤنٹ، رابطے، لوکیشن یا ڈیوائس کی ذاتی شناخت کبھی بھی شامل نہیں کی جاتی۔ یہ ڈیٹا EU میں محفوظ کیا جاتا ہے اور اسے صرف تلاوتِ قرآن کے مفت ماڈلز کو بہتر بنانے کے لیے استعمال کیا جاتا ہے۔ کوئی انسان آپ کی ریکارڈنگز کبھی نہیں سنتا: ان سے صرف سافٹ ویئر سیکھتا ہے۔ شیئرنگ بند کرنے سے اپ لوڈز فوراً رک جاتے ہیں، اور آپ سیٹنگز میں جا کر کسی بھی وقت اپنا شیئر کردہ تمام مواد ڈیلیٹ کر سکتے ہیں: اسے اسی وقت Quran Lab کے سرورز سے مٹا دیا جاتا ہے۔",
+  "what.detail": "جب شیئرنگ آن ہو، تو اس ایپ میں آپ کی تلاوت کی آڈیو Quran Lab کو بھیجی جاتی ہے، جس کے ساتھ کچھ بنیادی تکنیکی تفصیلات (ماڈل ورژن، ڈیوائس کی قسم، سسٹم ورژن اور دن) اور اس انسٹالیشن کا ایک بے ترتیب کوڈ شامل ہوتا ہے۔ آپ کا نام، اکاؤنٹ، رابطے، لوکیشن یا ڈیوائس کی ذاتی شناخت کبھی بھی شامل نہیں کی جاتی۔ یہ ڈیٹا EU میں محفوظ کیا جاتا ہے اور اسے صرف تلاوتِ قرآن کے مفت ماڈلز کو بہتر بنانے کے لیے استعمال کیا جاتا ہے۔ شیئرنگ بند کرنے سے اپ لوڈز فوراً رک جاتے ہیں، اور آپ سیٹنگز میں جا کر کسی بھی وقت اپنا شیئر کردہ تمام مواد ڈیلیٹ کر سکتے ہیں: اسے اسی وقت Quran Lab کے سرورز سے مٹا دیا جاتا ہے۔",
   "delete.confirm": "آپ کی شیئر کردہ تلاوتیں فوراً Quran Lab کے سرورز سے ڈیلیٹ کر دی جائیں گی۔ اس عمل کو واپس نہیں لایا جا سکتا۔",
   "delete.action": "ڈیلیٹ کریں",
   "delete.cancel": "منسوخ کریں",
@@ -63,7 +63,7 @@
    "sheet.hadith_ref": "Sahih Muslim 1631",
    "sheet.mistakes": "Your mistakes are the most valuable. From them, the model learns how to gently correct the next learner.",
    "sheet.what": "The audio of your recitation in this app when the app is listening, and basic technical details like model version and device type. No name, contacts, or location included.",
-   "sheet.who": "Quran Lab, which is a waqf. The models developed by it will always remain free for everyone and will never be sold. No human ever listens to your recordings: only software learns from them.",
+   "sheet.who": "Quran Lab, which is a waqf. The models developed by it will always remain free for everyone and will never be sold.",
    "sheet.control": "You can stop it at any time and delete your shared data from settings.",
    "sheet.share": "Share my recitations",
    "sheet.not_now": "Not now",
@@ -75,7 +75,7 @@
    "settings.toggle": "Share my recitations",
    "settings.what": "What is shared",
    "settings.delete": "Delete shared content",
-   "what.detail": "When sharing is on, audio of your recitation in this app is sent to Quran Lab, along with some basic technical details (model version, device type, system version, and day), and a random code for this installation. Your name, account, contacts, location, or personal device identifiers are never included. This data is stored in the EU and is used only to improve free Quran recitation models. No human ever listens to your recordings: only software learns from them. Turning off sharing stops uploads immediately, and you can delete all your shared content at any time in settings: it is deleted from Quran Lab's servers at that moment.",
+   "what.detail": "When sharing is on, audio of your recitation in this app is sent to Quran Lab, along with some basic technical details (model version, device type, system version, and day), and a random code for this installation. Your name, account, contacts, location, or personal device identifiers are never included. This data is stored in the EU and is used only to improve free Quran recitation models. Turning off sharing stops uploads immediately, and you can delete all your shared content at any time in settings: it is deleted from Quran Lab's servers at that moment.",
    "delete.confirm": "Your shared recitations will be immediately deleted from Quran Lab's servers. This action cannot be undone.",
    "delete.action": "Delete",
    "delete.cancel": "Cancel",
@@ -119,9 +119,9 @@
     "method": "exact phrase removal from the reviewed 2026-11-07.3 text, no re-translation"
    },
    {
-    "version": "2026-11-12.1",
-    "change": "one sentence added to sheet.who and what.detail: no human ever listens to the recordings, only software learns from them",
-    "method": "a new sentence written for this language on 2026-11-12 and placed without touching the reviewed 2026-11-09.1 text; not yet read by a native reviewer"
+    "version": "2026-11-13.1",
+    "change": "the sentence added in 2026-11-12.1 is removed from sheet.who and what.detail; every string is the 2026-11-09.1 string again",
+    "method": "built from the archived 2026-11-09.1 deck: no string was edited"
    }
   ],
   "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"

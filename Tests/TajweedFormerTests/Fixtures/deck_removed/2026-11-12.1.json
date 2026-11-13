@@ -1,0 +1,87 @@
+{
+ "about": "For each language: the length in UTF-8 bytes and the SHA-256 of the sentence that copy deck 2026-11-12.1 added to sheet.who and to what.detail and that deck 2026-11-13.1 does not have (scripts/make_deck_removed_hashes.py). No text the sharing sheet is built from may hold a window of that length with that hash.",
+ "deck": "2026-11-12.1",
+ "format": "quranlab.sdk-deck-removed/1",
+ "languages": {
+  "ar": {
+   "sheet.who": {
+    "bytes": 116,
+    "sha256": "80ce286a85aea0d01d6917e7ab0b1ddf97760cf4452e8aa173707c63230d0be9"
+   },
+   "what.detail": {
+    "bytes": 116,
+    "sha256": "80ce286a85aea0d01d6917e7ab0b1ddf97760cf4452e8aa173707c63230d0be9"
+   }
+  },
+  "bn": {
+   "sheet.who": {
+    "bytes": 198,
+    "sha256": "3e20fde7feb61aca617beaa75c25ae642224933c00d97d3de2643db9193f0c0c"
+   },
+   "what.detail": {
+    "bytes": 198,
+    "sha256": "3e20fde7feb61aca617beaa75c25ae642224933c00d97d3de2643db9193f0c0c"
+   }
+  },
+  "en": {
+   "sheet.who": {
+    "bytes": 73,
+    "sha256": "fab25a5643ea799fdefa3cb471b8c880ae0456fb91338b7cf338f3e1342968ca"
+   },
+   "what.detail": {
+    "bytes": 73,
+    "sha256": "fab25a5643ea799fdefa3cb471b8c880ae0456fb91338b7cf338f3e1342968ca"
+   }
+  },
+  "fr": {
+   "sheet.who": {
+    "bytes": 99,
+    "sha256": "57bf4b08a3effb747f13401da625bbca315edd90cad76311c1ddb7d549835311"
+   },
+   "what.detail": {
+    "bytes": 99,
+    "sha256": "57bf4b08a3effb747f13401da625bbca315edd90cad76311c1ddb7d549835311"
+   }
+  },
+  "id": {
+   "sheet.who": {
+    "bytes": 104,
+    "sha256": "bda904df8e5a0aa7931850d25edad6e4ba867165eb41c9953207efe3ff829972"
+   },
+   "what.detail": {
+    "bytes": 104,
+    "sha256": "bda904df8e5a0aa7931850d25edad6e4ba867165eb41c9953207efe3ff829972"
+   }
+  },
+  "ms": {
+   "sheet.who": {
+    "bytes": 95,
+    "sha256": "03df443411cf592a8c126d669e6f79102bb326aa168ceaaaedad35fe1f40d773"
+   },
+   "what.detail": {
+    "bytes": 95,
+    "sha256": "03df443411cf592a8c126d669e6f79102bb326aa168ceaaaedad35fe1f40d773"
+   }
+  },
+  "tr": {
+   "sheet.who": {
+    "bytes": 86,
+    "sha256": "062b193a5574511294b1886495777a5e9193c2fad630a9ddbd84d835dda65c65"
+   },
+   "what.detail": {
+    "bytes": 86,
+    "sha256": "062b193a5574511294b1886495777a5e9193c2fad630a9ddbd84d835dda65c65"
+   }
+  },
+  "ur": {
+   "sheet.who": {
+    "bytes": 131,
+    "sha256": "32892abd9ad9bac14fe44faf6a6aaf5fb16714bc1f57acc2fda12861bb20bf38"
+   },
+   "what.detail": {
+    "bytes": 131,
+    "sha256": "32892abd9ad9bac14fe44faf6a6aaf5fb16714bc1f57acc2fda12861bb20bf38"
+   }
+  }
+ }
+}

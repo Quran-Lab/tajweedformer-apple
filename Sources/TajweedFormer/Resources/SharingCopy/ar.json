@@ -1,10 +1,10 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-12.1",
+ "version": "2026-11-13.1",
  "lang": "ar",
  "dir": "rtl",
  "source_lang": "en",
- "consent_version": "share-2026-11-12",
+ "consent_version": "share-2026-11-09",
  "delete_days": 0,
  "delete_timing": "immediate",
  "strings": {
@@ -14,7 +14,7 @@
   "sheet.hadith_ref": "صحيح مسلم 1631",
   "sheet.mistakes": "أخطاؤك هي الجزء الأثمن، فهي تُعلّم النموذج كيف يصوّب للمتعلم التالي برفق.",
   "sheet.what": "التسجيل الصوتي لجلسات تلاوتك في هذا التطبيق أثناء استماعه، وتفاصيل تقنية أساسية مثل إصدار النموذج ونوع الجهاز. دون اسم، أو جهات اتصال، أو موقع جغرافي.",
-  "sheet.who": "Quran Lab، وهو وقف. النماذج التي يدرّبها مجانية للجميع دائماً، ولا تُباع أبداً. لا يستمع أي إنسان إلى تسجيلاتك أبداً: البرامج وحدها تتعلّم منها.",
+  "sheet.who": "Quran Lab، وهو وقف. النماذج التي يدرّبها مجانية للجميع دائماً، ولا تُباع أبداً.",
   "sheet.control": "يمكنك التوقف في أي وقت وحذف ما شاركته من الإعدادات.",
   "sheet.share": "مشاركة تلاواتي",
   "sheet.not_now": "ليس الآن",
@@ -26,7 +26,7 @@
   "settings.toggle": "مشاركة تلاواتي",
   "settings.what": "ما الذي تتم مشاركته",
   "settings.delete": "حذف ما شاركته",
-  "what.detail": "عند تفعيل المشاركة، يُرسل التسجيل الصوتي لجلسات تلاوتك في هذا التطبيق إلى Quran Lab، مع تفاصيل تقنية عامة (إصدار النموذج، نوع الجهاز، إصدار النظام، واليوم)، ورمز عشوائي خاص بهذا التثبيت. ولا نجمع أبداً اسمك أو حسابك أو جهات اتصالك أو موقعك أو معرّفات جهازك. تُحفظ التسجيلات في الاتحاد الأوروبي وتُستخدم فقط لتحسين نماذج تلاوة القرآن الكريم المجانية. لا يستمع أي إنسان إلى تسجيلاتك أبداً: البرامج وحدها تتعلّم منها. إيقاف المشاركة يوقف الإرسال فوراً، ويمكنك حذف كل ما شاركته من الإعدادات في أي وقت: حيث يُحذف من خوادم Quran Lab في الحال.",
+  "what.detail": "عند تفعيل المشاركة، يُرسل التسجيل الصوتي لجلسات تلاوتك في هذا التطبيق إلى Quran Lab، مع تفاصيل تقنية عامة (إصدار النموذج، نوع الجهاز، إصدار النظام، واليوم)، ورمز عشوائي خاص بهذا التثبيت. ولا نجمع أبداً اسمك أو حسابك أو جهات اتصالك أو موقعك أو معرّفات جهازك. تُحفظ التسجيلات في الاتحاد الأوروبي وتُستخدم فقط لتحسين نماذج تلاوة القرآن الكريم المجانية. إيقاف المشاركة يوقف الإرسال فوراً، ويمكنك حذف كل ما شاركته من الإعدادات في أي وقت: حيث يُحذف من خوادم Quran Lab في الحال.",
   "delete.confirm": "ستُحذف تلاواتك التي شاركتها من خوادم Quran Lab فوراً. لا يمكن التراجع عن هذا الإجراء.",
   "delete.action": "حذف",
   "delete.cancel": "إلغاء",
@@ -67,7 +67,7 @@
    "sheet.hadith_ref": "Sahih Muslim 1631",
    "sheet.mistakes": "Your mistakes are the most valuable part, for they teach the model how to correct the next learner gently.",
    "sheet.what": "The audio recording of your recitation sessions in this app while it listens, and basic technical details such as the model version and device type. Without name, contacts, or geographic location.",
-   "sheet.who": "Quran Lab, which is an endowment. The models it trains are always free for everyone, and are never sold. No human ever listens to your recordings: the software alone learns from them.",
+   "sheet.who": "Quran Lab, which is an endowment. The models it trains are always free for everyone, and are never sold.",
    "sheet.control": "You can stop at any time and delete what you shared from settings.",
    "sheet.share": "Share my recitations",
    "sheet.not_now": "Not now",
@@ -79,7 +79,7 @@
    "settings.toggle": "Share my recitations",
    "settings.what": "What is shared",
    "settings.delete": "Delete what I shared",
-   "what.detail": "When sharing is enabled, the audio recording of your recitation sessions in this app is sent to Quran Lab, along with general technical details (model version, device type, OS version, and the day), and a random token specific to this installation. We never collect your name, account, contacts, location, or device identifiers. Recordings are stored in the European Union and are used only to improve free Quran recitation models. No human ever listens to your recordings: the software alone learns from them. Disabling sharing stops transmission immediately, and you can delete everything you shared from the settings at any time: it is deleted from Quran Lab servers immediately.",
+   "what.detail": "When sharing is enabled, the audio recording of your recitation sessions in this app is sent to Quran Lab, along with general technical details (model version, device type, OS version, and the day), and a random token specific to this installation. We never collect your name, account, contacts, location, or device identifiers. Recordings are stored in the European Union and are used only to improve free Quran recitation models. Disabling sharing stops transmission immediately, and you can delete everything you shared from the settings at any time: it is deleted from Quran Lab servers immediately.",
    "delete.confirm": "Your shared recitations will be deleted from Quran Lab servers immediately. This action cannot be undone.",
    "delete.action": "Delete",
    "delete.cancel": "Cancel",
@@ -112,9 +112,9 @@
     "method": "exact phrase removal from the reviewed 2026-11-07.3 text, no re-translation"
    },
    {
-    "version": "2026-11-12.1",
-    "change": "one sentence added to sheet.who and what.detail: no human ever listens to the recordings, only software learns from them",
-    "method": "a new sentence written for this language on 2026-11-12 and placed without touching the reviewed 2026-11-09.1 text; not yet read by a native reviewer"
+    "version": "2026-11-13.1",
+    "change": "the sentence added in 2026-11-12.1 is removed from sheet.who and what.detail; every string is the 2026-11-09.1 string again",
+    "method": "built from the archived 2026-11-09.1 deck: no string was edited"
    }
   ],
   "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"
