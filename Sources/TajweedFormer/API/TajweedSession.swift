@@ -471,9 +471,10 @@ actor SessionCore {
         phase = .closing
         do throws(RecognizerError) {
             let step = try await recognizer.finishStep(topK: topK)
+            let audio = await recognizer.lastTakeHadAudio
             guard case .closing = phase else { return }
             _ = emit(step, final: true)
-            ended(step.take, reason: reason, heard: !(step.decoded.last?.tokens.isEmpty ?? true))
+            ended(step.take, reason: reason, heard: !(step.decoded.last?.tokens.isEmpty ?? true), hadAudio: audio)
         } catch {
             guard case .closing = phase else { return }
             let e = TajweedError(from: error)
@@ -492,12 +493,14 @@ actor SessionCore {
         ended(take, reason: .silence, heard: true)
     }
 
-    /// A take that ended with its Heads: the app's recited range is counted, and it is a moment the SDK may ask
-    /// about sharing (only after a take in which the model heard something).
-    private func ended(_ take: HeadsBuffer, reason: TajweedEvent.EndReason?, heard: Bool) {
+    /// A take that ended with its Heads: the app's recited range is counted (not for a take without audio, which
+    /// records nothing), and it is a moment the SDK may ask about sharing (only after a take in which the model heard
+    /// something).
+    private func ended(_ take: HeadsBuffer, reason: TajweedEvent.EndReason?, heard: Bool, hadAudio: Bool = true) {
         phase = .ended(TajweedHeads(take, vocabulary: vocabulary, selection: selection, topK: topK, isFinal: true))
         if let reason { eventOut.yield(.ended(reason)) }
-        if let r = shared.takeEnded(counts: true) { QuranLab.reportRecited(surah: r.surah, ayahFrom: r.ayahFrom, ayahTo: r.ayahTo) }
+        let recited = shared.takeEnded(counts: true)
+        if hadAudio, let r = recited { QuranLab.reportRecited(surah: r.surah, ayahFrom: r.ayahFrom, ayahTo: r.ayahTo) }
         if heard { Contributions.sessionCompleted(feedback: true) }
         finishStreams()
     }

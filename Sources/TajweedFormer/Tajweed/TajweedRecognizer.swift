@@ -87,6 +87,8 @@ actor TajweedRecognizer {
     private var takeAudioSeconds = 0.0
     /// The take's input audio in whole milliseconds: floor(1000 * samples / rate), per input rate of the take.
     private var takeAudioMs = 0
+    /// Whether the take that ended last had any audio: a take without one sample records nothing in the telemetry.
+    private(set) var lastTakeHadAudio = false
     private var takeSamples: [Int: Int] = [:]
     private var takeOpen = false
     /// Counts takes: the golden test stops when a take ran between two of its steps.
@@ -616,7 +618,8 @@ actor TajweedRecognizer {
         shareTake = Contributions.recorder.takeStarted(
             .init(revision: model.identity, version: model.version, backend: activeBackend ?? .exact,
                   weightsSHA256: model.manifest.files(role: "weights").first?.localSHA256))
-        QuranLab.cloud?.analytics.markSessionOpen(cohort)
+        // the take is marked open (a kill counts it aborted at the next launch) at its first sample, not here: a take
+        // that ends without audio records nothing
         QuranLab.cloud?.noteActivity()
     }
 
@@ -679,6 +682,9 @@ actor TajweedRecognizer {
         // one input rate per take: the recorder ends the shared recording where the rate changes
         if let shareTake { try Contributions.recorder.audio(shareTake, samples, rate: sampleRate) }
         takeAudioSeconds += Double(samples.count) / sampleRate
+        if !samples.isEmpty && !takeSamples.values.contains(where: { $0 > 0 }) {
+            QuranLab.cloud?.analytics.markSessionOpen(cohort)
+        }
         takeSamples[Int(sampleRate), default: 0] += samples.count
         takeAudioMs = takeSamples.reduce(0) { $0 + 1000 * $1.value / max(1, $1.key) }
         return try push(converter!.process(samples))
@@ -800,6 +806,11 @@ actor TajweedRecognizer {
     private func endTake(completed: Bool) {
         guard takeOpen else { return }
         takeOpen = false
+        // SDK 3.1.1: a take that ends, cancelled or finished, before one sample of audio was pushed or captured is not
+        // a session: it records nothing in the telemetry (no session, no aborted take, no duration, no backend). What
+        // else it did stays: the recognizer for its options was made and warmed, which is why an app opens one.
+        let hadAudio = takeSamples.values.contains { $0 > 0 }
+        lastTakeHadAudio = hadAudio
         if let runner {
             // a cancelled take's verification stops; a session on the build adds its warm chunk times and counts the
             // blank suspicions the CPU engine confirmed as correct
@@ -816,7 +827,7 @@ actor TajweedRecognizer {
         shareTake = nil
         activity?.end()
         activity = nil
-        QuranLab.cloud?.analytics.markSessionClosed()
+        if hadAudio { QuranLab.cloud?.analytics.markSessionClosed() }
         let waiting = idleWaiters
         idleWaiters = []
         for w in waiting { w.resume() }
@@ -825,6 +836,7 @@ actor TajweedRecognizer {
             startPipeline(priority: .background)
         }
         let first = Self.firstSessionOfLaunch.withLock { v -> Bool in defer { v = false }; return v }
+        guard hadAudio else { return }
         var t = SessionTelemetry(cohort: cohort, audioSeconds: takeAudioSeconds, chunkSeconds: runner?.chunkSeconds ?? [],
                                  chunkAudioSeconds: Double(runner?.chunkMs ?? 320) / 1000, coldStartMs: first ? coldStart : nil)
         t.counts = completed
