@@ -60,18 +60,18 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
   no tajweed settings (SDK 2.x did; see [docs/migrating-to-3.md](docs/migrating-to-3.md)). It hosts only V4.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon. The Neural Engine backend needs iOS 18 or macOS 15; on older
   systems the exact CPU engine runs.
-- **Status:** released; this is version 3.1.4. CI builds every push for iOS and macOS and runs the tests on macOS.
+- **Status:** released; this is version 3.1.5. CI builds every push for iOS and macOS and runs the tests on macOS.
   The whole path through the public API (the key and the signed config, the download, the verified model, the
   promotion pipeline, takes on the CPU engine and on the Neural Engine) has run on an Apple silicon Mac against
   Quran Lab's servers with `scripts/prove-on-mac.sh` (version 3.0.0); that proof has not been run on an iPhone.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.4. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.5. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.4"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.5"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -192,6 +192,30 @@ that decide which device downloads it. Large files travel gzip and are kept deco
 `.part` file and resume after the app is killed; each file is checked by size and SHA-256 before and after it is
 inflated, and a mismatch deletes both.
 
+On a network that fails, the bytes that arrived stay on the device, and the SDK takes a file up again by itself:
+at most five times per file in one call, after 1, 2, 4, 8 and 16 seconds, when there was no answer, the connection
+ended, the server failed, no byte came for 30 seconds (a slow connection that keeps delivering is never cut), or
+the answer said success and was not the file. An attempt that brings no new byte counts like any other. A refusal
+and a redirect are never asked again. Then `client.model()` or `client.prefetch()` throws, and the next call goes
+on from what is on the device. An answer is the file only as a 206 for the range asked for of a file of the
+manifest's size, or as a whole file of that size; anything else is a failed attempt and costs no stored byte. A
+partial file is continued only as the file it was started as (the server's ETag is sent back with the range, and a
+file that changed comes whole and takes the partial file's place once all of it has arrived). An update, the
+Neural Engine's build and `prefetch(unmeteredOnly: true)` wait for an unmetered network for as long as they run;
+a first install goes on any network. Cancelling a call ends that call's wait: the download goes on while another
+call waits for it or a `prefetch` asked for it.
+
+On iOS a download that is under way when the learner leaves the app gets the time the system gives a task under
+way (about half a minute), and when the app has entered the background what is left of it goes on in a background
+session, range by range, while the app is suspended; when the app is back the ranges that arrived are joined and
+the download goes on in the app. A background transfer's request is kept by the system in its own store until
+the transfer ends: it carries the install's token, which is not renewed while the app is away (the app fetches a
+range itself when the server refused it for its token), and the developer key unless Quran Lab's signed config
+says that a background transfer sends the token alone. On that path alone the system follows a redirect without
+asking the SDK: the SDK then refuses the bytes and reports the host it ended on, and the request's headers have by
+then travelled with the redirect, which cannot happen with Quran Lab's host, because the model host never answers
+a model request with a redirect.
+
 A model has a version (`model.version`, `"4.0.0"`) and a folder is one build of it (`model.build`, the first 40 hex
 digits of the SHA-256 of its manifest). Quran Lab's signed config names the version and the build for each app;
 `client.model(version:)` asks for a version. The SDK refuses a manifest whose signature does not verify
@@ -209,8 +233,10 @@ config named (`checksum_mismatch`). When Quran Lab has no build for this SDK ver
 
 `client.prefetch(unmeteredOnly:onProgress:)` downloads ahead of use, resumable, with the bytes done and the total.
 With `unmeteredOnly: true` it downloads on Wi-Fi or Ethernet and does nothing on cellular, a personal hotspot, a
-network in Low Data Mode or no network (call it again later). Where the system does not say what the connection is
-(`diagnose().connection` is `unknown`) the option cannot be honoured, and it downloads.
+network in Low Data Mode or no network (call it again later); its requests also tell the system so, and the
+system holds to it for the whole download. Where the system does not say what the connection is
+(`diagnose().connection` is `unknown`) the call starts, and the system still keeps its requests off a metered
+network. A download that `prefetch` started goes on when the call is cancelled.
 `client.storage` says what is on disk (bytes per model build, and of the sharing queue), and
 `client.removeModels()` removes the model files, never the learner's sharing choice or the upload queue.
 
@@ -241,6 +267,12 @@ Session names it, `TajweedSessionOptions(backend: .coremlCompact)`; a device doe
 through the same pipeline, and a folder may hold both. One limit in 3.0.0: a Model warms the default Session when it
 is opened, and that Session's pipeline starts by itself after 20 seconds without a take, so an app that names
 `.coremlCompact` and whose first take starts later than that also downloads the fp16 build (on Wi-Fi or Ethernet).
+
+`client.model()` warms the engine for the default Session only. When your takes use their own options (another
+context, other heads, another backend), call `try await model.prepare(options:)` once with those options before
+the first take: it warms the engine for exactly them and waits until the Neural Engine's build for them is ready or
+will not be, so the first take with the same options starts on the accelerator where the device has one. It
+returns the Backend that take starts on, at once with the CPU engine where no accelerator applies.
 
 With `backend: .auto` (the default, no code needed):
 
@@ -315,7 +347,9 @@ by itself: the compiled form that Core ML keeps for the Neural Engine of a packa
 `await client.diagnose()` is one report of where the SDK stands, safe to paste into an issue (`.json`): the SDK's
 version and the newest one, whether the key is accepted, the config, the model's version and build, the context,
 the backend, the microphone permission, what is on disk, the last error's code, the dropped chunks and the
-connection (`unmetered`, `metered`, `none` or `unknown`). Every error
+connection (`unmetered`, `metered`, `none` or `unknown`). `diagnose().downloadProtocol` is the protocol of the
+last model request that was answered for this Client in this process (`h3`, `h2` or `http/1.1`; held in memory),
+and the report's JSON has it as the optional key `downloadProtocol` when it is known. Every error
 the SDK throws is a `TajweedError` with a stable `code` (26 codes, the same in the four SDKs), a `message`, a `fix`
 and a `docs` link.
 
@@ -375,6 +409,14 @@ the take's end; what is fed later waits for the next take. Without a yes, during
 dropped at once and nothing of it stays in memory. The model never sees the feed. An app that uses `listen()` has no
 audio outside takes and need not call it.
 
+Use sharing in one process. The storage folder belongs to the app, and by default every process of the app uses
+the same one (on iOS an app and its extension have separate folders unless you pass both the same one; on a Mac
+every process with the app's bundle identifier uses the same folder). The SDK keeps the learner's sharing answer
+in memory in each process and writes it as a whole, so two processes that each make a Client on the same folder
+do not see each other's changes: sharing turned off in one does not stop the other, and the other's next write
+puts the earlier answer back. Make the Client in one process of your app. If a second process needs the model,
+give it its own `storage` folder (`TajweedClientOptions(storage:)`).
+
 ## Platform notes
 
 - **Microphone.** `listen()` uses the SDK's `Microphone` (AVAudioEngine). The app needs
@@ -394,6 +436,15 @@ audio outside takes and need not call it.
   keychain.
 - **Apple silicon only.** arm64 devices, the arm64 simulator and arm64 Macs; iOS 15 and macOS 12 or later; Xcode 16
   (Swift tools 6.0).
+- **Background sessions.** On iOS the upload queue of shared recordings and what is left of a model download when
+  the app has entered the background run on background URLSessions. Forward
+  the app delegate's `application(_:handleEventsForBackgroundURLSession:completionHandler:)` to
+  `TajweedClient.handleBackgroundEvents(identifier:completionHandler:)` (it returns false for a session that is
+  not the SDK's); in SwiftUI, `.backgroundTask(.urlSession(matching: { TajweedClient.isBackgroundSession($0) }))`
+  with `await TajweedClient.backgroundEvents(identifier:)`. An app that forwards nothing loses nothing: the
+  uploads finish all the same and their results are collected when the Client is next made.
+  `examples/DownloadCheck` is a screen for an app of your own that shows a download's seconds, its protocol and
+  these events on a phone.
 - **One Client per process.** A second `TajweedClient` while the first is not closed throws `client_exists`.
 
 ## Build and test

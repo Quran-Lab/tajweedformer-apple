@@ -163,18 +163,12 @@ enum QuranLab {
     /// Starts a new contribution code; later shares are not linked to the earlier ones.
     static func resetContributor() { Contributor.reset(storage: configuration.storageDirectory) }
 
-    /// Forward the app delegate's `application(_:handleEventsForBackgroundURLSession:completionHandler:)` here.
-    /// Returns false (and does not call `completionHandler`) when the session is not the SDK's.
+    /// The app delegate's `application(_:handleEventsForBackgroundURLSession:completionHandler:)`, forwarded: the
+    /// public call is `TajweedClient.handleBackgroundEvents` (3.1.5; to 3.1.1 this was internal and no app could
+    /// reach it). Returns false (and does not call `completionHandler`) when the session is not the SDK's.
     @discardableResult
     static func handleBackgroundEvents(identifier: String, completionHandler: @escaping @Sendable () -> Void) -> Bool {
-        guard identifier.hasPrefix("ai.quranlab.contributions.") else { return false }
-        let uploader = BackgroundUploader.existing(identifier) ?? {
-            _ = cloud?.outbox
-            return BackgroundUploader.existing(identifier)
-        }()
-        guard let uploader else { return false }
-        uploader.setFinishedHandler(completionHandler)
-        return true
+        BackgroundEvents.handle(identifier: identifier, completionHandler: completionHandler)
     }
 
     /// For tests: a configuration whose cloud was made by the caller (stub network, fake App Attest).

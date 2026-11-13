@@ -67,14 +67,18 @@ struct RemoteConfig: Codable, Sendable, Equatable {
         /// 2.0.3: how long a shared recording stays open for the next take, in ms. A whole number 0 to 10000; absent
         /// or anything else 3000; 0 never joins takes.
         var share_join_ms: Int
+        /// 3.1.5 (SPEC 16.4): whether a background transfer of a model file sends `x-qlab-key` beside the app
+        /// token. True when absent or not a boolean. Requests the app makes itself always send both.
+        var model_requests_key_in_background: Bool
 
         init(analytics: Bool = true, issues: Bool = true, contributions: Bool = true, upload_trust: [String: String]? = nil,
-                    share_join_ms: Int = 3000) {
+                    share_join_ms: Int = 3000, model_requests_key_in_background: Bool = true) {
             self.analytics = analytics
             self.issues = issues
             self.contributions = contributions
             self.upload_trust = upload_trust
             self.share_join_ms = share_join_ms
+            self.model_requests_key_in_background = model_requests_key_in_background
         }
 
         init(from d: any Decoder) throws {
@@ -87,6 +91,8 @@ struct RemoteConfig: Codable, Sendable, Equatable {
             // any JSON type is read (a string, a boolean or a fraction is the default), never failing the config
             let window: JSONValue? = try? c.decodeIfPresent(JSONValue.self, forKey: .share_join_ms)
             share_join_ms = TakeJoin.window(window)
+            let key: Bool? = try? c.decodeIfPresent(Bool.self, forKey: .model_requests_key_in_background)
+            model_requests_key_in_background = key ?? true
         }
     }
 

@@ -568,6 +568,38 @@
    }
   },
   {
+   "name": "API 429 rate_limited carrying a stop reason",
+   "about": "A reason of the list under a 429 is not a stop: the answer is the limit, as without the reason.",
+   "from": "api",
+   "status": 429,
+   "body": {
+    "error": "rate_limited",
+    "message": "Slow down.",
+    "reason": "key_revoked"
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
+   "name": "CDN 404 carrying a stop reason",
+   "about": "A reason of the list under a 404 is not a stop: the request failed and the download fails with download_failed, its detail the SDK's own; nothing is remembered and nothing is removed.",
+   "from": "cdn",
+   "status": 404,
+   "body": {
+    "error": "not_found",
+    "message": "No such file.",
+    "reason": "key_revoked"
+   },
+   "expect": {
+    "stops_model": false,
+    "removes_models": false,
+    "error": null
+   }
+  },
+  {
    "name": "API 500",
    "about": "The server failed: retry with backoff.",
    "from": "api",

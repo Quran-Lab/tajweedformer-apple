@@ -299,6 +299,14 @@
     "none",
     "unknown"
    ]
+  },
+  "downloadProtocol": {
+   "enum": [
+    null,
+    "h3",
+    "h2",
+    "http/1.1"
+   ]
   }
  }
 }

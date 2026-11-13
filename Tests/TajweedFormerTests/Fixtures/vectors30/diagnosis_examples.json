@@ -67,6 +67,73 @@
    }
   },
   {
+   "name": "the model was downloaded over HTTP/2 in this process (the optional downloadProtocol)",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered",
+    "downloadProtocol": "h2"
+   }
+  },
+  {
+   "name": "nothing downloaded yet in this process (downloadProtocol null)",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": null
+    },
+    "key": {
+     "accepted": null,
+     "reason": null
+    },
+    "config": "none",
+    "model": null,
+    "context": null,
+    "backend": null,
+    "microphone": "notAsked",
+    "storage": {
+     "models": [],
+     "sharingQueueBytes": 0
+    },
+    "lastError": "needs_connection",
+    "droppedChunks": 0,
+    "connection": "none",
+    "downloadProtocol": null
+   }
+  },
+  {
    "name": "C on a desktop, the key was revoked, two builds on disk, a newer SDK exists",
    "report": {
     "sdk": {
@@ -940,6 +1007,47 @@
     "lastError": null,
     "droppedChunks": 0,
     "connection": "wifi"
+   }
+  },
+  {
+   "name": "a download protocol of another spelling",
+   "report": {
+    "sdk": {
+     "version": "3.0.0",
+     "latest": "3.0.0"
+    },
+    "key": {
+     "accepted": true,
+     "reason": null
+    },
+    "config": "fresh",
+    "model": {
+     "version": "4.0.0",
+     "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+     "verified": true
+    },
+    "context": "c16_l64",
+    "backend": {
+     "kind": "accelerator",
+     "name": "npu:tensor_g3",
+     "stage": "promoted",
+     "reason": null
+    },
+    "microphone": "granted",
+    "storage": {
+     "models": [
+      {
+       "version": "4.0.0",
+       "build": "a4287e7b9c80057dec5df9c1897462ddd7faa326",
+       "bytes": 143482211
+      }
+     ],
+     "sharingQueueBytes": 1832004
+    },
+    "lastError": null,
+    "droppedChunks": 0,
+    "connection": "unmetered",
+    "downloadProtocol": "HTTP/2"
    }
   }
  ]

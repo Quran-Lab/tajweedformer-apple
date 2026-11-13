@@ -26,9 +26,23 @@ final class DiagnosisTests: XCTestCase {
     /// The eleven fields of a report, in the order every SDK writes them.
     static let fields = ["sdk", "key", "config", "model", "context", "backend", "microphone", "storage", "lastError", "droppedChunks", "connection"]
 
+    /// The optional fields of a report and the values of `downloadProtocol`, as the shared names.json lists them.
+    static let optionalFields: [String] = {
+        let names = (try? Vectors30.json("names.json"))?["diagnosis"] as? [String: Any]
+        return names?["optional_fields"] as? [String] ?? []
+    }()
+    static let protocols: [String] = {
+        let names = (try? Vectors30.json("names.json"))?["diagnosis"] as? [String: Any]
+        return names?["downloadProtocol"] as? [String] ?? []
+    }()
+
     /// Why `r` is not a report of the schema; nil when it is one.
     static func problem(_ r: [String: Any], codes: [String] = DiagnosisTests.codes) -> String? {
-        guard Set(r.keys) == Set(fields) else { return "fields \(r.keys.sorted())" }
+        // the eleven fields, and the optional ones of names.json
+        guard Set(r.keys).subtracting(optionalFields) == Set(fields) else { return "fields \(r.keys.sorted())" }
+        if let named = r["downloadProtocol"] {
+            guard isNull(named) || protocols.contains(named as? String ?? "") else { return "downloadProtocol" }
+        }
         guard let sdk = r["sdk"] as? [String: Any], Set(sdk.keys) == ["version", "latest"], matches(sdk["version"], versionPattern),
               isNull(sdk["latest"]) || matches(sdk["latest"], versionPattern) else { return "sdk" }
         guard let key = r["key"] as? [String: Any], Set(key.keys) == ["accepted", "reason"], isNull(key["accepted"]) || isBool(key["accepted"])
@@ -68,8 +82,10 @@ final class DiagnosisTests: XCTestCase {
     func testTheRulesAgreeWithTheSharedExamples() throws {
         let e = try Vectors30.json("diagnosis_examples.json")
         let valid = try XCTUnwrap(e["valid"] as? [[String: Any]]), invalid = try XCTUnwrap(e["invalid"] as? [[String: Any]])
-        XCTAssertEqual(valid.count, 7)
-        XCTAssertEqual(invalid.count, 17)
+        XCTAssertEqual(valid.count, 9)
+        XCTAssertEqual(invalid.count, 18)
+        XCTAssertEqual(Self.optionalFields, ["downloadProtocol"])
+        XCTAssertEqual(Self.protocols, ["h3", "h2", "http/1.1"])
         for x in valid {
             XCTAssertNil(Self.problem(try XCTUnwrap(x["report"] as? [String: Any])), x["name"] as? String ?? "?")
         }

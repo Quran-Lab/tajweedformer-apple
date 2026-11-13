@@ -12,6 +12,8 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         var body = Data()
         /// Fail as if offline.
         var offline = false
+        /// The connection ends after this many bytes of the body (the answer's headers and those bytes arrive).
+        var breakAfter: Int?
         /// The answer waits behind this gate: the request stays in flight until the gate opens (an upload the
         /// server has not answered yet), or until its sender cancels it.
         var hold: Gate?
@@ -41,6 +43,10 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         let body: Data
         /// When the request reached the stub.
         var at = Date()
+        /// Whether the request may go over an expensive network (cellular, a personal hotspot) and over one in Low
+        /// Data Mode, as its sender set them.
+        var allowsExpensive = true
+        var allowsConstrained = true
         var path: String { url.path }
         var json: [String: Any]? { (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] }
     }
@@ -96,12 +102,15 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             s.close()
         }
         let headers = Dictionary((request.allHTTPHeaderFields ?? [:]).map { ($0.key.lowercased(), $0.value) }) { a, _ in a }
-        let seen = Seen(method: request.httpMethod ?? "GET", url: request.url!, headers: headers, body: body)
-        Self.log.withLock { $0.append(seen) }
-        let reply = Self.handler?(seen) ?? Reply(status: 404)
+        var seen = Seen(method: request.httpMethod ?? "GET", url: request.url!, headers: headers, body: body)
+        seen.allowsExpensive = request.allowsExpensiveNetworkAccess
+        seen.allowsConstrained = request.allowsConstrainedNetworkAccess
+        let asked = seen
+        Self.log.withLock { $0.append(asked) }
+        let reply = Self.handler?(asked) ?? Reply(status: 404)
         guard let gate = reply.hold else { return answer(reply) }
         // held: the request is in flight until the gate opens; a sender that cancels it meanwhile gets no answer
-        waiting.withLock { $0 = seen }
+        waiting.withLock { $0 = asked }
         DispatchQueue.global().async { [self] in
             gate.wait()
             let still = waiting.withLock { (w: inout Seen?) -> Bool in
@@ -162,6 +171,15 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         }
         let r = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
         client?.urlProtocol(self, didReceive: r, cacheStoragePolicy: .notAllowed)
+        if let n = reply.breakAfter {
+            // the connection ends in the middle of the body: the bytes arrive, and a moment later the connection
+            // is gone (a request that is failed in the same instant hands its sender none of the bytes)
+            client?.urlProtocol(self, didLoad: Data(reply.body.prefix(max(0, n))))
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { [self] in
+                client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            }
+            return
+        }
         client?.urlProtocol(self, didLoad: reply.body)
         client?.urlProtocolDidFinishLoading(self)
     }
@@ -289,7 +307,7 @@ enum CloudFixtures {
                                              signingKeys: signingKeys ?? [signer.publicKey.rawRepresentation],
                                              updatesOnWiFiOnly: false,
                                              app: app, urlSession: StubProtocol.session(),
-                                             parallelDownloads: 3, rangeSize: 1000),
+                                             rangeSize: 1000, retryPauses: [0, 0, 0, 0, 0]),
                          contributions: contributions)
     }
 

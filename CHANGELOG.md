@@ -1,5 +1,295 @@
 # Changelog
 
+## 3.1.5
+
+A model download that holds up on a network that fails, one new call for takes with their own options, and
+corrections. The same engine and the same model builds as 3.1.4.
+
+Each fault below is what the code of 3.1.4 does: found by reading the code and shown by tests on a Mac, not
+observed on a device, unless the item says otherwise.
+
+### Changed: the model download on a network that fails
+- A file's bytes are written to the device as they arrive, so a broken connection keeps the bytes the system had
+  handed over. Until now a range of up to 8 MB was held in memory until all of it had arrived, and a connection
+  that ended in the middle lost it.
+- A file whose transfer fails is taken up again by the SDK, from what is on the device: at most five times per
+  file in one call, after 1, 2, 4, 8 and 16 seconds. That is: no answer, a connection that ends, a server error,
+  no byte for 30 seconds (a limit on silence, not on the whole transfer: a slow connection that keeps delivering
+  is never cut), and an answer that says success and is not the file. An attempt that brings no new byte counts
+  like any other, and the pause is always waited. Until now the first such failure ended `client.model()` or
+  `client.prefetch()`. Asked once and never again in the call: an answer that names why the key or the app is
+  refused, any 401, 403 or 429 beyond the one renewal of the install's token, and a redirect. A cancelled call
+  ends a pause at once.
+- What counts as the file: a 206 whose Content-Range starts at the byte asked for and names the size the signed
+  manifest gives the file, or a whole file (a 200) of that size. Anything else that says success is a failed
+  attempt: a 204, another length, another start or total, no Content-Range, an answer without a byte. A failed
+  attempt costs no stored byte. A whole file that the server sends in place of a range is written beside the
+  partial file and takes its place only when all of it has arrived.
+- What removes a partial file, and nothing else does: a 416 (the stored bytes run past the server's file; the
+  file then starts again in the same call), a partial file larger than the file, and a file of the full size
+  whose SHA-256 is not the manifest's. The hash of the whole file against the signed manifest stays the last word.
+- A partial file keeps the validator of the answer that started it (its ETag) and sends it with every later range
+  (`If-Range`). When the file on the server is another one by then, the server sends it whole.
+- An update, the Neural Engine's build and `prefetch(unmeteredOnly: true)` wait for an unmetered network for as
+  long as they run: their requests say so, and the system holds to it. For an update this is stricter than
+  before on purpose: until now the network was read once when an update started, and an update that began on
+  Wi-Fi and lost it went on over a metered network; now it stops there and goes on when the device is on an
+  unmetered network again. `prefetch(unmeteredOnly:)` still reads the connection first and does nothing on a
+  metered one. A first install goes on any network, as before.
+- Cancelling a call ends that call's wait and nothing else: it throws `cancelled` at once. The download goes on
+  while another call waits for it, or when a `prefetch` asked for it. When the last waiting call is cancelled and
+  no `prefetch` asked, the part that runs in the app stops, the partial file stays, and what was handed to the
+  system's background session runs on.
+- On iOS an install asks the system for the time it gives a task that is under way when the learner leaves the
+  app (about half a minute), so a download that is nearly done finishes.
+- On iOS what is left of a download is handed to a background session, range by range, when the app has entered
+  the background, and goes on while the app is suspended. A range that did not arrive is handed over again while
+  the app is still away. When the app is back, the ranges that arrived are joined to the file, the ones still on
+  their way are given up, and the download goes on in the app from the next byte. Nothing about what is accepted
+  changes: a range is kept only as a 206 for exactly its bytes of a file of the manifest's size, from the address
+  it was asked of; the whole file is hashed against the signed manifest before it is used; and a refusal met on
+  the way stops the download as in the app. Forward the session's events (below) so the system can wake the app
+  when the ranges are in; without that they are collected at the next launch. On a Mac the download runs in the
+  app, as before.
+- What a background transfer carries: its request is kept by the system in its own store until the transfer
+  ends. It has the install's token, which is not renewed while the app is away (a range the server refuses for
+  its token is fetched by the app itself), and the developer key, unless Quran Lab's signed config says that a
+  background transfer sends the token alone (`flags.model_requests_key_in_background`; the key is sent when the
+  flag is absent). The requests the app makes itself always carry both.
+- One exception to "no request follows a redirect", on that path only: the system follows a redirect of a
+  background transfer without asking the SDK. The SDK then refuses the bytes: when the system counts a redirect
+  for the transfer, or its answer came from another scheme, host or port than it was asked of, nothing of it is
+  kept, the range counts as failed, and the host it ended on (only the host) is reported to Quran Lab as an
+  issue. The request's headers have by then travelled to that host. It cannot happen with Quran Lab's server,
+  which never answers a model request with a redirect; the rule is there so that a fault is seen and not
+  installed.
+- A switch for measuring, temporary: in a debug build of the SDK (an app run from Xcode) the environment variable
+  `QURANLAB_BACKGROUND_DOWNLOADS`, read when the Client is made, names how a download is carried. `whenLeaving`
+  is the default on iOS and is what the lines above describe. `whenResigning` is the same with another moment of
+  the hand-over: the background tasks are made when the app resigns, for the ranges after the one the app is
+  fetching, and the app's own request is not cut; when the app is active again without having been in the
+  background (Control Center, a banner, an alert) the tasks are cancelled and what they fetched is dropped, and
+  when it has entered the background the app's request ends with its range and the rest stays with the tasks.
+  `fromFirstByte` hands every range to the background session from the start (never on a Mac); `off` keeps the
+  whole download in the app. A release build does not read it and has `whenLeaving`. It is there to compare
+  these on phones, and it goes in the release after that is decided. In a debug build the SDK writes to the
+  system's log when ranges were handed over, when each range was asked for and ended (as the system's metrics
+  say, also for the time the app was suspended), and what was given up or dropped.
+- Removed from the SDK's internals: an option for parallel range requests that nothing read. The download is one
+  request at a time, as it always was.
+
+### Changed: a refusal of a model request ends when the download server is asked again
+- A refusal of the key or the app that came from the download server (not from the API) is remembered, holds
+  without a network, and is not cleared by an answer of the API. What ends it is now one rule: once an answer of
+  the API has accepted the key since the refusal (a config, a registration or a token), the next
+  `client.model()` or `client.prefetch()` drops the remembered refusal and asks the download server again, and
+  what that server answers is what the app gets: the model, the refusal again, or that answer's own error.
+- Before (3.1.0 to 3.1.3) the refusal ended only when the download server SERVED a request, and only a config
+  that could be fetched counted as the API's acceptance. While the download server answered something else that
+  was no refusal of the key (for example `model_not_allowed`), or the config named no build, the app kept
+  getting the OLD refusal's error, for example `invalid_key`, and not the answer's own. And every launch asked
+  the download server again, whether or not the API had accepted the key; now nothing is asked of it while a
+  refusal is remembered, until such a call.
+- While a Model is open the refusal holds, also after the API has accepted the key: the open Model's files are
+  still on the device, and they go when it is closed.
+
+### Added: the calls that forward a background session's events
+- `TajweedClient.handleBackgroundEvents(identifier:completionHandler:)` for the app delegate's
+  `application(_:handleEventsForBackgroundURLSession:completionHandler:)`, `TajweedClient.backgroundEvents(identifier:)`
+  for SwiftUI's `.backgroundTask(.urlSession(matching:))`, and `TajweedClient.isBackgroundSession(_:)` to tell the
+  SDK's sessions from an app's own. On iOS the upload queue of shared recordings runs on a background session;
+  until now no public call let an app hand its completion handler to the SDK. An app that forwards nothing loses
+  nothing: the transfers finish all the same, and the SDK collects their results when the Client is next made.
+  What ends before the Client is made is kept and taken up then. The completion handler is taken as the system
+  declares it, so an app delegate passes it on as it is.
+
+### Added: a screen for checking the download on a phone
+- `examples/DownloadCheck` is a small library with one screen for an app of your own: it downloads the model and
+  shows the seconds that took, the protocol `diagnose()` reports, the app going to the background and coming back,
+  and the system handing over a background session's events, each line with the time of day, kept in a file so
+  that the next launch still shows it. It switches between the ways a download is carried (in a debug build) and
+  between forwarding the events and not, and it adds the lines the SDK's debug build writes to the system's log
+  to its own, so that one copy holds everything. Its `Package.swift` says how to put it into an app.
+- It can also open the model and keep it open, so that the Neural Engine's build is prepared and the SDK's lines
+  about that come to the log, and show the SDK's sharing sheet; its Diagnose line names the backend in use and the
+  protection class of two of the SDK's files.
+- `examples/UpgradeSeed` is a second small screen, on the released SDK 3.1.4 (its package names exactly that
+  version): it puts a sharing answer on the device, so that the first screen, installed over it with the same
+  bundle id, finds what a 3.1.4 install leaves.
+
+### Added: `model.prepare(options:)`
+- `client.model()` warms the engine for the default Session only. A Session with its own context, heads or backend
+  gets its own engine, which until now was made when its first take opened: too late for that take to start on the
+  Neural Engine. `try await model.prepare(options:)` takes the options a Session takes and warms the engine for
+  exactly those ahead of the first take: the context's files are fetched when they are not on the device, the CPU
+  engine is built, and the call waits until the Neural Engine's build for them is ready or will not be. It returns
+  the Backend the next Session with the same options starts on.
+- Where no accelerator applies (an older system, a CPU-only context, `backend: .cpu`) it returns at once with the
+  CPU engine. A second call with the same options does nothing more. A Session with other options is not covered.
+  While a Session is open the call throws `session_open`.
+- On a device that has not promoted the build yet the wait includes the promotion: the build's download on an
+  unmetered network, its compilation and its test, at most ten minutes. Takes can run on the CPU engine meanwhile.
+
+### Fixed: a refused install's model is removed also when the key is accepted again first
+- Since 3.1.0 a refusal of the key or the app removes the downloaded model; with a Model open, the files go when
+  it is closed or at the next start. That removal was owed only while the refusal was remembered. When Quran Lab
+  accepted the key again before the Model was closed, or before the next start, or after a removal that had
+  failed, the model stayed on the device. The SDK now keeps a mark on the device from the refusal until those
+  files are gone. The mark names the build folders that were on the device when the refusal arrived: they are
+  removed when the Model is closed, at the next start, and before the next `client.model()` or
+  `client.prefetch()`; a build that was downloaded later stays. While those files cannot be removed, such a call
+  does not open them: it throws `storage_failed`.
+
+### Fixed: the registration names the model the install holds, whatever its id
+- The daily registration sent the revision of the model with the id `v4.0` only. It now sends the revision of the
+  model Quran Lab's config names for the app, else of any model the install holds.
+
+### Changed: model requests can go by HTTP/3 at once, and `diagnose()` says which protocol a download used
+- The requests for model files say that the server speaks HTTP/3 (`assumesHTTP3Capable`), so the first request can
+  go by HTTP/3 and does not wait for the server to say so in an earlier answer. No other request carries it.
+- `diagnose().downloadProtocol` is the protocol of the last model request that was answered for this Client in
+  this process (`h3`, `h2` or `http/1.1`), by the app or by the background session; nil before the first. It is
+  held in memory and sent in no telemetry. In `diagnose().json` it is the optional key `downloadProtocol`,
+  written after the eleven fields when it is known.
+
+### Fixed: a stop is read only from a 401 or a 403
+- Since 3.1.0 an answer of Quran Lab's servers whose body named one of the reasons that stop the model (a revoked
+  or unknown key, a blocked app, and the others of the list) stopped the model whatever its status: a 429 or a 404
+  with such a body would have stopped the model, been remembered across launches, and removed the downloaded
+  model. Now only a 401 or a 403 with such a reason stops it; under any other status the answer is what its status
+  says. Quran Lab's servers send a stop reason only with 401 and 403.
+
+### Fixed: a stop of the app while the Neural Engine's build is being prepared
+- One stop of the process during the build's download, compile or warm-up (a crash, or the app closed or stopped
+  from Xcode while the build compiled) turned the Neural Engine off for good for that device, system version and
+  model build, so the install ran on the CPU until a system update or a new model. This was seen in reports from
+  apps that were closed during the first compile and worked afterwards. Now:
+  - a stop in the foreground at download, compile or warm-up, before the model ran on the Neural Engine, takes
+    the retry budget (1 h, 6 h, 24 h), and a second stop at the same stage turns it off for good; a stop at the
+    golden test or the measurement turns it off at once, as before;
+  - a stop while the app was in the background counts nothing, at every stage: the attempt goes on at the next
+    launch. The third such stop in a row at the same stage counts as a stop in the foreground;
+  - the report of such a stop (`promotion_failed`, `crash_on_last_run`) says whether the app was in the
+    foreground (`foreground`). On a Mac the SDK cannot tell the foreground: the field is left out, and a stop
+    takes the foreground rule (one retry).
+- At the first launch of 3.1.5, an install that one such stop at download, compile or warm-up turned off gets
+  its retry back.
+
+### Fixed: the upload queue of a Client that was closed sends and deletes nothing
+- Closing a Client stopped the passes of its upload queue that had not begun; a pass that had already begun went
+  on and could look at the queue after the next Client of the process had taken it over. Now a pass of a queue
+  that was shut down stops before it deletes or uploads anything.
+
+### Documented: use sharing in one process
+- `AGENTS.md` (section "Sharing recitations") says that two processes that each make a Client on the same storage folder do not see each other's
+  sharing answer, and that the Client belongs in one process of the app; a second process that needs the model
+  gets its own `storage` folder.
+
+### Tests
+The tests below run on the public CI's Mac runner, with a small test model (not a released model build) and a
+stand-in engine; the device's key store is a stand-in in memory. Unless a line says otherwise the server is a
+stub that answers inside the process. None ran on a phone or against Quran Lab's servers.
+- The answers that are not the file: the stub gives each of seven answers at every attempt to a download that
+  goes on from a partial file of 150 bytes (a 204; a 200 shorter and one longer than the file; an empty 206; a 206
+  with another total and one with another start; a 200 with a JSON body). Each time the call ends
+  `download_failed` after the file was asked for once and five times again, the partial file is the same bytes
+  as before, and the next call finishes from them. A failed attempt's pause is waited (pauses of 0.2 seconds set
+  by the test). A 416 removes the partial file and the file starts again. On the first candidate of this
+  version, which was never released, the same tests were red in one run: four of the answers were asked for
+  without end and without a pause until the test stopped the call, five of them cost the partial file bytes,
+  and the 206 with another total was taken for the file.
+- The download: the stub answers ranges as a server does (206 with a Content-Range, an ETag, the whole file when
+  `If-Range` names another ETag) and ends a connection by failing a request 0.3 seconds after some bytes of its
+  body (when the stub failed it in the same instant, the SDK was handed none of those bytes). A connection that
+  ends after 150 bytes is taken up again from byte 150 with the validator; a file the network keeps failing is
+  asked for once and five times again, a refusal once; a cancelled call ends a pause of a minute at once; a
+  changed file takes the partial file's place, an unchanged one goes on from it, and without a validator the
+  hash of the whole file decides; a first install's requests may use a metered network, an update's and those of
+  `prefetch(unmeteredOnly: true)` may not (read from the requests the stub got). The 30 seconds without a byte
+  are the system's own timer and are not run by a test. No test ran over a cellular network.
+- Cancelling: two calls wait for one install while the stub holds the file's answer; one is cancelled and throws
+  `cancelled` at once, the request in flight is not ended, the other gets the model, and the file was asked for
+  once. The last waiting call cancelled: the request in flight is ended. A cancelled `prefetch`: it is not.
+- The refusal of a model request: the three cases that the old rule got wrong, each as a test (a token answer
+  accepted while the config cannot be fetched; a 403 `model_not_allowed` after the key was accepted: the app gets
+  that error and the old refusal is gone; a config that names no build: `model_unavailable`), and that without an
+  accepting answer the refusal holds, with no network and with only the API unreachable; with a Model open it
+  holds until the close.
+- The background transfer, with a real background session: the SDK's own downloader on the CI's Mac runner,
+  against small servers on the loopback interface (the API and the manifest still from the stub; the downloader
+  is given to the Client by the test, since the Client makes its own only on iOS). Every range of every file is
+  fetched by the system's download tasks, placed and joined, and the model opens; each task carried the key and
+  the token, and the protocol the ranges went by (HTTP/1.1 from that server) is what `diagnose()` reports; a
+  redirect to another host name, one to another port of the same host, and a chain that leads back to the first
+  address are each followed by the system and then refused by the SDK, with the issue carrying the host only;
+  what ends before the sink is attached is kept and placed when it is; an update's task carries the two marks
+  of a request that waits for an unmetered network, and the session runs it. Not shown, because a test process
+  on a Mac is never suspended: that the transfers go on while an app is suspended, the relaunch that hands the
+  app its events, a cellular network, Low Data Mode, a force-quit, and anything on a phone. The redirects are
+  by plain http between loopback addresses; a change of scheme is checked on the comparison alone.
+- The background transfer, with a stand-in for the background session (no background URLSession is made, no app
+  is suspended, nothing runs out of process; "the app is away" is the test saying so). One install left twice, in
+  the middle of a range each time: the model opens, every range of the file was fetched exactly once by the
+  foreground or by a background task that ended, the two foreground requests in flight were ended, and the six
+  background tasks in flight at the return were cancelled and counted; every range by the background, and the
+  foreground when the background brings nothing; a range that is missing after a round while the app is away is
+  handed over again and the app asks for no file itself; a redirect is refused, its bytes are not joined and the
+  issue carries the host only; a refusal that stops the model, met by a background task, stops it (in the same
+  process: not after a relaunch); with the config's flag false the background tasks carry the token and no key
+  while the app's own requests carry both, and with the flag absent or true, both. A range that the server
+  refuses for its token and the app then fetches itself is shown with `fromFirstByte` only. That a process the
+  system started in the background begins as away is shown with a stand-in for the application's state.
+- The hand-over at the resign (`whenResigning`), with the same stand-in, the app's state set by the test: a
+  resign and then active again: the tasks are cancelled, what two of them had fetched (200 bytes) is dropped and
+  counted, the app's own request is not ended, and the app fetches every range itself; a resign and then the
+  background: the app's request ends with its range, the rest comes by the tasks, each range once; a resign,
+  active, and a resign again; a 204 at every attempt costs no stored byte at either moment, and is asked for
+  once and five times again; a background that brings nothing after a resign ends the call after its tries.
+  What the system does with tasks made at a resign and with tasks made in the background is not shown by any
+  test: that is what the phone measures.
+- What a download leaves: the working files are removed before a build is put in place (on a folder the test
+  makes), and a download folder of another build is removed when a download starts.
+- Background events: no background session is made and no app is suspended in a test; the tests show that a
+  completion handler is called exactly once, also when it comes before the Client is made. The time an install
+  asks the system for is a stand-in that counts: asked for when a download runs, given back when it succeeds,
+  fails or is refused, and not asked for when nothing is downloaded.
+- `prepare`: the Neural Engine's compile, warm-up and test stages are stand-ins (the test model's packages are not
+  real ones), so these tests show the order of things, not a speed: without `prepare` the first take with an
+  app's own heads starts on the CPU engine, with it on the accelerator; a second call starts no second promotion
+  and opens no second engine; a Session on the CPU engine and an install with the accelerator switched off (the
+  stand-in for a device without one) return at once with the CPU engine; the options are checked as a Session's.
+- The removal mark: a refusal with a Model open, then an accepting answer before the close: the files are gone
+  after the close, or at the next start when the app ended without closing it, and every file is asked for
+  again; the same after a removal that failed (made to fail by a switch of the test, not by a real storage
+  error), and while it fails a model call throws `storage_failed` and opens nothing; the mark's names on folders
+  the test makes: the build that was there goes, the one that came later stays.
+- The registration: the store's pointer files are written by the test for a model with a made-up id (no such
+  model is downloaded); its revision is sent when the config names it and when it is the only model held.
+- The protocol: the stub answers inside the process, where the system names no protocol, so the tests give one
+  through a stand-in for the metric; it is in the typed report and in the JSON, the next Client starts without
+  one, and a later download replaces it; the HTTP/3 mark is on a model request and on no other. That a real
+  connection to Quran Lab's host goes by HTTP/3 is not shown by any test.
+- The switch for measuring: a test (a debug build) sets the variable in its own process and reads the transport a
+  new Client would use, for each of the three values, a value that is none, and no value.
+- The stop read only from a 401 or a 403: the shared vector `model_gate.json` (34 cases; two of
+  them carry a stop reason under a 429 of the API and a 404 of a model request) through the public Client with a
+  stub server, and one test each for the API's 429, the model request's 404, the gate under 400, 404, 409, 410
+  and 429, and a 404 of a background range. Run first on the code before this change: there each of them fails.
+- A stop during the preparation: the pipeline's stand-ins (no CoreML, no Neural Engine), and the mark the pipeline
+  leaves around a stage, written by the test. A stop in the foreground at download, compile and warm-up is tried
+  again after the hour and promotes; a second stop at the compile ends the key, a stop at the warm-up after one at
+  the compile does not; a stop at the golden test or the measurement ends the key; a stop in the background at the
+  compile and the warm-up counts nothing and is reported with `foreground: false`; the first launch's migration.
+  Run first on the code of 3.1.4: there each of them fails, but for the golden test and the measurement, which
+  end the key there too. Not run on it, because they test what was decided after that run: a stop in the background
+  at the golden test, the third background stop in a row and the one after it, the end of a row when the stage
+  completes, and the foreground that the pipeline records with a stage and keeps up to date.
+- The queue of a Client that was closed: a pass waits 3 ms before its first look at the queue (a switch of the
+  test, in debug builds only), and the steps run 50 times: the recording is never lost and nothing is sent for it.
+  The same steps on the code of 3.1.3 lost the recording in 42 of 50 runs.
+- The screens of `examples/DownloadCheck` and `examples/UpgradeSeed` are built by the CI for a Mac and for an iOS
+  device. They were not run by a test, and nothing in this entry was measured with them yet.
+
 ## 3.1.4
 
 Corrections to what the SDK does with something it keeps on the device and cannot read at that moment, and to

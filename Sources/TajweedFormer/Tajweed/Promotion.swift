@@ -17,6 +17,12 @@ import UIKit
 // first attempt). Deterministic failures (golden_mismatch, cpu_mismatch, non_finite, crash) are never retried for the
 // key. Speed is never a failure: a build that downloads, compiles and passes the golden test is promoted.
 //
+// Since 3.1.5 a stop of the process (a crash, or the app closed or stopped) is told by where and when it happened:
+// in the foreground at download, compile or warm-up, before the model ran on the accelerator, it takes the retry
+// budget and a second one at the same stage ends the key; at the golden test or the measurement it ends the key at
+// once. A stop while the app was in the background counts nothing at any stage, until the third in a row at the same
+// stage, which counts as a stop in the foreground. Until 3.1.4 every stop ended the key for good.
+//
 // Since 2.0.2 a promoted build is demoted by the cause of a session's failure (Failover.swift): deadline misses in 3
 // sessions within 24 h, or a single confirmed blank disagreement with the CPU engine, are transient (a 6 h backoff,
 // the build stays verified, never off for good); NaN, inf, a head out of range and a repeated confirmed disagreement
@@ -40,6 +46,8 @@ enum PromotionStage: String, Sendable, Codable, CaseIterable, Comparable {
     case promote
 
     var order: Int { Self.allCases.firstIndex(of: self)! }
+    /// Download, compile and warm-up: the stages before the model has run on the accelerator.
+    var isPreparation: Bool { self <= .warmup }
     static func < (a: PromotionStage, b: PromotionStage) -> Bool { a.order < b.order }
     /// The stage after this one, nil after `promote`.
     var next: PromotionStage? { order + 1 < Self.allCases.count ? Self.allCases[order + 1] : nil }
@@ -225,6 +233,13 @@ enum PromotionPolicy {
     static let goldenTimeout: TimeInterval = 900
     /// Waits after failed attempts 1, 2 and 3 of a key; the 4th failure ends the key's budget.
     static let backoff: [TimeInterval] = [3600, 6 * 3600, 24 * 3600]
+    /// A stop of the process in the background counts nothing at every stage, the golden test and the measurement
+    /// included (3.1.5; `foreground: false` of contract 1.22.0). False: only at download, compile and warm-up.
+    static let backgroundStopCountsNothingAtEveryStage = true
+    /// The background stop in a row at the same stage of a key that counts as a stop in the foreground, and every one
+    /// after it while the row lasts. The row ends when the stage completes, or when the attempt
+    /// ends in another way than by a stop of the row.
+    static let backgroundStopsCountedFrom = 3
     /// A failover demotes the build; it is tested again no sooner than this.
     static let failoverRetest: TimeInterval = 24 * 3600
     /// The first run of a key starts after the first session ends, or after this much time without one.
@@ -346,6 +361,12 @@ struct PromotionRecord: Codable, Sendable, Equatable {
     /// force when the build has one. Recorded also for a build judged on tokens alone, and for a test that failed
     /// (its `failed` then names the measures that decided it).
     var golden: Divergence?
+    // 3.1.5 (optional, so earlier records decode)
+    /// Stops of the process counted at download, compile and warm-up, by stage: a second at the same stage ends the
+    /// key.
+    var preparationStops: [String: Int]?
+    /// Stops of the process in the background in a row, by stage (none counted until `backgroundStopsCountedFrom`).
+    var backgroundStops: [String: Int]?
 
     struct DeadlineMiss: Codable, Sendable, Equatable {
         var session: String
@@ -375,6 +396,9 @@ struct PromotionStore: Sendable {
     struct Sentinel: Codable, Equatable, Sendable {
         var key: String
         var stage: PromotionStage
+        /// Whether the app was in the foreground when the stage was recorded, and kept up to date while the stage
+        /// runs (3.1.5). Nil: not known (macOS, a sentinel of 3.1.4 or earlier).
+        var foreground: Bool? = nil
     }
 
     private static let lock = NSLock()
@@ -415,9 +439,18 @@ struct PromotionStore: Sendable {
     }
 
     /// Written before every compile, load and first inference; removed after. Found at launch: the process died there.
-    func writeSentinel(_ key: String, _ stage: PromotionStage) {
+    func writeSentinel(_ key: String, _ stage: PromotionStage, foreground: Bool? = nil) {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let d = try? JSONEncoder().encode(Sentinel(key: key, stage: stage)) { try? d.write(to: sentinelURL, options: .atomic) }
+        if let d = try? JSONEncoder().encode(Sentinel(key: key, stage: stage, foreground: foreground)) {
+            try? d.write(to: sentinelURL, options: .atomic)
+        }
+    }
+
+    /// The app went to the background or came back while a stage runs: the sentinel says so (3.1.5).
+    func updateSentinel(key: String, foreground: Bool?) {
+        guard var s = sentinel(), s.key == key, s.foreground != foreground else { return }
+        s.foreground = foreground
+        if let d = try? JSONEncoder().encode(s) { try? d.write(to: sentinelURL, options: .atomic) }
     }
 
     func clearSentinel() { try? FileManager.default.removeItem(at: sentinelURL) }
@@ -465,6 +498,35 @@ struct PromotionStore: Sendable {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? Data("2.0.2\n".utf8).write(to: migratedURL, options: .atomic)
         return cleared.sorted()
+    }
+
+    // MARK: the upgrade to 3.1.5
+
+    var migrated315URL: URL { dir.appendingPathComponent("migrated-3.1.5") }
+
+    /// Once per store (a marker file written after it): a key whose only failure was a stop of the process at
+    /// download, compile or warm-up (3.1.4 and earlier ended the key for good for it) gets its retry back: it may
+    /// run at once, and the stop counts as the first at its stage (a second there ends the key). Keys ended by a stop
+    /// at the golden test, or after another failure, stay as they are. Returns the keys given back.
+    @discardableResult
+    func migrate315(now: Date) -> [String] {
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        guard !FileManager.default.fileExists(atPath: migrated315URL.path) else { return [] }
+        var all = read()
+        var back: [String] = []
+        for (k, r0) in all where r0.status == .failed && r0.lastReason == .crash && r0.failures == 1 && (r0.lastStage?.isPreparation ?? false) {
+            var r = r0
+            r.status = .retry
+            r.notBefore = nil
+            r.preparationStops = [r0.lastStage!.rawValue: 1]
+            all[k] = r
+            back.append(k)
+        }
+        if !back.isEmpty { write(all) }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? Data("3.1.5\n".utf8).write(to: migrated315URL, options: .atomic)
+        return back.sorted()
     }
 
     /// A 2.0.1 record (not promoted now) whose demotion or off-for-good came from a blank or deadline failover.

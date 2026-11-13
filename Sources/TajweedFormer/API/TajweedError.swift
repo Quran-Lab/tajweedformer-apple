@@ -182,6 +182,9 @@ extension TajweedError {
             } else if code == "invalid_key" || (status == 401 && code == Self.cdnBareRefusal) {
                 // a key the server does not know; the CDN's bare 401 says the same of a model request
                 self.init(.invalidKey)
+            } else if HTTPClient.redirects.contains(status) {
+                // a model file's request was answered with a redirect, which is never followed: the download failed
+                self.init(.downloadFailed, ["detail": "the download server answered with a redirect, which is never followed"])
             } else if status == 429 && code == "model_limit" {
                 // a model request over Quran Lab's daily limit: the download stopped, try later; never a refusal
                 self.init(.downloadFailed, ["detail": "Quran Lab's daily limit for model downloads is reached; try again later"])

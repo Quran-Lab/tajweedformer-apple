@@ -151,6 +151,54 @@ public final class TajweedModel: Sendable {
         return try await start(options, pushed: true)
     }
 
+    /// Warms the engine for the Session these options describe, ahead of its first take. `client.model()` warms the
+    /// default Session only; a Session with another context, other heads or another backend gets its own engine,
+    /// which is otherwise made when its first take opens, too late for that take to start on the Neural Engine.
+    /// Call this once with the options your takes use (their `context`, `heads` and `backend`; the other fields are
+    /// not read): the context's files are fetched when they are not on the device yet, the CPU engine is built, and
+    /// the call waits until the Neural Engine's build for these options is ready or will not be. It returns the
+    /// Backend the next Session with the same options starts on: the accelerator where this device has one for
+    /// them, else the CPU engine, with the stage and reason `backend` reports. Where no accelerator applies (an
+    /// older system, a CPU-only context, `backend: .cpu`) it returns at once with the CPU engine. A second call with
+    /// the same options finds the engine warm and does nothing more. A Session with other options is not covered
+    /// by it: it gets its own engine as before.
+    /// On a device that has not promoted the build yet, the wait includes the promotion (the build's download on an
+    /// unmetered network, its compilation and its test, up to ten minutes); takes can run meanwhile on the CPU
+    /// engine. While a Session is open the call throws `session_open`: it is for the time before a take.
+    @discardableResult
+    public func prepare(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedBackend {
+        let selection = try Self.selection(options.heads)
+        let context = options.context ?? Self.defaultContext(folder)
+        guard folder.manifest.contexts.contains(context) else {
+            throw .argument("context \(context) is not one of \(folder.manifest.contexts.joined(separator: ", "))")
+        }
+        enum Standing { case closed, busy, free }
+        let standing = state.withLock { (s: inout State) -> Standing in
+            if s.closed { return .closed }
+            return s.open != nil ? .busy : .free
+        }
+        switch standing {
+        case .closed: throw TajweedError(.modelMissing, ["detail": "this TajweedModel was closed"])
+        case .busy: throw TajweedError(.sessionOpen)
+        case .free: break
+        }
+        do throws(RecognizerError) {
+            let (r, _) = try await engine(context: context, backend: options.backend, selection: selection)
+            // warm already (an earlier prepare, or takes with these options): nothing more to do
+            let now = await r.backendNext
+            if now.kind == .accelerator { return now }
+            try await r.prepare()
+            _ = await r.awaitReady(timeout: Self.prepareWait)
+            return await r.backendNext
+        } catch {
+            throw TajweedError(from: error)
+        }
+    }
+
+    /// The longest `prepare(options:)` waits for the Neural Engine's build (a first promotion downloads, compiles
+    /// and tests it).
+    static let prepareWait: TimeInterval = 600
+
     /// Releases the engine. An open Session is cancelled.
     public func close() async {
         let r = state.withLock { (s: inout State) -> TajweedRecognizer? in
@@ -205,6 +253,36 @@ public final class TajweedModel: Sendable {
         state.withLock { if $0.open == token { $0.open = nil } }
     }
 
+    /// The heads a Session's options name: every name a head of the model, and at least one.
+    static func selection(_ heads: [String]) throws(TajweedError) -> Set<HeadID> {
+        var selection = Set<HeadID>()
+        for name in heads {
+            guard let h = HeadID(rawValue: name) else { throw .argument("\(name) is not a head of the model") }
+            selection.insert(h)
+        }
+        guard !selection.isEmpty else { throw .argument("heads is empty: name at least one head") }
+        return selection
+    }
+
+    /// The engine for a context, backend choice and heads, with the folder it runs from: the context's files are
+    /// fetched first when they are not on the device yet (another context's files come on first use, into the same
+    /// folder).
+    private func engine(context: String, backend: TajweedSessionOptions.Backend,
+                        selection: Set<HeadID>) async throws(RecognizerError) -> (TajweedRecognizer, ModelFolder) {
+        var f = folder
+        if !f.isUsable(context: context) {
+            guard client != nil else { throw RecognizerError.modelMissing("the files of \(context) are not in the folder") }
+            f = try await ModelFolder.load(f.id, sources: [.cache, .cdn], context: context)
+            let fetched = f
+            state.withLock { (s: inout State) in
+                s.folder = fetched
+                s.recognizer = nil
+                s.reference = nil
+            }
+        }
+        return (try recognizer(f, context: context, backend: backend, selection: selection), f)
+    }
+
     /// Warms the engine for the default Session (the first take then starts at once).
     func warm() async throws(TajweedError) {
         let f = folder
@@ -243,12 +321,7 @@ public final class TajweedModel: Sendable {
     /// Starts a take: checks the options, claims the Model's one open Session, fetches the context's files when they
     /// are not on disk yet, and opens the take on the engine.
     private func start(_ options: TajweedSessionOptions, pushed: Bool) async throws(TajweedError) -> TajweedSession {
-        var selection = Set<HeadID>()
-        for name in options.heads {
-            guard let h = HeadID(rawValue: name) else { throw .argument("\(name) is not a head of the model") }
-            selection.insert(h)
-        }
-        guard !selection.isEmpty else { throw .argument("heads is empty: name at least one head") }
+        let selection = try Self.selection(options.heads)
         guard (0...38).contains(options.topK) else { throw .argument("topK \(options.topK) is not 0 to 38") }
         try Self.check(endOnSilenceMs: options.endOnSilenceMs)
         let token = UUID()
@@ -274,24 +347,13 @@ public final class TajweedModel: Sendable {
 
     private func open(_ options: TajweedSessionOptions, selection: Set<HeadID>, pushed: Bool,
                       token: UUID) async throws(TajweedError) -> TajweedSession {
-        var f = folder
-        let context = options.context ?? Self.defaultContext(f)
-        guard f.manifest.contexts.contains(context) else {
-            throw .argument("context \(context) is not one of \(f.manifest.contexts.joined(separator: ", "))")
+        let known = folder
+        let context = options.context ?? Self.defaultContext(known)
+        guard known.manifest.contexts.contains(context) else {
+            throw .argument("context \(context) is not one of \(known.manifest.contexts.joined(separator: ", "))")
         }
         do throws(RecognizerError) {
-            if !f.isUsable(context: context) {
-                // another context's files come on first use, into the same folder
-                guard client != nil else { throw RecognizerError.modelMissing("the files of \(context) are not in the folder") }
-                f = try await ModelFolder.load(f.id, sources: [.cache, .cdn], context: context)
-                let fetched = f
-                state.withLock { (s: inout State) in
-                    s.folder = fetched
-                    s.recognizer = nil
-                    s.reference = nil
-                }
-            }
-            let r = try recognizer(f, context: context, backend: options.backend, selection: selection)
+            let (r, f) = try await engine(context: context, backend: options.backend, selection: selection)
             try await r.startTake()
             let backend = await r.backendNow
             let bounds = state.withLock { $0.bounds }

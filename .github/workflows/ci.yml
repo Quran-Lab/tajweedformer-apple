@@ -204,6 +204,16 @@ jobs:
         run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
       - name: The example program (examples/QuickStart) builds
         run: swift build --package-path examples/QuickStart
+      - name: The download check screen (examples/DownloadCheck) builds for a Mac and for an iOS device
+        run: |
+          swift build --package-path examples/DownloadCheck
+          cd examples/DownloadCheck
+          xcodebuild -scheme DownloadCheck -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd-check" build CODE_SIGNING_ALLOWED=NO
+      - name: The upgrade seed screen (examples/UpgradeSeed, on the released 3.1.4) builds for a Mac and for an iOS device
+        run: |
+          swift build --package-path examples/UpgradeSeed
+          cd examples/UpgradeSeed
+          xcodebuild -scheme UpgradeSeed -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd-seed" build CODE_SIGNING_ALLOWED=NO
       - name: Package, iOS device
         run: xcodebuild -scheme TajweedFormer -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/dd" build CODE_SIGNING_ALLOWED=NO
       - name: The privacy manifest is in the iOS build's products

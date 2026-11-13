@@ -111,6 +111,8 @@ struct AcceleratorIncident: Sendable, Equatable {
     var divergence: Divergence?
     var stallMs: Double?
     var attempt: Int?
+    /// A stop of the process (`crash_on_last_run`): whether the app was in the foreground at the stage (3.1.5).
+    var foreground: Bool? = nil
     /// The model version (SDK 3.0.0), and the build next to it.
     var revision: String
     var build: String? = nil
@@ -156,6 +158,22 @@ final class AcceleratorController: @unchecked Sendable {
         var incident: @Sendable (AcceleratorIncident) -> Void = { _ in }
         var cohort: @Sendable () -> TelemetryCohort
         var timeouts = Timeouts()
+        /// Whether the app is in the foreground now; nil where the platform cannot tell (3.1.5).
+        var foreground: @Sendable () -> Bool? = { AcceleratorController.foregroundNow() }
+    }
+
+    /// Whether the app is in the foreground. iOS: not in the background, as the download's hand-over follows it
+    /// (`didEnterBackground`, `willEnterForeground`, and the application's state at the start). macOS: nil. A Mac app
+    /// is not suspended in the background, so the foreground says nothing there about why a process stopped; a stop
+    /// then takes the rule of a stop in the foreground (one retry at download, compile and warm-up), and the report
+    /// leaves the field out.
+    static func foregroundNow() -> Bool? {
+        #if canImport(UIKit) && os(iOS)
+        DownloadHandOver.shared.observeSystem()
+        return !DownloadHandOver.shared.isAway
+        #else
+        return nil
+        #endif
     }
 
     enum GoldenOutcome: Sendable {
@@ -207,13 +225,13 @@ final class AcceleratorController: @unchecked Sendable {
         store = PromotionStore(dir: env.storage)
         // the first launch of 2.0.2: 2.0.1's blank and deadline demotions are cleared (once per store)
         store.migrate(now: env.clock())
-        // the process died during a compile, load or first inference: that key's attempt ends with reason crash
+        // the first launch of 3.1.5: a key ended by one stop at download, compile or warm-up gets its retry back
+        let back = store.migrate315(now: env.clock())
+        if !back.isEmpty { SDKLatest.debugOnly("promotion: \(back.count) build(s) ended by one stop during preparation may be tried again") }
+        // the process stopped during a compile, load or first inference (a crash, or the app closed or stopped)
         if let s = store.sentinel() {
             store.clearSentinel()
-            var r = store.record(s.key) ?? PromotionRecord(key: s.key)
-            let wasReady = r.status == .ready
-            recordFailure(&r, s.stage, PromotionFailure(.crash, "the app stopped during the \(s.stage.rawValue) stage"), reload: wasReady,
-                          sameKey: s.key == key)
+            stopFound(s)
         }
         let r = store.record(key)
         if let why = env.denied() {
@@ -225,10 +243,71 @@ final class AcceleratorController: @unchecked Sendable {
         }
         let name = Self.activeNotification
         activation = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in self?.becameActive() }
+        #if canImport(UIKit) && os(iOS)
+        // the sentinel of a stage that runs says whether the app is in the foreground, also when that changes
+        presence = DownloadHandOver.shared.onChange { [weak self] in self?.presenceChanged() }
+        #endif
     }
 
     deinit {
         if let activation { NotificationCenter.default.removeObserver(activation) }
+        if let presence { DownloadHandOver.shared.remove(presence) }
+    }
+
+    private var presence: UUID?
+
+    /// The app went to the background or came back: the sentinel of a stage that runs now says so.
+    func presenceChanged() {
+        store.updateSentinel(key: key, foreground: env.foreground())
+    }
+
+    /// What the last launch left: the process stopped at `s.stage` of the attempt of `s.key` (3.1.5).
+    /// In the background (`foreground` false) a stop counts nothing (at every stage while
+    /// `backgroundStopCountsNothingAtEveryStage`), until the `backgroundStopsCountedFrom`th in a row at the same
+    /// stage, which counts as a stop in the foreground. In the foreground, or where it is not known (macOS, a
+    /// sentinel of 3.1.4), the attempt ends with reason crash: at download, compile or warm-up within the retry
+    /// budget, a second one at the same stage ends the key; at the golden test or the measurement it ends the key.
+    private func stopFound(_ s: PromotionStore.Sentinel) {
+        var r = store.record(s.key) ?? PromotionRecord(key: s.key)
+        let wasReady = r.status == .ready
+        let detail = "the app stopped during the \(s.stage.rawValue) stage"
+        // a row of background stops that reached the bound: kept past the counted failure, so that the next stop in
+        // the same row is the second counted one at the stage
+        var countedRow: [String: Int]?
+        if s.foreground == false, PromotionPolicy.backgroundStopCountsNothingAtEveryStage || s.stage.isPreparation {
+            var row = r.backgroundStops ?? [:]
+            let n = (row[s.stage.rawValue] ?? 0) + 1
+            row[s.stage.rawValue] = n
+            r.backgroundStops = row
+            if n < PromotionPolicy.backgroundStopsCountedFrom {
+                // not a failure of the build: nothing counted, no wait; the attempt goes on where it was
+                store.save(r)
+                SDKLatest.debugOnly("promotion: the app stopped in the background during the \(s.stage.rawValue) stage; "
+                                    + "nothing counted (\(n) in a row), the attempt goes on")
+                let parts = s.key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+                let revision = parts.first ?? env.revision, context = parts.count > 1 ? parts[1] : env.context
+                let c = AcceleratorController.conditionsNow()
+                let named = named(revision)
+                env.incident(AcceleratorIncident(kind: .promotionFailed, stage: s.stage.rawValue, cause: PromotionReason.crash.incidentCause,
+                                                 message: detail, attempt: max(1, min(100, r.attempts)), foreground: false,
+                                                 revision: named.revision, build: named.build, context: context,
+                                                 thermal: c.thermal, lowPower: c.lowPower))
+                return
+            }
+            SDKLatest.debugOnly("promotion: the app stopped in the background during the \(s.stage.rawValue) stage, "
+                                + "\(n) in a row: counted as a stop in the foreground")
+            countedRow = row
+        }
+        recordFailure(&r, s.stage, PromotionFailure(.crash, detail), reload: wasReady, sameKey: s.key == key, foreground: s.foreground)
+        if let countedRow {
+            r.backgroundStops = countedRow
+            store.save(r)
+        }
+        if r.status == .failed {
+            SDKLatest.debugOnly("promotion: the app stopped during the \(s.stage.rawValue) stage; the build is off for this device")
+        } else if let nb = r.notBefore {
+            SDKLatest.debugOnly("promotion: the app stopped during the \(s.stage.rawValue) stage; tried again after \(Self.iso(nb))")
+        }
     }
 
     private var activation: (any NSObjectProtocol)?
@@ -401,7 +480,8 @@ final class AcceleratorController: @unchecked Sendable {
             case .download:
                 do throws(PromotionFailure) { try await stages.download() } catch { return fail(&rec, .download, error) }
             case .compile:
-                store.writeSentinel(key, .compile)
+                store.writeSentinel(key, .compile, foreground: env.foreground())
+                SDKLatest.debugOnly("promotion: compile begins (the first load of the build on this device)")
                 let t0 = env.clock()
                 let r = await Self.race(env.timeouts.compile,
                                         onTimeout: PromotionFailure(.compileTimeout, "the compile took over \(Int(env.timeouts.compile)) s"),
@@ -438,6 +518,9 @@ final class AcceleratorController: @unchecked Sendable {
             case .promote:
                 rec.status = .ready
                 rec.completed = .promote
+                rec.backgroundStops = nil
+                rec.preparationStops = nil
+                SDKLatest.debugOnly("promotion: promoted; the next session uses the accelerator")
                 rec.programSHA256 = stages.fingerprint()
                 rec.attemptStarted = nil
                 rec.failures = 0
@@ -456,6 +539,8 @@ final class AcceleratorController: @unchecked Sendable {
                 continue
             }
             rec.completed = stage
+            // the stage completed: a row of background stops at it has ended
+            rec.backgroundStops?[stage.rawValue] = nil
             store.save(rec)
             guard let n = stage.next else { return }
             stage = n
@@ -478,7 +563,7 @@ final class AcceleratorController: @unchecked Sendable {
 
     /// The load of a build compiled before (a sentinel around it; a load error, or a hang past the timeout).
     private func load(_ stages: Stages) async -> Result<UncheckedBox<any AcceleratorBackend>, PromotionFailure> {
-        store.writeSentinel(key, .warmup)
+        store.writeSentinel(key, .warmup, foreground: env.foreground())
         let r = await Self.race(env.timeouts.load, onTimeout: PromotionFailure(.hang, "the load took over \(Int(env.timeouts.load)) s"),
                                 stages.compile)
         store.clearSentinel()
@@ -490,7 +575,7 @@ final class AcceleratorController: @unchecked Sendable {
     }
 
     private func warm(_ b: UncheckedBox<any AcceleratorBackend>, _ stages: Stages) async -> PromotionFailure? {
-        store.writeSentinel(key, .warmup)
+        store.writeSentinel(key, .warmup, foreground: env.foreground())
         defer { store.clearSentinel() }
         let r = await Self.race(env.timeouts.warmup, onTimeout: PromotionFailure(.hang, "the warm-up took over \(Int(env.timeouts.warmup)) s")) {
             () async throws(PromotionFailure) -> Bool in
@@ -510,7 +595,7 @@ final class AcceleratorController: @unchecked Sendable {
                 await stages.waitIdle()
                 continue
             }
-            store.writeSentinel(key, .golden)
+            store.writeSentinel(key, .golden, foreground: env.foreground())
             let r = await Self.race(env.timeouts.golden, onTimeout: PromotionFailure(.hang, "the golden test took over \(Int(env.timeouts.golden)) s")) {
                 () async throws(PromotionFailure) -> GoldenOutcome in await stages.golden(b)
             }
@@ -544,7 +629,8 @@ final class AcceleratorController: @unchecked Sendable {
 
     /// Ends the attempt with a failure (or demotes a promoted key that failed to load again): the record, the retry
     /// time, the telemetry and the incident report.
-    private func recordFailure(_ rec: inout PromotionRecord, _ stage: PromotionStage, _ f: PromotionFailure, reload: Bool, sameKey: Bool) {
+    private func recordFailure(_ rec: inout PromotionRecord, _ stage: PromotionStage, _ f: PromotionFailure, reload: Bool, sameKey: Bool,
+                               foreground: Bool? = nil) {
         rec.failures += 1
         rec.lastStage = stage
         rec.lastReason = f.reason
@@ -553,7 +639,19 @@ final class AcceleratorController: @unchecked Sendable {
         rec.attemptStarted = nil
         // a golden test that failed keeps what it measured, as one that passed does (`failed` then names the measures)
         if stage == .golden { rec.golden = f.divergence?.bounded }
-        if f.reason.deterministic || rec.failures > PromotionPolicy.backoff.count {
+        // a stop of the process before the model ran on the accelerator (3.1.5): the retry budget, and a second stop
+        // at the same stage ends the key
+        var ends = f.reason.deterministic
+        if f.reason == .crash, stage.isPreparation {
+            var stops = rec.preparationStops ?? [:]
+            let n = (stops[stage.rawValue] ?? 0) + 1
+            stops[stage.rawValue] = n
+            rec.preparationStops = stops
+            ends = n >= 2
+        }
+        // the attempt ended: a row of background stops has ended with it
+        rec.backgroundStops = nil
+        if ends || rec.failures > PromotionPolicy.backoff.count {
             rec.status = .failed
             rec.notBefore = nil
         } else {
@@ -575,7 +673,8 @@ final class AcceleratorController: @unchecked Sendable {
         let named = named(revision)
         env.incident(AcceleratorIncident(kind: .promotionFailed, stage: stage.rawValue, cause: f.reason.incidentCause, message: f.detail,
                                          errorDomain: f.errorDomain, errorCode: f.errorCode, clip: f.clip, divergence: f.divergence,
-                                         attempt: max(1, min(100, rec.attempts)), revision: named.revision, build: named.build,
+                                         attempt: max(1, min(100, rec.attempts)), foreground: f.reason == .crash ? foreground : nil,
+                                         revision: named.revision, build: named.build,
                                          context: context, thermal: c.thermal, lowPower: c.lowPower))
         if sameKey { set(.disabled(rec.lastDetail ?? f.detail)) }
     }

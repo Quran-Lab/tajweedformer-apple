@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/Quran-Lab/tajweedformer-apple/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Quran-Lab/tajweedformer-apple/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="platform: iOS, macOS" src="https://img.shields.io/badge/platform-iOS%2015%20%7C%20macOS%2012-1c1b19?style=flat-square">
-  <img alt="version: 3.1.4" src="https://img.shields.io/badge/version-3.1.4-2a3b8f?style=flat-square">
+  <img alt="version: 3.1.5" src="https://img.shields.io/badge/version-3.1.5-2a3b8f?style=flat-square">
   <img alt="model licence: NPL-1.2" src="https://img.shields.io/badge/model%20licence-NPL--1.2-1c1b19?style=flat-square">
 </p>
 
@@ -69,11 +69,11 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.4. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.5. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.4"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.5"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),

@@ -171,7 +171,9 @@ public final class TajweedClient: Sendable {
             let connection = await ConnectionKind.current()
             if !connection.downloadsWhenUnmeteredOnly { return }
         }
-        _ = try await install(progress: onProgress)
+        // a download ahead of use goes on to its end also when its caller stops waiting; with `unmeteredOnly` its
+        // requests carry the system's marks for an unmetered network, for as long as it runs
+        _ = try await install(progress: onProgress, ahead: true, unmeteredOnly: unmeteredOnly)
     }
 
     /// The model folder in the SDK's store, when one is there, is this Client's own download (its install record)
@@ -188,7 +190,8 @@ public final class TajweedClient: Sendable {
     /// not the app bundle (to 3.0.1 `QuranLabModels/<model id>/` was opened before any network), not a folder the
     /// app names, not a store filled in advance (a folder without this device's install record is deleted and the
     /// build downloaded).
-    private func install(progress: (@Sendable (Int64, Int64) -> Void)?) async throws(TajweedError) -> ModelFolder {
+    private func install(progress: (@Sendable (Int64, Int64) -> Void)?, ahead: Bool = false,
+                         unmeteredOnly: Bool = false) async throws(TajweedError) -> ModelFolder {
         let config = QuranLab.configuration
         let cloud = QuranLab.cloud
         // a Client the server has refused does not run the model, also not one a real download left (SPEC 15.3)
@@ -213,7 +216,7 @@ public final class TajweedClient: Sendable {
             throw TajweedError(from: local ?? .modelMissing("no model on this device"))
         }
         await cloud.updater.setProgress(progress)
-        let outcome = await cloud.install(id, context: nil, activate: true)
+        let outcome = await cloud.install(id, context: nil, activate: true, keep: ahead, unmeteredOnly: unmeteredOnly)
         await cloud.updater.setProgress(nil)
         switch outcome {
         case .installed(let folder, _): return folder
@@ -330,6 +333,40 @@ public final class TajweedClient: Sendable {
         }
     }
 
+    // MARK: background transfers
+
+    /// Whether a background URLSession identifier is one of the SDK's (they start with `ai.quranlab.`). For the
+    /// app delegate, and for SwiftUI's `.backgroundTask(.urlSession(matching:))`.
+    public static func isBackgroundSession(_ identifier: String) -> Bool { BackgroundEvents.owns(identifier) }
+
+    /// Forward the app delegate's `application(_:handleEventsForBackgroundURLSession:completionHandler:)` here.
+    /// The SDK's transfers go on while the app is suspended; when they are done the system starts the app in the
+    /// background and hands it this completion handler, which the SDK calls once its session has delivered
+    /// everything. It may be called before the app has made its Client: the handler then waits for the Client,
+    /// and is called in any case after a short while, so the system is always answered. Returns false, and does
+    /// not call `completionHandler`, when the session is not the SDK's (pass it to its owner then).
+    /// An app that does not forward loses nothing: the transfers finish all the same, and the SDK collects their
+    /// results when the Client is next made.
+    /// The handler is taken as the system declares it (not marked `@Sendable`), so an app delegate passes it on as
+    /// it is in any language mode; the SDK calls it once, on the main queue.
+    @discardableResult
+    public static func handleBackgroundEvents(identifier: String, completionHandler: @escaping () -> Void) -> Bool {
+        let handler = BackgroundEvents.SystemHandler(call: completionHandler)
+        return BackgroundEvents.handle(identifier: identifier, completionHandler: { handler.call() })
+    }
+
+    /// The same for SwiftUI (iOS 16): returns when the SDK's background session `identifier` has delivered its
+    /// events, at once when the session is not the SDK's. On the app's scene:
+    ///
+    ///     .backgroundTask(.urlSession(matching: { TajweedClient.isBackgroundSession($0) })) { identifier in
+    ///         await TajweedClient.backgroundEvents(identifier: identifier)
+    ///     }
+    public static func backgroundEvents(identifier: String) async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            if !BackgroundEvents.handle(identifier: identifier, completionHandler: { c.resume() }) { c.resume() }
+        }
+    }
+
     // MARK: lifecycle and diagnosis
 
     /// The app left the foreground. iOS and macOS apps need not call it: the SDK follows the system's notifications.
@@ -381,7 +418,8 @@ public final class TajweedClient: Sendable {
         return TajweedDiagnosis(sdkVersion: SDKInfo.version, sdkLatest: latest, key: key, config: configStatus,
                                 model: model, context: context, backend: backend, microphone: permission, storage: storage,
                                 lastError: ErrorCatalogue.lastRaised.withLock { $0 },
-                                droppedChunks: TakeBounds.droppedChunks.withLock { $0 }, connection: connection.rawValue)
+                                droppedChunks: TakeBounds.droppedChunks.withLock { $0 }, connection: connection.rawValue,
+                                downloadProtocol: ModelDownloadRecord.networkProtocol)
     }
 }
 
@@ -461,8 +499,13 @@ public struct TajweedDiagnosis: Sendable, Hashable {
     /// Mode), `none`, or `unknown` when the system does not say. `prefetch(unmeteredOnly:)` downloads on `unmetered`
     /// and `unknown`.
     public let connection: String
+    /// The protocol of the last model request that was answered for this Client in this process: `h3`, `h2` or
+    /// `http/1.1`; nil when none was made yet or the system named none. Held in memory and sent in no telemetry.
+    /// In `json` it is the optional key `downloadProtocol`, written after the eleven fields when it is known.
+    public var downloadProtocol: String?
 
-    /// The report as JSON, its eleven fields in the order every SDK writes them, for pasting.
+    /// The report as JSON, its eleven fields in the order every SDK writes them, for pasting; then
+    /// `downloadProtocol` when one is known.
     public var json: String {
         func q(_ s: String?) -> String {
             guard let s else { return "null" }
@@ -485,6 +528,8 @@ public struct TajweedDiagnosis: Sendable, Hashable {
         lines.append("  \"lastError\": \(q(lastError))")
         lines.append("  \"droppedChunks\": \(max(0, droppedChunks))")
         lines.append("  \"connection\": \(q(connection))")
+        // the optional key of contract 1.18.0, with one of the values the schema knows
+        if let downloadProtocol, ["h3", "h2", "http/1.1"].contains(downloadProtocol) { lines.append("  \"downloadProtocol\": \(q(downloadProtocol))") }
         return "{\n" + lines.joined(separator: ",\n") + "\n}"
     }
 }

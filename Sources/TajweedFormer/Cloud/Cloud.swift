@@ -60,19 +60,30 @@ final class QuranLabCloud: Sendable {
     /// The refusal that stops the model, when one is remembered: `client.model()` and `prefetch` then open no
     /// model. When this launch's calls are not stopped the server is asked once more first (the config): an
     /// accepting answer clears a refusal of the API, and the call goes on. A refusal of a model request is not
-    /// cleared by it: with a fresh config in hand the CDN is asked again (the manifest of the build the config
-    /// names), and its answer decides. Without a network nothing is asked and the refusal holds.
+    /// cleared by it. But once an answer of the API has accepted the key since that refusal (this config, or a
+    /// registration or a token of this launch), the remembered refusal is dropped here and nil is returned: the
+    /// call goes on to its model requests, and the CDN's answer decides and is reported as itself (SPEC 15.3,
+    /// `ModelGate.askAgain`). Without a network, and in a launch whose calls a refusal of the API stopped, nothing
+    /// is asked and the refusal holds. It also holds while the files it left owed are still on the device (the
+    /// removal failed, or a Model is open): the call must not open them in place of asking the CDN.
     /// A remembered refusal that is there and cannot be read (3.1.4) is not "no refusal": the call fails with
     /// `storage_failed`, nothing is asked of the server, and the next call reads again.
     func modelStop() async -> RecognizerError? {
         if let why = gate.unreadable { return ModelGate.unreadableError(why) }
-        guard let stop = gate.stop else { return nil }
-        if !isStopped, await refreshConfig() != nil, stop.from == .model {
-            let id = RecommendedModel.resolve(config: config.current, storage: storage)
-            if let target = targetRevision(id) { await updater.ask(id, revision: target) }
+        guard gate.stop != nil else {
+            // no refusal now, but the removal one left owed (an accepting answer came before the Model was closed,
+            // or the removal failed): the files go before this call uses them. While they cannot go (the removal
+            // fails, or a Model is open), the call does not go on to open them
+            guard gate.removeOwedModels() else {
+                return .storageFailed("model files that a refusal left on this device are still there and could not be removed; "
+                    + "close the open Model, or call again")
+            }
+            return nil
         }
-        // still refused: a removal of the model files that failed before is tried again
-        gate.removeModelsIfStopped()
+        if !isStopped { _ = await refreshConfig() }
+        // a removal of the model files that failed before is tried again, refused or accepted
+        let gone = gate.removeOwedModels()
+        if !isStopped, gone { gate.askAgain() }
         return gate.stop?.error
     }
 
@@ -120,6 +131,8 @@ final class QuranLabCloud: Sendable {
         self.tokens = tokens
         let config = ConfigStore(storage: storage, trustedKeys: cloud.signingKeys)
         self.config = config
+        // the protocol of the last model request is this Client's own
+        ModelDownloadRecord.reset()
         let issueQueue = IssueQueue(storage: storage)
         let reportsIssues = cloud.issueReports
         outbox = ContributionOutbox(storage: storage, http: http, apiURL: cloud.apiURL, tokens: tokens, config: config,
@@ -150,6 +163,20 @@ final class QuranLabCloud: Sendable {
         let cdnKey = key
         let cdnVerifier = ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true)
         let telemetryOn = options.analytics != .off
+        // The background transport of model downloads (iOS): the session's finished ranges are placed in this
+        // storage, a refusal that stops the model is told to the gate, and a redirect the system followed is
+        // refused and reported with its host only (SPEC 15.4).
+        var background: (transport: any BackgroundRangeTransport, policy: BackgroundDownloadPolicy, handOver: DownloadHandOver)?
+        if cloud.backgroundDownloads != .off, key != nil {
+            if let standIn = cloud.backgroundTransport {
+                background = (standIn, cloud.backgroundDownloads, cloud.handOver)
+            } else if cloud.urlSession == nil {
+                let downloader = BackgroundDownloader.shared(identifier: BackgroundDownloader.identifier(for: app), parallel: cloud.parallelBackgroundRanges)
+                downloader.attach(Self.rangeSink(storage: storage, gate: gate, issues: issues, app: app, enabled: cloud.issueReports))
+                cloud.handOver.observeSystem()
+                background = (downloader, cloud.backgroundDownloads, cloud.handOver)
+            }
+        }
         updater = ModelUpdater(store: store, client: {
             guard let cdnKey, let tokens else { return nil }
             // A model request carries the install's token: the one the SDK uses for everything else, attested where
@@ -166,7 +193,8 @@ final class QuranLabCloud: Sendable {
                 }
             })
             return CDNClient(http: http, base: ModelHost.base(explicit: explicitBase, config: config.current), auth: auth, verifier: cdnVerifier,
-                             refused: { gate.note($0, from: .model) }, accepted: { gate.accepted(.model) })
+                             refused: { gate.note($0, from: .model) }, accepted: { gate.accepted(.model) },
+                             protocolSeen: { ModelDownloadRecord.note($0) })
         },
                                inferenceContext: { config.current?.inferenceContext },
                                coreML: DownloadProfile.osRunsCoreML && options.neuralEngine,
@@ -182,7 +210,24 @@ final class QuranLabCloud: Sendable {
                                    issues.add(QuranLabCloud.issue(kind: "update_failed", code: "update:" + (IssueQueue.classify(e)?.code ?? "other"),
                                                                   app: issueContext.app, backend: nil, revision: rev))
                                },
-                               stopped: { gate.stop })
+                               stopped: { gate.stop },
+                               retryPauses: cloud.retryPauses,
+                               unmeteredUpdates: wifiOnly,
+                               background: background,
+                               keyInBackground: { config.current?.flags.model_requests_key_in_background ?? true })
+    }
+
+    /// What a range that a background task finished is handed to: this storage, the model gate for a refusal, and
+    /// the issue queue for a redirect the system followed (`update_failed`, `model_redirected:<host>`: the host
+    /// only, never a path or a query).
+    static func rangeSink(storage: URL, gate: ModelGate, issues: IssueQueue, app: AppIdentity, enabled: Bool) -> RangeDelivery.Sink {
+        RangeDelivery.Sink(storage: storage,
+                           refused: { gate.note($0, from: .model) },
+                           redirected: { host in
+                               guard enabled else { return }
+                               issues.add(QuranLabCloud.issue(kind: "update_failed", code: "model_redirected:" + host, app: app, backend: nil,
+                                                              revision: nil))
+                           })
     }
 
     /// Network calls are off for this launch (a revoked key, a blocked app, an SDK too old for the key).
@@ -196,7 +241,7 @@ final class QuranLabCloud: Sendable {
         // the model stops this launch's calls too, whatever its `error` (a token whose key was revoked)
         let fatal = ["invalid_key", "unauthorized", "developer_not_approved", "not_a_member", "key_type_mismatch",
                      "origin_not_allowed", "app_not_allowed", "app_blocked", "environment_mismatch", "sdk_too_old"]
-        if ((status == 401 || status == 403) && fatal.contains(code)) || ModelGate.stops(reason: reason) {
+        if ((status == 401 || status == 403) && fatal.contains(code)) || ModelGate.stops(status: status, reason: reason) {
             stopped.withLock { $0 = true }
             refusal.withLock { $0 = (status, code, message, reason) }
         } else if status == 403, !code.hasPrefix("http_"), !isStopped {
@@ -234,6 +279,15 @@ final class QuranLabCloud: Sendable {
         _ = await checkForUpdate(.recommended)
     }
 
+    /// The revision of the model this install holds, whatever its id: of the model Quran Lab's config names for
+    /// this app (the one `client.model()` opens), else of any model in the store.
+    /// Tried before (to 3.1.2): the registration sent the revision of the model id `v4.0` only, so an install on
+    /// another model id sent none.
+    func heldModelRevision() -> String? {
+        let id = RecommendedModel.resolve(config: config.current, storage: storage)
+        return store.currentRevision(id) ?? store.anyCurrentRevision()
+    }
+
     private var installedMarker: URL { storage.appendingPathComponent("cloud/installed") }
     /// The UTC day of the last registration the server answered 200.
     private var registeredDay: URL { storage.appendingPathComponent("cloud/registered-day") }
@@ -263,7 +317,7 @@ final class QuranLabCloud: Sendable {
         var body: [String: Any] = ["platform": app.platform, "bundle_id": app.bundleID, "app_version": app.version,
                                    "sdk_version": SDKInfo.version, "new_install": newInstall]
         if let n = app.name, !n.isEmpty { body["app_name"] = n }
-        if let rev = store.currentRevision(.v4_0) { body["model_revision"] = String(rev.prefix(64)) }
+        if let rev = heldModelRevision() { body["model_revision"] = String(rev.prefix(64)) }
         do throws(CloudError) {
             _ = try await authed { (token: String) throws(CloudError) -> URLRequest in
                 try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/register"), body: body, auth: token)
@@ -570,13 +624,14 @@ final class QuranLabCloud: Sendable {
     }
 
     /// Installs the model for `context` now (the first launch, or another context on demand), and activates it.
-    func install(_ id: ModelID, context: String?, activate: Bool) async -> ModelUpdater.Outcome {
+    func install(_ id: ModelID, context: String?, activate: Bool, keep: Bool = false, unmeteredOnly: Bool = false) async -> ModelUpdater.Outcome {
         guard key != nil else { return .deferred("no developer key configured") }
         // a remembered refusal that cannot be read: nothing is downloaded until it reads
         if let why = gate.unreadable { return .failed(ModelGate.unreadableError(why)) }
         if config.current == nil { _ = await refreshConfig() }
         guard let target = targetRevision(id) else { return .deferred("no revision in the config yet") }
-        return await updater.update(id, to: target, version: targetVersion(id), context: context, activate: activate)
+        return await updater.update(id, to: target, version: targetVersion(id), context: context, activate: activate, keep: keep,
+                                    unmeteredOnly: unmeteredOnly)
     }
 
     // MARK: sharing routes for the learner

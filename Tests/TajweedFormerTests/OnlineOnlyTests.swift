@@ -565,7 +565,7 @@ final class OnlineOnlyTests: XCTestCase {
         }
         let app = AppIdentity(platform: "ios", bundleID: try XCTUnwrap(v["app"] as? String), name: "Example", version: "2.1")
         let cases = try XCTUnwrap(v["cases"] as? [[String: Any]])
-        XCTAssertEqual(cases.count, 32)
+        XCTAssertEqual(cases.count, 34)
         let build = try Self.build()
         // a build the download server does not have: with it in the config, a launch asks the CDN for a model
         let newer = String(repeating: "b", count: 40)
@@ -585,8 +585,10 @@ final class OnlineOnlyTests: XCTestCase {
             let wanted = expect["error"] as? [String: Any]
             let answer = try Self.answer(c)
             if stops { stopped += 1 }
-            // the rule every case follows: a stop exactly when the body carries a reason of the list
-            XCTAssertEqual(ModelGate.stops(reason: (c["body"] as? [String: Any])?["reason"] as? String), stops, name)
+            // the rule every case follows: a stop exactly when the status is 401 or 403 and the body carries a reason of
+            // the list
+            XCTAssertEqual(ModelGate.stops(status: c["status"] as? Int ?? 0, reason: (c["body"] as? [String: Any])?["reason"] as? String),
+                           stops, name)
             for withModel in [true, false] {
                 let at = "\(name), " + (withModel ? "a model on the device" : "no model on the device")
                 let storage = CloudFixtures.storage()
@@ -661,9 +663,10 @@ final class OnlineOnlyTests: XCTestCase {
     }
 
     /// A refusal of a model request holds while the API accepts the key: a config and a token that succeed do not
-    /// clear it, and at a launch where the CDN still refuses, no model is opened or downloaded (the one that was
-    /// on the device went with the refusal). Without a network nothing is asked. It ends when the CDN serves a
-    /// model request again, and the build is downloaded.
+    /// clear it by themselves, and at a launch where the CDN, asked again by the model call, still refuses, no
+    /// model is opened or downloaded (the one that was on the device went with the refusal) and the refusal is
+    /// remembered again. Without a network nothing is asked. It ends when the CDN serves a model request again,
+    /// and the build is downloaded.
     func testARefusalOfAModelRequestIsNotClearedByAnAnswerOfTheAPI() async throws {
         let build = try Self.serve()
         let storage = CloudFixtures.storage()
@@ -706,6 +709,95 @@ final class OnlineOnlyTests: XCTestCase {
         XCTAssertEqual(served.build, build, "\(String(describing: served.error))")
         XCTAssertTrue(Self.fetched.contains("layers.zfw.gz"), "downloaded again: \(Self.fetched)")
         XCTAssertNil(ModelGate(storage: storage).stop)
+    }
+
+    // MARK: the one rule for a refusal of a model request (15.3; 3.1.5)
+
+    static let keyRefusal = StubProtocol.Reply.json(["error": "missing or invalid x-qlab-key", "reason": "key_type_mismatch"], status: 401)
+    static let keyRefusalMessage = "This key is of the wrong type for this platform (key_type_mismatch)."
+
+    /// A storage folder whose install the download server has refused with a stop: a first launch whose model
+    /// request got the refusal. The API accepted the key all along.
+    func refusedByTheDownloadServer() async throws -> URL {
+        try Self.serve(cdn: { _, _ in Self.keyRefusal })
+        let storage = CloudFixtures.storage()
+        let refused = try await launch(storage)
+        XCTAssertEqual(refused.error?.message, Self.keyRefusalMessage)
+        XCTAssertEqual(ModelGate(storage: storage).stop?.from, .model)
+        return storage
+    }
+
+    /// The config cannot be fetched and no registration is answered, but the API issues a token: that answer
+    /// accepts the key, so the next model call asks the download server again, which serves, and the model opens.
+    /// (The token of the earlier launch is dropped by the test, as one that has run out; the config in force is
+    /// the one the earlier launch stored.)
+    func testATokenAnswerLetsTheNextModelCallAskTheDownloadServerAgain() async throws {
+        let storage = try await refusedByTheDownloadServer()
+        let build = try Self.serve(api: { s in
+            s.path == "/v1/config" || s.path == "/v1/register" ? StubProtocol.Reply(status: 500) : nil
+        })
+        let client = try StubbedModelServer.client(storage: storage)
+        defer { client.close() }
+        let cloud = try XCTUnwrap(QuranLab.cloud)
+        await cloud.tokens?.invalidate()
+        let got = await Self.model(client)
+        XCTAssertEqual(got.build, build, "\(String(describing: got.error))")
+        XCTAssertTrue(StubProtocol.seen.contains { $0.path == "/v1/attest" }, "a token was issued")
+        XCTAssertTrue(StubProtocol.seen.contains { $0.path == "/v1/config" }, "the config was asked for (and could not be fetched)")
+        XCTAssertNil(cloud.gate.stop, "the download server served the key: nothing is remembered")
+        XCTAssertTrue(Self.fetched.contains("layers.zfw.gz"), "the build was downloaded: \(Self.fetched)")
+    }
+
+    /// The API accepts the key again and the download server now answers 403 `model_not_allowed` (no stop): the
+    /// app gets that answer's own error, not the old refusal's, and the old refusal is gone from the device.
+    func testAfterTheKeyIsAcceptedTheDownloadServersOwnAnswerIsWhatTheAppGets() async throws {
+        let storage = try await refusedByTheDownloadServer()
+        try Self.serve(cdn: { _, _ in .json(["error": "model_not_allowed", "message": "no"], status: 403) })
+        let got = try await launch(storage)
+        XCTAssertNil(got.build)
+        let error = try XCTUnwrap(got.error)
+        XCTAssertEqual(error.code, "server_rejected")
+        XCTAssertTrue(error.message.contains("model_not_allowed"), error.message)
+        XCTAssertNotEqual(error.message, Self.keyRefusalMessage, "not the old refusal's error")
+        XCTAssertEqual(Set(Self.fetched), ["manifest.json"], "the download server was asked, and nothing was downloaded")
+        XCTAssertNil(ModelGate(storage: storage).stop, "the old refusal is gone")
+    }
+
+    /// The API accepts the key again and its fresh config names no build for the model: the app gets
+    /// `model_unavailable`, not the old refusal, and the old refusal is gone. No model request is made.
+    func testAfterTheKeyIsAcceptedAConfigThatNamesNoBuildGivesModelUnavailable() async throws {
+        let storage = try await refusedByTheDownloadServer()
+        StubProtocol.reset(CloudFixtures.server(config: CloudFixtures.config(models: [:]), extra: { s in
+            guard let path = Self.modelPath(s) else { return nil }
+            return Self.file(path)
+        }))
+        let got = try await launch(storage)
+        XCTAssertNil(got.build)
+        XCTAssertEqual(got.error?.code, "model_unavailable", "\(String(describing: got.error))")
+        XCTAssertEqual(Self.fetched, [], "no build is named, so nothing is asked of the download server")
+        XCTAssertNil(ModelGate(storage: storage).stop, "the old refusal is gone")
+    }
+
+    /// Without an answer of the API that accepts the key the refusal holds: with no network at all, and also when
+    /// the download server could be reached and would serve but the API does not answer. No model request is made.
+    func testWithoutAnAcceptingAnswerTheRefusalOfAModelRequestHolds() async throws {
+        let storage = try await refusedByTheDownloadServer()
+        // no network at all
+        StubProtocol.reset { _ in .down }
+        let offline = try await launch(storage)
+        XCTAssertNil(offline.build)
+        XCTAssertEqual(offline.error?.message, Self.keyRefusalMessage)
+        XCTAssertEqual(ModelGate(storage: storage).stop?.from, .model)
+        // the API does not answer; the download server would serve
+        StubProtocol.reset { s in
+            guard let path = Self.modelPath(s) else { return .down }
+            return Self.file(path)
+        }
+        let apiDown = try await launch(storage)
+        XCTAssertNil(apiDown.build)
+        XCTAssertEqual(apiDown.error?.message, Self.keyRefusalMessage)
+        XCTAssertEqual(Self.fetched, [], "the download server is not asked")
+        XCTAssertEqual(ModelGate(storage: storage).stop?.reason, "key_type_mismatch", "still remembered")
     }
 
     // MARK: a stop removes the model from the device (15.3, contract 1.10.0)
@@ -897,6 +989,204 @@ final class OnlineOnlyTests: XCTestCase {
         let d = await client.diagnose()
         XCTAssertEqual(d.key.accepted, false)
         XCTAssertEqual(d.key.reason, "server_rejected")
+    }
+
+    // MARK: the removal stays owed until the files are gone (3.1.5)
+
+    /// The mark of a removal that is owed, as the device keeps it.
+    func owedMark(_ storage: URL) -> Bool {
+        fm.fileExists(atPath: storage.appendingPathComponent("cloud/model-removal-owed").path)
+    }
+
+    /// A refusal arrives while a Model is open, and an accepting answer clears it BEFORE the Model is closed. The
+    /// removal is still owed: the files go when the Model is closed, or at the next start when the app ended
+    /// without closing it, and `client.model()` then asks for every file again.
+    func testARemovalOwedOutlivesAnAcceptingAnswerThatComesBeforeTheModelIsClosed() async throws {
+        let refusal = StubProtocol.Reply.json(["error": "missing or invalid x-qlab-key", "reason": "key_type_mismatch"], status: 401)
+        for end in ["the Model is closed", "the next start"] {
+            let build = try Self.serve()
+            let storage = CloudFixtures.storage()
+            let client = try StubbedModelServer.client(storage: storage)
+            let model = try await client.model()
+            let whole = Set(Self.fetched)
+            let before = modelFiles(storage)
+            XCTAssertFalse(before.isEmpty, end)
+            XCTAssertFalse(owedMark(storage), end)
+            // the server refuses the app while the Model is open (an answer of the API with a reason that stops).
+            // (To 3.1.3 this test took a refusal of a MODEL REQUEST here, which the launch's own update check
+            // cleared; under the one rule such a refusal holds while a Model is open, see the test after this.)
+            Self.refuse("key_type_mismatch")
+            let cloud = try XCTUnwrap(QuranLab.cloud)
+            _ = await cloud.refreshConfig()
+            XCTAssertEqual(cloud.gate.stop?.reason, "key_type_mismatch", end)
+            XCTAssertTrue(owedMark(storage), "\(end): the removal is owed, and the device keeps that")
+            XCTAssertEqual(modelFiles(storage), before, "\(end): the open Model's files stay")
+            // the accepting answer comes before the Model is closed: the API issues this install a token again
+            try Self.serve()
+            await cloud.tokens?.invalidate()
+            _ = try? await cloud.tokens?.token()
+            XCTAssertNil(cloud.gate.stop, "\(end): the refusal is over")
+            // while the files a refusal left owed are still there, another model call does not go on to open them
+            let waiting = await cloud.modelStop()
+            XCTAssertNotNil(waiting, "\(end): the owed files are not opened by another call")
+            XCTAssertTrue(cloud.gate.removalOwed, "\(end): the removal is still owed")
+            XCTAssertTrue(owedMark(storage), end)
+            XCTAssertEqual(modelFiles(storage), before, "\(end): the open Model keeps its files")
+            if end == "the Model is closed" {
+                await model.close()
+                XCTAssertEqual(modelFiles(storage), [], "the files are gone once the Model is closed")
+                XCTAssertEqual(installRecords(storage), [])
+                XCTAssertFalse(owedMark(storage), "nothing is owed once the files are gone")
+                try Self.serve()
+                let again = await Self.model(client)
+                XCTAssertEqual(again.build, build, "\(String(describing: again.error))")
+                XCTAssertEqual(Set(Self.fetched), whole, "the manifest and every file are asked for again")
+                client.close()
+            } else {
+                // the app ends without closing the Model; the next start, without a network, removes first
+                client.close()
+                StubProtocol.reset { _ in .down }
+                let next = try StubbedModelServer.client(storage: storage)
+                XCTAssertEqual(modelFiles(storage), [], "removed when the Client started")
+                XCTAssertFalse(owedMark(storage))
+                try Self.serve()
+                let again = await Self.model(next)
+                XCTAssertEqual(again.build, build, "\(String(describing: again.error))")
+                XCTAssertEqual(Set(Self.fetched), whole, "the manifest and every file are asked for again")
+                next.close()
+                await model.close()
+            }
+        }
+    }
+
+    /// A refusal of a MODEL REQUEST that arrives while a Model is open (the one rule, SPEC 15.3): it holds while
+    /// the Model is open, also after the API has accepted the key again, because the open Model's files are
+    /// still there. When the Model is closed the files go; the next `client.model()` then asks the download
+    /// server again, which serves, and every file is downloaded again.
+    func testARefusalOfAModelRequestWithAModelOpenHoldsUntilTheModelIsClosed() async throws {
+        let refusal = StubProtocol.Reply.json(["error": "missing or invalid x-qlab-key", "reason": "key_type_mismatch"], status: 401)
+        let build = try Self.serve()
+        let storage = CloudFixtures.storage()
+        let client = try StubbedModelServer.client(storage: storage)
+        defer { client.close() }
+        let model = try await client.model()
+        let whole = Set(Self.fetched)
+        let before = modelFiles(storage)
+        // the download server refuses the key while the Model is open
+        try Self.serve(named: String(repeating: "b", count: 40), cdn: { _, _ in refusal })
+        let cloud = try XCTUnwrap(QuranLab.cloud)
+        _ = await cloud.refreshConfig()
+        _ = await cloud.checkForUpdate(.recommended)
+        XCTAssertEqual(cloud.gate.stop?.from, .model)
+        XCTAssertEqual(modelFiles(storage), before, "the open Model's files stay")
+        // the API accepts the key (a fresh config), and the download server would serve again
+        try Self.serve()
+        let still = await cloud.modelStop()
+        XCTAssertNotNil(still, "the refusal holds while the Model is open")
+        XCTAssertEqual(cloud.gate.stop?.reason, "key_type_mismatch")
+        XCTAssertEqual(Self.fetched, [], "and the download server is not asked meanwhile")
+        await model.close()
+        XCTAssertEqual(modelFiles(storage), [], "the files are gone once the Model is closed")
+        let again = await Self.model(client)
+        XCTAssertEqual(again.build, build, "\(String(describing: again.error))")
+        XCTAssertEqual(Set(Self.fetched), whole, "the download server was asked again, and every file downloaded")
+        XCTAssertNil(cloud.gate.stop)
+    }
+
+    /// The mark names the build folders that were on the device when the stop arrived: those go when the Model
+    /// is closed, and a build that came later (an update fetched after the key was accepted again) stays. A mark
+    /// that names nothing, as an earlier version would have left the removal, owes everything. (The folders here
+    /// are made by the test; no model is downloaded.)
+    func testTheMarkNamesTheBuildFoldersThatWereThereAtTheStop() throws {
+        let storage = CloudFixtures.storage()
+        let models = storage.appendingPathComponent("models")
+        let old = models.appendingPathComponent("v4.0/aaaa"), newer = models.appendingPathComponent("v4.0/bbbb")
+        try fm.createDirectory(at: old, withIntermediateDirectories: true)
+        try Data("old".utf8).write(to: old.appendingPathComponent("file"))
+        try Data("aaaa".utf8).write(to: models.appendingPathComponent("v4.0/current"))
+        let gate = ModelGate(storage: storage)
+        gate.modelOpen(true)
+        gate.note(.rejected(status: 403, code: "app_blocked", message: "", reason: "app_blocked"), from: .api)
+        XCTAssertTrue(gate.removalOwed)
+        XCTAssertTrue(fm.fileExists(atPath: old.path), "the open Model's files stay")
+        XCTAssertEqual(ModelGate.buildFolders(models), ["v4.0/aaaa"])
+        gate.accepted(.api)
+        XCTAssertNil(gate.stop)
+        // an update is fetched after the key was accepted again, while the Model is still open
+        try fm.createDirectory(at: newer, withIntermediateDirectories: true)
+        try Data("new".utf8).write(to: newer.appendingPathComponent("file"))
+        gate.modelOpen(false)
+        XCTAssertFalse(fm.fileExists(atPath: old.path), "the build that was there at the stop is gone")
+        XCTAssertTrue(fm.fileExists(atPath: newer.appendingPathComponent("file").path), "the build that came later stays")
+        XCTAssertTrue(fm.fileExists(atPath: models.appendingPathComponent("v4.0/current").path), "with its model's pointer files")
+        XCTAssertFalse(gate.removalOwed)
+        XCTAssertFalse(owedMark(storage))
+        // a mark that names nothing owes everything
+        try Data().write(to: storage.appendingPathComponent("cloud/model-removal-owed"))
+        _ = ModelGate(storage: storage)
+        XCTAssertFalse(fm.fileExists(atPath: models.path), "an empty mark: every model file goes at the start")
+        XCTAssertFalse(owedMark(storage))
+    }
+
+    /// The same with a removal that failed (made to fail by the test's switch, not by a real storage error): the
+    /// refusal arrives, the files cannot be removed, and an accepting answer clears the refusal while they are
+    /// still there. The removal stays owed: the next `client.model()`, or the next start, removes the files first
+    /// and every file is asked for again.
+    func testARemovalThatFailedStaysOwedAfterAnAcceptingAnswer() async throws {
+        defer { ModelGate.refusesRemoval.withLock { $0 = nil } }
+        for end in ["the next model call", "the next start"] {
+            let build = try Self.serve()
+            let storage = CloudFixtures.storage()
+            let first = try await launch(storage)
+            XCTAssertEqual(first.build, build, end)
+            let whole = Set(Self.fetched)
+            let before = modelFiles(storage)
+            // the refusal arrives while the device refuses to remove files
+            ModelGate.refusesRemoval.withLock { $0 = { true } }
+            Self.refuse()
+            let refusedClient = try StubbedModelServer.client(storage: storage)
+            _ = await QuranLab.cloud?.refreshConfig()
+            XCTAssertNotNil(QuranLab.cloud?.gate.stop, end)
+            XCTAssertEqual(modelFiles(storage), before, "\(end): the removal failed")
+            XCTAssertTrue(owedMark(storage), end)
+            refusedClient.close()
+            // the accepting answer, at the next launch, while the files still cannot be removed
+            try Self.serve()
+            let accepted = try StubbedModelServer.client(storage: storage)
+            let cloud = try XCTUnwrap(QuranLab.cloud)
+            let fresh = await cloud.refreshConfig()
+            XCTAssertNotNil(fresh, "\(end): the server accepts the key")
+            XCTAssertNil(cloud.gate.stop, "\(end): the refusal is over")
+            XCTAssertTrue(cloud.gate.removalOwed, "\(end): the removal is still owed")
+            XCTAssertTrue(owedMark(storage), end)
+            XCTAssertEqual(modelFiles(storage), before, "\(end): the files are still there")
+            // while the removal is owed and keeps failing, a model call does not open those files
+            let held = await Self.model(accepted)
+            XCTAssertNil(held.build, "\(end): the files a refusal left owed are not opened")
+            XCTAssertEqual(held.error?.code, "storage_failed", "\(end): \(String(describing: held.error))")
+            XCTAssertEqual(modelFiles(storage), before, end)
+            // the device removes files again
+            ModelGate.refusesRemoval.withLock { $0 = nil }
+            if end == "the next model call" {
+                try Self.serve()
+                let again = await Self.model(accepted)
+                XCTAssertEqual(again.build, build, "\(String(describing: again.error))")
+                XCTAssertEqual(Set(Self.fetched), whole, "the files went first, and every file is asked for again")
+                XCTAssertFalse(owedMark(storage))
+                accepted.close()
+            } else {
+                accepted.close()
+                StubProtocol.reset { _ in .down }
+                let next = try StubbedModelServer.client(storage: storage)
+                XCTAssertEqual(modelFiles(storage), [], "removed when the Client started")
+                XCTAssertFalse(owedMark(storage))
+                try Self.serve()
+                let again = await Self.model(next)
+                XCTAssertEqual(again.build, build, "\(String(describing: again.error))")
+                XCTAssertEqual(Set(Self.fetched), whole)
+                next.close()
+            }
+        }
     }
 
     // MARK: no public way to hand the SDK a model (15.1)

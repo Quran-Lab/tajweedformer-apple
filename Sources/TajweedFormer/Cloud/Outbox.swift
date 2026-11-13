@@ -404,7 +404,7 @@ actor ContributionOutbox {
     /// Whether the pass may send or write for `id` now: no stop is at work, sharing is still on, and the recording
     /// is still in the queue. Asked before every request and after every answer.
     private func may(_ id: String) -> Bool {
-        stops == 0 && !gone.contains(id) && !held.contains(id) && records[id] != nil && Contributions.isActive
+        stops == 0 && !isClosed && !gone.contains(id) && !held.contains(id) && records[id] != nil && Contributions.isActive
     }
 
     /// A token for the pass. The wait for one is a wait for the network (an attestation, a token request), so a stop
@@ -459,7 +459,17 @@ actor ContributionOutbox {
     /// `ignoringBackoff` is for tests.
     /// The Client that owns this outbox was closed: no pass runs from here on (what is queued stays on disk for the
     /// next Client's outbox).
+    /// The end of the Client that made this queue. No pass starts from here on, and a pass that was started before
+    /// stops before it deletes or uploads anything (3.1.5): it looks at the shut-down mark before its first look at
+    /// the queue, and before every request.
+    /// Tried before (to 3.1.3): only new passes were stopped. A pass that was already on its way went on to read
+    /// the queue's folders, and removed a recording whose files the next Client's owner had changed meanwhile.
     nonisolated func shutdown() { closedFlag.withLock { $0 = true } }
+
+    #if DEBUG
+    /// For tests: a wait between a pass being started and its first look at the queue, in nanoseconds.
+    static let passDelayForTests = Locked<UInt64>(0)
+    #endif
 
     nonisolated var isClosed: Bool { closedFlag.withLock { $0 } }
 
@@ -480,6 +490,10 @@ actor ContributionOutbox {
         againIgnoringBackoff = false
         let t = Task {
             await self.reconcile()
+            #if DEBUG
+            let wait = Self.passDelayForTests.withLock { $0 }
+            if wait > 0 { try? await Task.sleep(nanoseconds: wait) }
+            #endif
             await self.pass(ignoringBackoff: ignore)
             self.scheduleWake()
             self.running = nil
@@ -490,6 +504,8 @@ actor ContributionOutbox {
     }
 
     private func pass(ignoringBackoff: Bool) async {
+        // a queue that was shut down after this pass was started: nothing is read, deleted or sent
+        guard !isClosed else { return }
         scan()
         expireTakes()
         guard let tokens, stops == 0, Contributions.isActive else { return }
@@ -917,6 +933,8 @@ actor ContributionOutbox {
     /// look. A recording whose item file or stamp cannot be read is left alone (`held`), and so is one a killed
     /// app left whose files cannot be read: nothing of it is deleted or written over.
     private func scan() {
+        // a queue that was shut down deletes nothing and drops nothing: the live Client's queue does that
+        guard !isClosed else { return }
         guard let look = Self.earlier(root: root, storage: storage) else { return }
         held = look.held
         for name in look.gone {
@@ -1046,6 +1064,8 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate, @unchecked Sen
             if let u = m[identifier] { return u }
             let u = BackgroundUploader(identifier: identifier)
             m[identifier] = u
+            // the system's completion handler came before the Client was made: it was waiting for this session
+            if let waited = BackgroundEvents.take(identifier) { u.setFinishedHandler(waited) }
             return u
         }
     }

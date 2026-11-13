@@ -210,7 +210,10 @@ final class PromotionTests: XCTestCase {
     }
 
     /// A process death inside a stage: the sentinel is found at the next launch and that attempt ends with reason
-    /// crash at that stage (deterministic: never again for the key).
+    /// crash at that stage. At the golden test it is deterministic (never again for the key); at the compile and
+    /// the warm-up, before the model ran on the accelerator, it takes the retry budget (3.1.5: the sentinel here
+    /// says nothing of the foreground, as on a Mac, and a stop then takes the foreground rule;
+    /// PreparationStopTests has the rest).
     func testTheCrashSentinelEndsTheAttemptAtItsStage() async {
         for (i, stage) in [PromotionStage.compile, .warmup, .golden].enumerated() {
             h = Harness()
@@ -224,10 +227,10 @@ final class PromotionTests: XCTestCase {
             XCTAssertNil(next.store.sentinel(), "read once")
             XCTAssertEqual(next.record?.lastReason, .crash)
             XCTAssertEqual(next.record?.lastStage, stage)
-            XCTAssertEqual(next.record?.status, .failed)
+            XCTAssertEqual(next.record?.status, stage.isPreparation ? .retry : .failed, "\(stage)")
             guard case .disabled = next.state else { XCTFail("\(next.state)"); continue }
             await next.run(h.stages())
-            XCTAssertEqual(h.calls.withLock { $0 }, [], "never again for the key")
+            XCTAssertEqual(h.calls.withLock { $0 }, [], "not now: never again at the golden test, not before the retry time at the compile and the warm-up")
             XCTAssertEqual(h.incidents.withLock { $0 }.last?.code, "\(stage.rawValue):crash_on_last_run")
             // another OS build may try again
             let updated = h.controller(revision: "c\(i)", os: "23B9", launch: "L3")

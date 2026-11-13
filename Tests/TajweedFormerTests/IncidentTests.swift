@@ -34,7 +34,7 @@ final class IncidentTests: XCTestCase {
         guard let d = body["detail"] as? [String: Any] else { return XCTFail("no detail", file: file, line: line) }
         let allowed: Set<String> = ["stage", "cause", "error_domain", "error_code", "chunk", "elapsed_ms", "deadline_ms", "clip", "divergence",
                                     "device_model", "os_build", "chip", "accelerator", "compute_units", "delegate", "context", "thermal",
-                                    "low_power", "stall_ms", "attempt", "build"]
+                                    "low_power", "stall_ms", "attempt", "build", "foreground"]
         XCTAssertTrue(Set(d.keys).isSubset(of: allowed), "unknown detail keys \(Set(d.keys).subtracting(allowed))", file: file, line: line)
         XCTAssertTrue(stages.contains(d["stage"] as? String ?? ""), file: file, line: line)
         XCTAssertTrue(causes.contains(d["cause"] as? String ?? ""), file: file, line: line)
