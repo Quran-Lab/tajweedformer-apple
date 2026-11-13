@@ -34,6 +34,17 @@ final class QuranLabCloud: Sendable {
     private let stopped = Locked(false)
     private let signatureReported = Locked<String?>(nil)
     private let refusal = Locked<(status: Int, code: String, message: String, reason: String?)?>(nil)
+    /// Whether this start has asked the server again for a deletion that a process ended in (once per start).
+    private let deletionAsked = Locked(false)
+
+    /// The one turn of a start to ask again for a deletion: true for the caller that takes it.
+    func takeDeletionTurn() -> Bool {
+        deletionAsked.withLock { (asked: inout Bool) -> Bool in
+            if asked { return false }
+            asked = true
+            return true
+        }
+    }
     /// The refusal that stops the model on the device, remembered across launches (SPEC 15.3).
     let gate: ModelGate
 
@@ -51,7 +62,10 @@ final class QuranLabCloud: Sendable {
     /// accepting answer clears a refusal of the API, and the call goes on. A refusal of a model request is not
     /// cleared by it: with a fresh config in hand the CDN is asked again (the manifest of the build the config
     /// names), and its answer decides. Without a network nothing is asked and the refusal holds.
+    /// A remembered refusal that is there and cannot be read (3.1.4) is not "no refusal": the call fails with
+    /// `storage_failed`, nothing is asked of the server, and the next call reads again.
     func modelStop() async -> RecognizerError? {
+        if let why = gate.unreadable { return ModelGate.unreadableError(why) }
         guard let stop = gate.stop else { return nil }
         if !isStopped, await refreshConfig() != nil, stop.from == .model {
             let id = RecommendedModel.resolve(config: config.current, storage: storage)
@@ -127,6 +141,8 @@ final class QuranLabCloud: Sendable {
                                verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true),
                                updates: options.updates, installKeys: installKeys)
         self.store = store
+        // what the storage folder already holds gets the protection class of the SDK's files (3.1.4)
+        StorageProtection.adopt(storage)
         let wifiOnly = cloud.updatesOnWiFiOnly
         let analytics = self.analytics, issues = self.issues
         let issueContext = (app: app, enabled: cloud.issueReports)
@@ -207,6 +223,9 @@ final class QuranLabCloud: Sendable {
         _ = await register()
         let cfg = await refreshConfig() ?? config.current
         await flush()
+        // a deletion that a process ended in: the saved answer is read here (which turns sharing off), and the
+        // server is asked again
+        await Contributions.finishDeletion()
         outbox.resume()
         observeLifecycle()
         startDeltaTimer()
@@ -228,6 +247,7 @@ final class QuranLabCloud: Sendable {
     @discardableResult
     func register() async -> Bool {
         let today = Day.string(clock())
+        // unreadable is taken as not there here, because the day's registration is then sent once more
         if (try? String(contentsOf: registeredDay, encoding: .utf8)) == today { return false }
         let fm = FileManager.default
         let isNew = !fm.fileExists(atPath: installedMarker.path)
@@ -235,7 +255,9 @@ final class QuranLabCloud: Sendable {
             try? fm.createDirectory(at: installedMarker.deletingLastPathComponent(), withIntermediateDirectories: true)
             fm.createFile(atPath: installedMarker.path, contents: Data())
         }
-        let newInstall = isNew || (pendingRegistration.read()?["new_install"] ?? false)
+        // unreadable is taken as not there here, because it only carries the new-install flag of a registration
+        // that could not be sent
+        let newInstall = isNew || (pendingRegistration.read().takingUnreadableAsMissing?["new_install"] ?? false)
         pendingRegistration.write(["new_install": newInstall])
         guard key != nil, !isStopped else { return false }
         var body: [String: Any] = ["platform": app.platform, "bundle_id": app.bundleID, "app_version": app.version,
@@ -247,7 +269,7 @@ final class QuranLabCloud: Sendable {
                 try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/register"), body: body, auth: token)
             }
             pendingRegistration.delete()
-            try? Data(today.utf8).write(to: registeredDay, options: .atomic)
+            try? Data(today.utf8).write(to: registeredDay, options: StorageProtection.atomic)
             gate.accepted(.api)
             return true
         } catch {
@@ -541,6 +563,8 @@ final class QuranLabCloud: Sendable {
     func checkForUpdate(_ id: ModelID = .recommended) async -> ModelUpdater.Outcome {
         let id = id.isRecommended ? RecommendedModel.resolve(config: config.current, storage: storage) : id
         guard key != nil else { return .deferred("no developer key configured") }
+        // a remembered refusal that cannot be read: nothing is downloaded until it reads
+        if let why = gate.unreadable { return .failed(ModelGate.unreadableError(why)) }
         guard let target = targetRevision(id) else { return .deferred("no revision in the config yet") }
         return await updater.update(id, to: target, version: targetVersion(id), context: nil, activate: store.currentRevision(id) == nil)
     }
@@ -548,6 +572,8 @@ final class QuranLabCloud: Sendable {
     /// Installs the model for `context` now (the first launch, or another context on demand), and activates it.
     func install(_ id: ModelID, context: String?, activate: Bool) async -> ModelUpdater.Outcome {
         guard key != nil else { return .deferred("no developer key configured") }
+        // a remembered refusal that cannot be read: nothing is downloaded until it reads
+        if let why = gate.unreadable { return .failed(ModelGate.unreadableError(why)) }
         if config.current == nil { _ = await refreshConfig() }
         guard let target = targetRevision(id) else { return .deferred("no revision in the config yet") }
         return await updater.update(id, to: target, version: targetVersion(id), context: context, activate: activate)
@@ -561,9 +587,10 @@ final class QuranLabCloud: Sendable {
     /// "Delete what I shared": a single-use nonce from `POST /v1/contributions/challenge`,
     /// the deletion message signed with the device key, `POST /v1/contributions/delete`. No app credential is sent
     /// (the server refuses one). 202 is the server's answer whatever the signature (no enumeration); the purge runs
-    /// within seconds. One retry with a new nonce on `nonce_invalid`.
-    func deleteContributions(contributor: String) async throws(RecognizerError) {
-        guard let key = ContributorKey.key(storage: storage) else { throw .contributionUnavailable("no device key on this install") }
+    /// within seconds. One retry with a new nonce on `nonce_invalid` or `timestamp_invalid`.
+    /// `key` is the device key the caller read, or made because the device had none (3.1.4): none is made here,
+    /// and the caller makes none while a key is there and cannot be read.
+    func deleteContributions(contributor: String, key: ContributorKey.Key) async throws(RecognizerError) {
         for attempt in 0..<2 {
             do throws(CloudError) {
                 let ch = try await http.checked(try HTTPClient.jsonRequest(options.apiURL.appendingPathComponent("v1/contributions/challenge"),
@@ -581,7 +608,7 @@ final class QuranLabCloud: Sendable {
                                                                              "signature": sig.base64URL], auth: nil))
                 return
             } catch {
-                if attempt == 0, case .rejected(401, let code, _, _) = error, code == "nonce_invalid" { continue }
+                if attempt == 0, case .rejected(401, let code, _, _) = error, code == "nonce_invalid" || code == "timestamp_invalid" { continue }
                 throw error.recognizerError
             }
         }

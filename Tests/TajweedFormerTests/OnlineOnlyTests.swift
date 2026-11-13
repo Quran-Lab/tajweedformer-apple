@@ -768,7 +768,7 @@ final class OnlineOnlyTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: storage.appendingPathComponent("cloud/model-stop.json").path), "the refusal is on the device")
         XCTAssertTrue(device.hasKey, "the device key")
         XCTAssertEqual(device.creates, 1, "the same device key")
-        let kept = try XCTUnwrap(Contributions.stateFile(storage: storage).read(), "the sharing state")
+        let kept = try XCTUnwrap(Contributions.stateFile(storage: storage).read().takingUnreadableAsMissing, "the sharing state")
         XCTAssertEqual(kept.consent, .granted, "the learner's answer about sharing")
         XCTAssertEqual(kept.consentVersion, "share-2026-11-09")
         XCTAssertEqual(try Data(contentsOf: unsent).count, 300, "the recording that is not sent yet")

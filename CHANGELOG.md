@@ -1,5 +1,150 @@
 # Changelog
 
+## 3.1.4
+
+Corrections to what the SDK does with something it keeps on the device and cannot read at that moment, and to
+"delete what I shared" in a process that ends. The same engine, the same model builds and the same API as 3.1.3.
+
+Each fault below is what the code of 3.1.3 does in such a process: found by reading the code and shown by tests
+on a Mac, not observed on a device.
+
+- **Fixed: a stored answer about sharing that could not be read was taken for "never answered".** The system
+  can start an app in the background while the phone is locked (to hand over finished uploads, for one), also
+  before the first unlock after a restart. Files of a protected class cannot be read then: before the first
+  unlock that is, by the system's default, every file of an app, and while the phone is locked the files of an
+  app that protects its files completely. The SDK named no protection class for its files, so they had the
+  app's. In such a process the SDK
+  read the learner's stored answer, got nothing, and took that for an answer that was not there. It deleted the
+  unsent recordings in the queue at that start, as recordings without a consent. And when the learner then
+  opened the app and finished a take in the same process, it asked them again and wrote a fresh state over the
+  stored one: a yes, a "Not now" and a final no were lost alike, with the count of the sheets shown. From this
+  version an answer that is there and cannot be read is not "never answered". While it cannot be read, sharing
+  is neither on nor off in that process: nothing is uploaded, nothing is deleted, nobody is asked, nothing is
+  written and no session is counted, and it is read again at the next need. Only a file that is not there is
+  "never answered". Whether a file is not there or cannot be read is told by the error of the one read, "no such
+  file" against any other.
+- **A stored answer that reads and does not parse.** It is treated the same: nothing the SDK does by itself
+  writes over it, nothing is uploaded, and nobody is asked. Only the learner's own act begins a new answer over
+  it: the switch, either way, or "delete what I shared". The damaged file is then kept aside under another name
+  (`cloud/sharing-state.damaged-<seconds>.json`), the unsent queue is removed (under which answer its recordings
+  were made is not known), and the new state has its asks used up: the SDK does not ask that install by itself
+  again, and the learner's switch is the way on.
+- **The learner's switch while the stored answer cannot be read.** The code of 3.1.3 held a fresh state in such
+  a process, and the switch changed that state and wrote it over the stored answer: an off as a final no, an on
+  as a yes, and with either the count of the sheets shown, the count of the learner's changes of mind and a note
+  that a deletion was being asked were lost. Now the stored answer is not written over. An off is written down
+  as a small file of its own beside it; nothing is recorded or uploaded while that file is there, and the next
+  read of the answer that succeeds, in that process or the next, applies the off and removes the file (a yes the
+  learner gives after that is not turned off by it). When that file cannot be written either, `setOn(false)`
+  throws `storage_failed`, and the SDK records and uploads nothing more in that process. `setOn(true)` while the
+  stored answer cannot be read throws `storage_failed` and changes nothing.
+- **The same rule for the other things whose loss touched the learner.** Each of these was "not there" when it
+  could not be read, and each is now left as it is until it reads:
+  - a queued recording's stamp (the recording was deleted unsent), its item file (an uploaded recording was
+    started again, and the item file written over), and, for a recording an app was killed in, its capture file,
+    a segment's marker and the open segment's audio (the recording was deleted, or finished with a segment left
+    out, whose audio was deleted unsent);
+  - the contributor id, the device key and the recovery code, in the Keychain or, for a process without one, in
+    files: a new id, key and code were made, and with a new key "delete what I shared" was signed with a key the
+    server did not hold, which it answers 202 and deletes nothing. Now none is made anew and none is replaced,
+    no recording begins and nothing is uploaded until they read, and a deletion is not asked: the call fails with
+    `storage_failed` and changes nothing. For the Keychain only "item not found" is "not there"; every other
+    answer, the one before the first unlock included, is "cannot be read";
+  - the server's remembered refusal of the key or the app: a model that was still on the device was opened.
+    Now no model is opened and nothing is downloaded until it reads (`storage_failed`);
+  - a downloaded build's install record and its manifest: the build was deleted and downloaded again. Now it is
+    neither opened nor deleted nor downloaded again until they read (`storage_failed`).
+  Held is what the system does not give. Three of these files, when they were read and are not what the SDK
+  writes there (damaged), go the way they went before, which is the way of a file that was deleted: a remembered
+  refusal is no refusal, an install record makes the build not the Client's (deleted and downloaded again), and
+  an item file is no item (its recording is one still to send).
+  Left as they were, because nothing of the learner's goes with them (each is made, asked for or downloaded
+  again): the token and the App Attest key marker, the config, the registration notes, the rollout bucket, the
+  recommended-model note, the model's pointer files, the telemetry and report queues, the count of recordings,
+  and the accelerator's verdicts.
+- **The SDK's files have a protection class by name: "complete until first user authentication".** In an app
+  whose own default is "complete", the SDK's files, the learner's unsent recordings among them, are kept at
+  "complete until first user authentication", which is the system's default class and what a background upload
+  needs: they are readable while the phone is locked after its first unlock. Named at the write: the stored
+  answer and the two small files beside it, the other JSON state files of the SDK's `cloud` folder, the
+  contributor's files, the registration day and the rollout bucket, every file of a queued recording, the
+  install record, the manifest and the model's pointer files; the folders the SDK makes for them get the class
+  when they are made. Getting the class at the next start: the model files as they are downloaded, the
+  accelerator's files, the first-launch marker, and what an earlier release left.
+  That walk visits the SDK's own four folders in its storage folder (`cloud`, `models`, `outbox`,
+  `accelerator`) and nothing else: not the storage folder itself, and no file of the app's own that lies in it.
+  A file that cannot be changed at that moment is left for the next start. The Keychain items are as they were
+  (this device only, readable after the first unlock).
+- **Fixed: a deletion that the process ended in was never asked again.** "Delete what I shared" noted on the
+  device that a deletion was being asked before it asked the server. A process that ended before the server's
+  answer left that note; the next start took it for an off and never asked the server again, so what the learner
+  had shared was not deleted. Now the note is a small file of its own in the storage folder, holding that a
+  deletion was asked, when, and whether its off has been written. A start that finds it turns sharing off, as
+  before (once: a yes the learner gives after that stands), and asks the server again with the same
+  contributor and the same device key: once per start, and once more with a fresh challenge when the server
+  answers 401 `nonce_invalid` or `timestamp_invalid`. After a 202 the device's part is done (the unsent queue,
+  the count of recordings, a new contributor, key and code) and the file is removed. A 429, a 5xx or no answer
+  leaves it for the next start. A start that cannot read the contributor or the device key does not ask, and
+  leaves it too. While the file is there, nothing is recorded for sharing and nothing is uploaded, also when the
+  learner has turned sharing on again meanwhile: their yes is stored at once and takes effect when the server
+  has confirmed and a new contributor is made, so that no recording belongs to a contributor whose deletion is
+  being asked. A state that an earlier version stored with that note is taken over at the first read. A
+  deletion the server does not take while the process lives ends as before: the call throws, nothing is left
+  on the device, sharing and the queue are as they were. The request carries neither the developer key nor a
+  token, as before.
+- **Fixed: an upload the system still held for a recording that was gone.** On iOS a segment's upload is handed
+  to the system's background session. Only the process that turned sharing off cancelled its uploads; one that
+  the system still held when the next process started went on. Now, when the queue opens, every such upload
+  whose recording is no longer in the queue as one to send is cancelled: it is gone, or it was made under an
+  earlier consent, or the learner's answer or one of its files cannot be read. One that is cancelled for a
+  recording that is still to send is sent again later.
+- Tests (on the public CI's Mac runner; none ran on a phone, and no test locks a device):
+  - "Cannot be read" is a switch of the tests: the SDK's read of the named file fails as the read of a protected
+    file fails, the file itself is untouched. The Keychain is a stand-in kept in memory that can be locked (every
+    call answered `errSecInteractionNotAllowed`); what the real Keychain answers to an add or a delete while it
+    is locked was not measured. The server is the suite's stub.
+  - A stored yes with an unsent recording, a stored "Not now" and a stored final no, each unreadable at the
+    process's first read, then one finished session, then readable again: the file's bytes are what they were,
+    the queue is whole, nobody was asked, nothing was uploaded meanwhile, and the upload goes on once it reads.
+    The same for a file that does not parse, across two starts; then the learner's switch on, and off, and a
+    deletion over such a file: the new state, the file kept aside with its bytes, the queue gone, nobody asked.
+  - One test for each of the other items: the stamp, the item file, the capture file, the open segment's audio,
+    a marker of a recording of two segments; the contributor id, the device key and the recovery code as files
+    and in the stand-in Keychain (after they read again they are the same bytes, and a deletion is signed with
+    the key that was there); a stored Secure Enclave key that the enclave does not give (a blob that is not this
+    machine's: the stand-in for an enclave that answers "not now"); the remembered refusal; the install record
+    and the manifest. For the remembered refusal, the install record and the item file a second test shows the
+    damaged file going the old way.
+  - The deletion: the process "ends" by leaving the first call waiting for an answer that never comes and
+    opening a new server client and queue on the same storage (no process is killed). The next start asks the
+    server; a third start after the 202 asks nothing; the 401 answered once with a fresh challenge; a 503, a 429
+    and no answer leave the file; the state of an earlier version; a start that cannot read the device key; a
+    start that cannot read the stored answer; the learner's yes while the file is there (stored, nothing recorded
+    or uploaded, and after the 202 a take is recorded under a new contributor).
+  - The shared case of the same situation (`sharing_off.json`, "delete, the process ends while the server is
+    asked"): the stand-in server leaves only the first process's request unanswered and answers the next
+    start's with 202, and sharing comes on again after that deletion is confirmed, by the rule above.
+  - The upload the system still held: a real background session of the SDK's uploader on the Mac runner and a
+    server on the loopback interface that takes the request and does not answer; the earlier process is the test
+    starting the upload. Not shown: an app the system suspended or ended, a relaunch by the system.
+  - The tests above were run first on the code of 3.1.3, with nothing but the tests' switch added to it: there
+    each of them fails. What passes there are the controls (a file that is not there is "never answered"; the
+    upload of a recording that is in the queue is not cancelled; a deletion the server does not take while the
+    process lives leaves nothing) and the tests of a damaged file going the old way.
+  - Not among those, because they test what this version adds:
+    - the switch, through `client.sharing.setOn`: an off asked while the stored answer cannot be read, applied
+      when it reads in the same process, and by the next start; with the deletion's file there too (the off
+      applied once, the deletion still asked); with a device that stores nothing (the call throws, and no take is
+      recorded for the rest of the process); an off that was applied while the device stored nothing, then a yes
+      (a new start reads the yes); an on asked while the answer cannot be read (throws, nothing changed);
+    - the learner's summary, which is not asked of the server while the contributor id cannot be read;
+    - which paths the walk of a start visits: a storage folder with the SDK's four folders and files of the
+      app's own beside them; the SDK's are visited, the others and the folder itself are not.
+  - The protection class: not shown by a test. On the Mac runner every file shows "complete until first user
+    authentication", whatever class its write names, so the two tests of it cannot tell this version from the
+    one before and are skipped there. That the SDK's files carry the class, and that an earlier release's files
+    get it at a start, can be shown only on a device, in an app whose files have another class by default.
+
 ## 3.1.3
 
 One correction: no request of the SDK follows a redirect. The same engine, the same model builds and the same

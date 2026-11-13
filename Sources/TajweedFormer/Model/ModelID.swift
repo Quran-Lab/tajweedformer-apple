@@ -43,7 +43,8 @@ enum RecommendedModel {
     static func remember(_ r: RemoteConfig.Recommended, storage: URL) {
         let s = Saved(model: r.model, model_id: r.model_id, folder: r.folder)
         let f = file(storage)
-        if f.read() != s { f.write(s) }
+        // unreadable is taken as not there here, because the note of the model Quran Lab recommends is written again
+        if f.read().takingUnreadableAsMissing != s { f.write(s) }
     }
 
     static func resolve(config: RemoteConfig?, storage: URL) -> ModelID {
@@ -51,7 +52,8 @@ enum RecommendedModel {
             remember(r, storage: storage)
             return r.modelID
         }
-        if let s = file(storage).read() { return ModelID(s.model_id, repository: s.model, folder: s.folder) }
+        // unreadable is taken as not there here, because the default model stands in until a config names one
+        if let s = file(storage).read().takingUnreadableAsMissing { return ModelID(s.model_id, repository: s.model, folder: s.folder) }
         return .v4_0
     }
 }

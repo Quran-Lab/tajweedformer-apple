@@ -286,6 +286,8 @@ final class OggOpusWriter {
                 throw .storageFailed("cannot create \(url.lastPathComponent)")
             }
             handle = h
+            // the segment's file gets the protection class of the SDK's storage by name (3.1.4)
+            StorageProtection.set(url)
         }
         do {
             try handle!.write(contentsOf: d)

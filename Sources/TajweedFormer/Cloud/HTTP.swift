@@ -208,23 +208,23 @@ struct HTTPClient: Sendable {
     }
 }
 
-/// A small JSON file the SDK keeps state in, written atomically.
+/// A small JSON file the SDK keeps state in, written atomically, with the protection class named
+/// (`StorageProtection`).
 struct JSONFile<Value: Codable>: Sendable {
     let url: URL
 
-    func read() -> Value? {
-        guard let d = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(Value.self, from: d)
-    }
+    /// What the device has, in three results (3.1.4): not there, read, or there and not readable (the system
+    /// refused the read, or the bytes are not this value). The caller says what it does with the third.
+    func read() -> StoredRead<Value> { StorageSeam.read(url).decoded(Value.self) }
 
     func write(_ v: Value) { _ = store(v) }
 
     /// Writes the value; whether the device has it now (false on a full disk or a storage that refuses the write).
     func store(_ v: Value) -> Bool {
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? StorageProtection.makeFolder(url.deletingLastPathComponent())
         guard let d = try? JSONEncoder().encode(v) else { return false }
         do {
-            try d.write(to: url, options: .atomic)
+            try d.write(to: url, options: StorageProtection.atomic)
             return true
         } catch {
             return false

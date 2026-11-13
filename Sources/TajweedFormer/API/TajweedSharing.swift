@@ -44,10 +44,17 @@ public final class TajweedSharing: Sendable {
 
     /// The settings switch. On records the learner's yes (a children's app needs `guardianConfirmed`); off stops
     /// uploads at once and deletes the unsent queue. Throws `sharing_unavailable` when turned on while Quran Lab's
-    /// config does not allow sharing for this app; off always works.
+    /// config does not allow sharing for this app; off always works, with one exception: when the device gives
+    /// neither the learner's stored answer nor a place to write the off down, it throws `storage_failed`, and the
+    /// SDK then records and uploads nothing more in this process. On throws `storage_failed`, and changes nothing,
+    /// while the learner's stored answer cannot be read.
     public func setOn(_ on: Bool, guardianConfirmed: Bool = false) async throws(TajweedError) {
         if on && !isAvailable { throw TajweedError(.sharingUnavailable) }
-        await Contributions.setSharing(on, guardianConfirmed: guardianConfirmed)
+        do throws(RecognizerError) {
+            try await Contributions.switchSharing(on, guardianConfirmed: guardianConfirmed)
+        } catch {
+            throw TajweedError(from: error)
+        }
     }
 
     /// Asks now with the SDK's sheet, when an ask is still allowed (at most three per install, never after a yes or

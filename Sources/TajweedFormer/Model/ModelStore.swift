@@ -99,8 +99,12 @@ struct ModelStore: Sendable {
     /// this device for the build its manifest.json is. The key store is asked first.
     func standing(of dir: URL) -> InstallStanding {
         if case .failed(let why) = installKeys.load() { return .keyStoreFailed(why) }
-        guard let build = InstallRecord.buildOnDisk(dir) else { return .notOwn("the folder has no manifest") }
-        return InstallRecord.standing(of: dir, build: build, keys: installKeys)
+        switch InstallRecord.storedBuild(dir) {
+        case .missing: return .notOwn("the folder has no manifest")
+        // a manifest that is there and cannot be read is not "no manifest" (3.1.4)
+        case .unreadable(let why): return .unreadable(why.why)
+        case .value(let build): return InstallRecord.standing(of: dir, build: build, keys: installKeys)
+        }
     }
 
     /// The cached revision's folder when it is this Client's own finished download; nil when there is none. A
@@ -117,6 +121,9 @@ struct ModelStore: Sendable {
             return dir
         case .keyStoreFailed(let why):
             throw .storageFailed(InstallRecord.keyStoreMessage(why))
+        case .unreadable(let why):
+            // nothing is opened and nothing is deleted; the caller downloads nothing
+            throw .storageFailed(InstallRecord.unreadableMessage(why))
         case .own(.downloading), .notOwn:
             if discard { self.discard(id, folder: dir) }
             return nil
@@ -144,6 +151,9 @@ struct ModelStore: Sendable {
                 return
             case .keyStoreFailed(let why):
                 throw .storageFailed(InstallRecord.keyStoreMessage(why))
+            case .unreadable(let why):
+                // a partial download whose record cannot be read is neither resumed nor deleted
+                throw .storageFailed(InstallRecord.unreadableMessage(why))
             case .notOwn:
                 try? FileManager.default.removeItem(at: folder)
             }
@@ -186,7 +196,7 @@ struct ModelStore: Sendable {
         guard Self.safeName(m.revision) else { throw .manifestInvalid("bad revision name") }
         let fm = FileManager.default
         let final = base(id).appendingPathComponent(m.revision)
-        if let cdnRevision { try? Data(cdnRevision.utf8).write(to: folder.appendingPathComponent(".source")) }
+        if let cdnRevision { try? Data(cdnRevision.utf8).write(to: folder.appendingPathComponent(".source"), options: StorageProtection.inPlace) }
         // download leftovers never travel with a model
         if let e = fm.enumerator(atPath: folder.path) {
             var parts: [String] = []
@@ -218,6 +228,9 @@ struct ModelStore: Sendable {
     }
 
     func pointer(_ base: URL, _ name: String) -> String? {
+        // unreadable is taken as not there here, because the worst it costs is that the model is downloaded again;
+        // while the install record or the manifest of a build cannot be read, that build is neither deleted nor
+        // replaced (`standing`)
         let v = (try? String(contentsOf: base.appendingPathComponent(name), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let v, Self.safeName(v) else { return nil }
         return v
@@ -229,9 +242,9 @@ struct ModelStore: Sendable {
         let b = base(id)
         do {
             if let old = pointer(b, "current"), old != revision {
-                try Data(old.utf8).write(to: b.appendingPathComponent("previous"), options: .atomic)
+                try Data(old.utf8).write(to: b.appendingPathComponent("previous"), options: StorageProtection.atomic)
             }
-            try Data(revision.utf8).write(to: b.appendingPathComponent("current"), options: .atomic)
+            try Data(revision.utf8).write(to: b.appendingPathComponent("current"), options: StorageProtection.atomic)
             if pointer(b, "pending") == revision { try? FileManager.default.removeItem(at: b.appendingPathComponent("pending")) }
         } catch {
             throw .storageFailed("cannot activate the model: \(error.localizedDescription)")
@@ -260,13 +273,14 @@ struct ModelStore: Sendable {
 
     /// The CDN revision a stored revision was downloaded from.
     func sourceRevision(_ id: ModelID, revision: String) -> String? {
+        // unreadable is taken as not there here, because the worst it costs is one more update check
         (try? String(contentsOf: base(id).appendingPathComponent(revision).appendingPathComponent(".source"), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Marks a staged, verified revision to become current at the next load.
     func markPending(_ id: ModelID, revision: String) throws(RecognizerError) {
-        do { try Data(revision.utf8).write(to: base(id).appendingPathComponent("pending"), options: .atomic) } catch {
+        do { try Data(revision.utf8).write(to: base(id).appendingPathComponent("pending"), options: StorageProtection.atomic) } catch {
             throw .storageFailed("cannot mark \(revision) pending: \(error.localizedDescription)")
         }
     }
@@ -287,7 +301,7 @@ struct ModelStore: Sendable {
         }
         let failed = pointer(b, "current")
         do {
-            try Data(prev.utf8).write(to: b.appendingPathComponent("current"), options: .atomic)
+            try Data(prev.utf8).write(to: b.appendingPathComponent("current"), options: StorageProtection.atomic)
             try? FileManager.default.removeItem(at: b.appendingPathComponent("previous"))
         } catch {
             throw .storageFailed("cannot roll back: \(error.localizedDescription)")

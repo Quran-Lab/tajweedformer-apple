@@ -37,7 +37,7 @@ final class PlatformTests: XCTestCase {
     func testWithoutEntitlementsTheContributorFallsBackToAFile() throws {
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent("zf-plat-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: storage) }
-        let id = Contributor.id(storage: storage)
+        let id = try XCTUnwrap(Contributor.id(storage: storage))
         XCTAssertEqual(id.count, 32)
         XCTAssertEqual(Contributor.id(storage: storage), id)
         XCTAssertNil(TokenProvider.teamIDFromKeychain())

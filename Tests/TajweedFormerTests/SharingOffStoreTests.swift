@@ -9,7 +9,10 @@ import XCTest
 /// later launch would take for an off.
 ///
 /// The device that cannot store is a switch of the tests (`Contributions.refusesWrites`): it refuses the write of the
-/// saved answer and nothing else.
+/// saved answer, and the write and the removal of the mark that a deletion was asked, and nothing else.
+///
+/// Since 3.1.4 that mark is a file of its own in the storage folder (`DeletionMark`), no longer a field of the
+/// saved answer: where these tests looked for the mark in the saved answer they look for the file.
 final class SharingOffStoreTests: XCTestCase {
     override func tearDown() {
         Contributions.refusesWrites.withLock { $0 = nil }
@@ -93,6 +96,7 @@ final class SharingOffStoreTests: XCTestCase {
         let after = try Self.onDevice(q.storage)
         XCTAssertEqual(after["consent"] as? String, "final")
         XCTAssertEqual(after["deleting"] as? Bool, false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: DeletionMark.url(q.storage).path), "no mark is left")
         XCTAssertEqual(after["consentCount"] as? Int, ((before["consentCount"] as? Int) ?? 0) + 1)
         // a new process on the same storage reads off
         Contributions.refusesWrites.withLock { $0 = nil }
@@ -118,6 +122,7 @@ final class SharingOffStoreTests: XCTestCase {
         XCTAssertFalse(Contributions.state().deleting)
         XCTAssertEqual(SharingOffTests.unsent(q.cloud), q.ids, "the recording is still in the queue")
         XCTAssertEqual(try Data(contentsOf: Self.stateURL(q.storage)), before, "the device has the earlier state, which never got the mark")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: DeletionMark.url(q.storage).path), "and no mark was written")
         // a new process
         Contributions.refusesWrites.withLock { $0 = nil }
         q.cloud.outbox.shutdown()
@@ -127,10 +132,10 @@ final class SharingOffStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: next.outbox.root.appendingPathComponent(q.ids[0]).path), "and the recording is still there")
     }
 
-    /// The one order of writes that leaves the mark on the device after a refusal: the mark was stored, then the
-    /// device stopped storing, and the write that takes the mark back failed. In the process nothing changed. The
-    /// mark is taken back on the device as soon as it can store again: at the next read of the state, at most a
-    /// second later. A new process then reads sharing on.
+    /// The one order that leaves the mark on the device after a refusal: the mark was stored, then the device
+    /// stopped storing, and taking the mark back failed. In the process nothing changed. The mark is taken back on
+    /// the device as soon as it can store again: at the next read of the state, at most a second later. A new
+    /// process then reads sharing on.
     func testAMarkWhoseTakingBackCouldNotBeStoredIsTakenBackAsSoonAsTheDeviceCan() async throws {
         let full = Locked(false)
         let q = try await waiting(1) {
@@ -145,14 +150,17 @@ final class SharingOffStoreTests: XCTestCase {
         XCTAssertEqual(Contributions.consent, .granted, "nothing changed in this process")
         XCTAssertFalse(Contributions.state().deleting)
         XCTAssertFalse(Contributions.isStored)
-        XCTAssertEqual(try Self.onDevice(q.storage)["deleting"] as? Bool, true, "the window: the device still has the mark")
+        let mark = DeletionMark.url(q.storage).path
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mark), "the window: the device still has the mark")
+        XCTAssertNotEqual(try Self.onDevice(q.storage)["deleting"] as? Bool, true, "the saved answer itself does not carry it")
         // the device can store again
         full.withLock { $0 = false }
         try await Task.sleep(nanoseconds: 1_200_000_000)
         _ = Contributions.state()
         XCTAssertTrue(Contributions.isStored, "stored at the next read of the state")
         let after = try Self.onDevice(q.storage)
-        XCTAssertEqual(after["deleting"] as? Bool, false, "the mark is taken back on the device")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mark), "the mark is taken back on the device")
+        XCTAssertNotEqual(after["deleting"] as? Bool, true)
         XCTAssertEqual(after["consent"] as? String, "granted")
         // a new process reads sharing on
         q.cloud.outbox.shutdown()

@@ -386,6 +386,8 @@ struct PromotionStore: Sendable {
     }
 
     private func read() -> [String: PromotionRecord] {
+        // unreadable is taken as not there here (3.1.4 leaves the accelerator's verdicts as they were): the
+        // pipeline then starts again for this model, on the CPU meanwhile
         (try? Data(contentsOf: recordsURL)).flatMap { try? PromotionRecord.decoder().decode([String: PromotionRecord].self, from: $0) } ?? [:]
     }
 
@@ -420,6 +422,8 @@ struct PromotionStore: Sendable {
 
     func clearSentinel() { try? FileManager.default.removeItem(at: sentinelURL) }
 
+    // unreadable is taken as not there here (3.1.4 leaves the accelerator's files as they were): a crash of the
+    // launch before is then not counted against the accelerator
     func sentinel() -> Sentinel? { (try? Data(contentsOf: sentinelURL)).flatMap { try? JSONDecoder().decode(Sentinel.self, from: $0) } }
 
     // MARK: the upgrade from 2.0.1

@@ -136,7 +136,9 @@ struct ShareSequencer: Sendable {
         ShareSequencer(
             next: { (start: Int64, continuation: Bool) -> (seq: Int, gapMsPrev: Int?) in
                 let f = JSONFile<Stored>(url: file())
-                var s = f.read() ?? Stored()
+                // unreadable is taken as not there here, because the count of this install's recordings then starts
+                // again: it orders recordings, it names nobody
+                var s = f.read().takingUnreadableAsMissing ?? Stored()
                 s.seq += 1
                 f.write(s)
                 // a continuation starts at the sample after the recording before it: no gap
@@ -144,7 +146,8 @@ struct ShareSequencer: Sendable {
             },
             takeEnded: { (end: Int64) -> Void in
                 let f = JSONFile<Stored>(url: file())
-                var s = f.read() ?? Stored()
+                // unreadable is taken as not there here, for the same reason
+                var s = f.read().takingUnreadableAsMissing ?? Stored()
                 s.prev_end_ms = end
                 f.write(s)
             })
