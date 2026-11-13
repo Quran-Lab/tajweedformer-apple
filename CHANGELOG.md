@@ -1,5 +1,50 @@
 # Changelog
 
+## 3.1.3
+
+One correction: no request of the SDK follows a redirect. The same engine, the same model builds and the same
+API as 3.1.2.
+
+- **Fixed: a redirect is never followed, on any request.** Since 3.1.0 the requests for model files refused a
+  redirect (before 3.1.0 they followed one too, with the key's header: read, not run). Every other request of
+  the SDK (the token and attestation calls, the config, the registration,
+  telemetry, issue reports, the calls of recording sharing and of its deletion) left a redirect to the system,
+  which follows one by itself and sends the request again to the address the answer names. Measured on 3.1.2
+  against two test servers: to the second server the system sent the header with the developer key
+  (`x-qlab-key`, on the token and attestation calls) and the header with a recording's id (`x-qlab-id`, on a
+  sharing call), and with a 307 the request's body as well; it did not send the `authorization` header, which
+  carries the install's token, to the other host. None of this happened with Quran Lab's servers: they never
+  answered one of these requests with a redirect, so nothing was sent anywhere. From this version the SDK tells
+  the system no on every request. An answer that is a redirect is a failed request, like an answer that did not
+  come: it is not followed, it is never taken for a refusal of the key, and it is asked again only as the call
+  asks again after any failure.
+- **The one path where the system does not ask.** On iOS the segments of a shared recording are uploaded on a
+  background session, and there the system follows a redirect without asking the SDK. The SDK now looks
+  afterwards: an upload that the system redirected does not count as uploaded, whatever the other server
+  answered. The segment stays on the device and is sent again later, to a fresh address from Quran Lab's server,
+  and the host the upload ended on (the host only) is reported to Quran Lab as an issue (`upload_redirected`).
+  That request carries one segment of a recording and neither the key nor a token. It cannot happen with Quran
+  Lab's storage, which answers an upload directly.
+- Tests (on the public CI's Mac runner; none ran on a phone):
+  - On the system's real network stack, not on the stub the other tests use: the SDK's own session and two
+    servers on the loopback interface. The first answers 302, then 307, with the address of the second, which is
+    another host name of the same machine. For a model request, the token request (the key), the config request
+    (the token), a sharing start and a segment's upload as it runs in the app: the second server is never asked,
+    the first once, and the call fails.
+  - The same tests on the code of 3.1.2, in one run: red for the token request, the config request and the
+    sharing start, with the headers named above at the second server. Green there for the model request (refused
+    since 3.1.0) and for the segment's upload in the app: 3.1.2 did not send that one on either, because the
+    system does not send a body that is read from a file as a stream a second time; the call waited 30 seconds
+    and failed.
+  - The background upload, with a real background session of the SDK's uploader on the Mac runner and the same
+    two servers: the system followed the 307 and the 302 by itself and the second server got the upload with its
+    3000 bytes (and no key and no token); the uploader did not hand that on as an upload and named the host. A
+    test process on a Mac is never suspended, so an upload that goes on while an app is suspended, a relaunch and
+    a phone are not shown.
+  - The upload queue's part runs over the stub network, where the redirect is the test making the call the
+    uploader makes: the segment stays unsent, the queue asks for a fresh address and sends it again, and the
+    issue carries the host only.
+
 ## 3.1.2
 
 - **Changed: the sharing sheet and "What is shared" have the text of copy deck `2026-11-09.1` again.** Copy

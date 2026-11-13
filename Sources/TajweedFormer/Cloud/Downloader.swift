@@ -49,7 +49,7 @@ struct CDNClient: Sendable {
         }
         let token = try await auth.token(false)
         do throws(CloudError) {
-            let answer = try await http.checked(request(token), followRedirects: false)
+            let answer = try await http.checked(request(token))
             accepted()
             return answer
         } catch {
@@ -60,7 +60,7 @@ struct CDNClient: Sendable {
         }
         let renewed = try await auth.token(true)
         do throws(CloudError) {
-            let answer = try await http.checked(request(renewed), followRedirects: false)
+            let answer = try await http.checked(request(renewed))
             accepted()
             return answer
         } catch {
