@@ -91,6 +91,9 @@ actor ContributionOutbox {
     private let clock: @Sendable () -> Date
     private let transport: Transport
     private var records: [String: Record] = [:]
+    /// The recordings the last look at the queue left alone because one of their files is there and cannot be read
+    /// (3.1.4): nothing is sent, written or deleted for them until a later look reads it.
+    private var held: Set<String> = []
     /// PUTs running now ("<id>/<file>").
     private var inFlight: Set<String> = []
     /// The requests of the pass that this process runs now, by "<id>/<what>" (a segment's file name, `call` for the
@@ -134,7 +137,7 @@ actor ContributionOutbox {
         self.tokens = tokens
         self.config = config
         self.clock = clock
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try? StorageProtection.makeFolder(root)
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         var r = root
@@ -147,45 +150,115 @@ actor ContributionOutbox {
         } else {
             transport = .inProcess
         }
-        // a launch: what was left unsent under an earlier consent goes before any pass is asked for
-        for name in Self.earlier(root: root, storage: storage, launch: true) {
-            try? FileManager.default.removeItem(at: root.appendingPathComponent(name, isDirectory: true))
+        // a launch: what was left unsent under an earlier consent goes before any pass is asked for. While the
+        // learner's stored answer cannot be read, nothing goes.
+        if let look = Self.earlier(root: root, storage: storage, launch: true) {
+            for name in look.gone {
+                try? FileManager.default.removeItem(at: root.appendingPathComponent(name, isDirectory: true))
+            }
+        }
+        // and the upload tasks an earlier process left with the system, whose recording is gone or may not be sent
+        if case .background = transport {
+            Task.detached(priority: .utility) { await self.cancelOrphans() }
         }
     }
 
     /// What the device says of the learner's answer in `storage`: whether their yes is in force (the signed config's
-    /// pause is not looked at: it keeps the queue), and the count of their changes of mind. At a launch, a state that
-    /// says a deletion was being asked is an off: the process that asked ended before the answer was written. While
-    /// this process itself is asking, it is not: a deletion the server does not take changes nothing.
+    /// pause is not looked at: it keeps the queue), and the count of their changes of mind. At a launch, a deletion
+    /// that was being asked is an off (the deletion mark, or the note of a state that SDK 3.1.3 or an earlier one
+    /// stored): the process that asked ended before the answer was written. While this process itself is asking,
+    /// it is not: a deletion the server does not take changes nothing.
+    ///
+    /// Nil (3.1.4): the stored answer is there and cannot be read. That is neither a yes nor a no: nothing may be
+    /// uploaded and nothing may be deleted on its account. Only a file that is not there is "never answered". Until
+    /// 3.1.3 an answer that could not be read was a no with count 0, and a launch deleted the unsent recordings.
     ///
     /// In the process that holds this storage's state, the state in force there is asked, not the file: a write of
     /// the state that failed (a full disk) leaves the file behind the state in force, and recordings begun under the
     /// count in force must not read as earlier ones. At a launch the file is all there is.
-    static func consentOnDevice(_ storage: URL, launch: Bool = false) -> (on: Bool, count: Int) {
+    static func consentOnDevice(_ storage: URL, launch: Bool = false) -> (on: Bool, count: Int)? {
         if !launch, QuranLab.configuration.storageDirectory.path == storage.path {
-            let s = Contributions.state()
+            guard let s = Contributions.inForce else { return nil }
             return (s.consent == .granted, s.consentCount)
         }
-        guard let s = Contributions.stateFile(storage: storage).read() else { return (false, 0) }
-        return (s.consent == .granted && !(launch && s.deleting), s.consentCount)
+        switch Contributions.stateFile(storage: storage).read() {
+        case .unreadable: return nil
+        case .missing: return (false, 0)
+        case .value(let s):
+            // so is an off the learner asked while the answer could not be read (`OffMark`)
+            let asked = launch && (s.deleting || DeletionMark.exists(storage) || OffMark.exists(storage))
+            return (s.consent == .granted && !asked, s.consentCount)
+        }
+    }
+
+    /// The item file of a recording's folder, in three results. A file the system does not give (refused) is
+    /// `unreadable`: its recording is left alone.
+    static func item(_ folder: URL) -> StoredRead<Record> {
+        switch StorageSeam.read(folder.appendingPathComponent(itemName)) {
+        case .missing: return .missing
+        case .unreadable(let why): return .unreadable(why)
+        case .value(let d):
+            // damaged is taken as no item here (bytes that were read and are not an item), as before 3.1.4: the
+            // recording is then one that is still to send, as with an item file that was deleted; it is sent
+            // while the learner's yes covers it and goes with their off, and is not kept for ever
+            guard let rec = try? JSONDecoder().decode(Record.self, from: d) else { return .missing }
+            return .value(rec)
+        }
+    }
+
+    /// One look at the queue's folders.
+    struct Look {
+        /// The unsent recordings made under an earlier consent: they are deleted.
+        var gone: [String] = []
+        /// The recordings left alone at this look: their item file or their stamp is there and cannot be read.
+        var held: Set<String> = []
     }
 
     /// The unsent recordings in `root` that were made under an earlier consent (rule R5): every recording still to
     /// send whose stamp is not the count in force, and every one when the learner's yes is not in force. A recording
     /// that is being captured now is not looked at (its capture ends it), nor one that is sent or has failed (they
     /// hold no audio).
-    static func earlier(root: URL, storage: URL, launch: Bool = false) -> [String] {
-        let now = consentOnDevice(storage, launch: launch)
+    ///
+    /// Nil while the learner's stored answer cannot be read: nothing is deleted then and nothing is taken up. A
+    /// recording whose item file cannot be read may be one that was sent: it is left alone. One whose stamp cannot
+    /// be read, while the learner's yes is in force, is neither of an earlier consent nor one that may be sent: it
+    /// is left alone too. (When the learner's yes is not in force the stamp is not asked: every unsent recording
+    /// goes.)
+    static func earlier(root: URL, storage: URL, launch: Bool = false) -> Look? {
+        guard let now = consentOnDevice(storage, launch: launch) else { return nil }
+        return look(root: root, now: now)
+    }
+
+    /// The recordings in `root` that are still to send, whatever their stamp: what goes when a new answer is begun
+    /// over a damaged one (`Contributions.startAfresh`). Not those being captured now, not those that are sent or
+    /// have failed, and not those whose item file the system does not give.
+    static func unsent(root: URL) -> [String] { look(root: root, now: (on: false, count: 0)).gone }
+
+    /// `earlier`, for a given answer.
+    static func look(root: URL, now: (on: Bool, count: Int)) -> Look {
         let fm = FileManager.default
-        var out: [String] = []
+        var out = Look()
         for name in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] where name.count == 32 && name.allSatisfy(\.isHexDigit) {
             if ShareCapture.active.withLock({ $0.contains(name) }) { continue }
             let f = root.appendingPathComponent(name, isDirectory: true)
-            if let d = try? Data(contentsOf: f.appendingPathComponent(itemName)), let item = try? JSONDecoder().decode(Record.self, from: d),
-               item.state != .active {
+            switch item(f) {
+            case .value(let rec):
+                if rec.state != .active { continue }
+            case .unreadable:
+                out.held.insert(name)
+                continue
+            case .missing:
+                break
+            }
+            if !now.on {
+                out.gone.append(name)
                 continue
             }
-            if !now.on || ShareFiles.consentCount(f) != now.count { out.append(name) }
+            switch ShareFiles.stamped(ShareFiles.stamp(f), with: now.count) {
+            case .some(true): break
+            case .some(false): out.gone.append(name)
+            case .none: out.held.insert(name)
+            }
         }
         return out
     }
@@ -255,6 +328,25 @@ actor ContributionOutbox {
         stops -= 1
     }
 
+    /// Every recording still to send goes, whatever its stamp (3.1.4): the learner begins a new answer over a stored
+    /// one that is damaged, and under which answer these recordings were made is not known. In the order of
+    /// `cancelQueued`: the queue stops, what is in flight is cancelled, the pass leaves, the folders are deleted.
+    func removeUnsent(wait: TimeInterval = ContributionOutbox.stopWait) async {
+        stops += 1
+        abort()
+        await left(within: wait)
+        for name in Self.unsent(root: root) {
+            gone.insert(name)
+            records[name] = nil
+            try? FileManager.default.removeItem(at: folder(name))
+        }
+        for r in records.values where r.takes == .pending {
+            endTakes(r.id, .dropped)
+            try? FileManager.default.removeItem(at: folder(r.id).appendingPathComponent(ShareFiles.takesFile))
+        }
+        stops -= 1
+    }
+
     /// "Delete what I shared" is about to ask the server, and sharing is still on: the queue stops (no pass starts,
     /// no request goes out, what is in flight is cancelled), and the call returns when the pass has left, at most
     /// `stopWait` later. Nothing is deleted. `release()` ends it.
@@ -312,7 +404,7 @@ actor ContributionOutbox {
     /// Whether the pass may send or write for `id` now: no stop is at work, sharing is still on, and the recording
     /// is still in the queue. Asked before every request and after every answer.
     private func may(_ id: String) -> Bool {
-        stops == 0 && !gone.contains(id) && records[id] != nil && Contributions.isActive
+        stops == 0 && !gone.contains(id) && !held.contains(id) && records[id] != nil && Contributions.isActive
     }
 
     /// A token for the pass. The wait for one is a wait for the network (an attestation, a token request), so a stop
@@ -401,8 +493,11 @@ actor ContributionOutbox {
         scan()
         expireTakes()
         guard let tokens, stops == 0, Contributions.isActive else { return }
+        // the contributor's id, device key or recovery code is there and cannot be read (3.1.4): nothing is sent
+        // until it reads
+        guard Contributor.isReadable(storage: storage) else { return }
         let now = clock()
-        let due = records.values.filter { $0.waiting && (ignoringBackoff || ($0.due ?? .distantPast) <= now) }
+        let due = records.values.filter { $0.waiting && !held.contains($0.id) && (ignoringBackoff || ($0.due ?? .distantPast) <= now) }
             .sorted { $0.seq < $1.seq }.map(\.id)
         guard !due.isEmpty else { return }
         if config.current?.flags.contributions != true {
@@ -445,8 +540,17 @@ actor ContributionOutbox {
     /// Moves one session on as far as it goes now. False when the pass should stop (offline).
     private func step(_ id: String, token: String) async -> Bool {
         let folder = self.folder(id)
-        let markers = ShareFiles.markers(folder)
-        let end = ShareFiles.read(ShareFiles.End.self, folder.appendingPathComponent(ShareFiles.end))
+        // the recording's markers, its end and its take list are read strictly (3.1.4): while one of them is there
+        // and cannot be read the recording is left as it is at this pass (no segment is left out, and it is not
+        // finished without its last one)
+        guard case .value(let markers) = ShareFiles.closed(folder) else { return true }
+        let end: ShareFiles.End?
+        switch ShareFiles.stored(ShareFiles.End.self, folder.appendingPathComponent(ShareFiles.end)) {
+        case .value(let e): end = e
+        case .missing: end = nil
+        case .unreadable: return true
+        }
+        guard case .value(let takeList) = ShareFiles.storedTakes(folder) else { return true }
         guard var rec = records[id] else { return true }
         // before the first write and the first request for this recording: is sharing still on, and no stop at work?
         guard may(id) else { return false }
@@ -455,7 +559,8 @@ actor ContributionOutbox {
         // the server hears of a session only once it has a segment (a short failed session never
         // reaches it)
         if !rec.started {
-            guard !markers.isEmpty, let session = try? Data(contentsOf: folder.appendingPathComponent(ShareFiles.session)) else { return true }
+            // a session JSON that cannot be read: the recording waits (it is not started without it)
+            guard !markers.isEmpty, let session = try? StorageSeam.data(folder.appendingPathComponent(ShareFiles.session)) else { return true }
             rec.attempts += 1
             save(rec)
             guard let urls = await call(id, client.startRequest(id: id, session: session, token: token)) else { return !isOffline(id) }
@@ -514,7 +619,7 @@ actor ContributionOutbox {
         rec.nextAttempt = nil
         rec.urls = nil
         // 2.0.3: a recording of several takes sends its take list next; the session is uploaded whatever comes of it
-        if ShareFiles.takes(folder) != nil { rec.takes = .pending }
+        if takeList != nil { rec.takes = .pending }
         save(rec)
         // the item, the markers, the end, the session JSON and the take list stay (they give the status its numbers)
         for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
@@ -537,12 +642,14 @@ actor ContributionOutbox {
     /// The bitrate ladder does not hear of this call: it is not audio. False when the pass should stop (offline).
     private func sendTakes(_ id: String, token: String) async -> Bool {
         guard var rec = records[id], rec.state == .uploaded, rec.takes == .pending else { return true }
-        guard let list = ShareFiles.takes(folder(id)) else {
+        // a take list that is there and cannot be read is neither sent nor dropped: it waits for a later pass
+        guard case .value(let stored) = ShareFiles.storedTakes(folder(id)) else { return true }
+        guard let list = stored else {
             endTakes(id, nil)
             return true
         }
         // the contributor the recording was shared under (the session JSON's)
-        let contributor = sessionField(id, "contributor") ?? Contributor.id(storage: storage)
+        guard let contributor = sessionField(id, "contributor") ?? Contributor.id(storage: storage) else { return false }
         rec.takesAttempts = (rec.takesAttempts ?? 0) + 1
         save(rec)
         // stopped (sharing went off, a delete is asking the server): the pass leaves, and nothing is written
@@ -619,7 +726,8 @@ actor ContributionOutbox {
 
     /// A string field of an item's session JSON.
     private func sessionField(_ id: String, _ key: String) -> String? {
-        (try? Data(contentsOf: folder(id).appendingPathComponent(ShareFiles.session)))
+        // unreadable is taken as not there here: the callers have what to do without the field
+        (try? StorageSeam.data(folder(id).appendingPathComponent(ShareFiles.session)))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?[key] as? String
     }
 
@@ -633,7 +741,11 @@ actor ContributionOutbox {
 
     /// URLs for segments `from` to `from + 19`, merged into the item. False when the call failed.
     private func fetchURLs(_ id: String, from: Int, token: String) async -> Bool {
-        let contributor = Contributor.id(storage: storage)
+        // the id cannot be read now: the pass leaves, as when it is offline, and nothing counts against the item
+        guard let contributor = Contributor.id(storage: storage) else {
+            offline.insert(id)
+            return false
+        }
         guard let urls = await call(id, client.urlsRequest(id: id, from: from, contributor: contributor, token: token)) else {
             // a failed call counts toward the backoff; the batches of a long session do not. A call a stop ended is
             // not a failed one.
@@ -800,43 +912,87 @@ actor ContributionOutbox {
     /// Picks up folders the captures made, and recovers the ones a killed app left. A recording made under an
     /// earlier consent is not picked up: it leaves the queue and the disk first (rule R5), and the take list of a
     /// sent recording of an earlier consent is dropped.
+    ///
+    /// 3.1.4: while the learner's stored answer cannot be read, nothing is picked up, deleted or dropped at this
+    /// look. A recording whose item file or stamp cannot be read is left alone (`held`), and so is one a killed
+    /// app left whose files cannot be read: nothing of it is deleted or written over.
     private func scan() {
-        for name in Self.earlier(root: root, storage: storage) {
+        guard let look = Self.earlier(root: root, storage: storage) else { return }
+        held = look.held
+        for name in look.gone {
             gone.insert(name)
             records[name] = nil
             try? FileManager.default.removeItem(at: folder(name))
         }
         defer {
-            let now = Self.consentOnDevice(storage)
-            for r in records.values where r.state == .uploaded && r.takes == .pending {
-                guard !now.on || ShareFiles.consentCount(folder(r.id)) != now.count else { continue }
-                endTakes(r.id, .dropped)
-                try? FileManager.default.removeItem(at: folder(r.id).appendingPathComponent(ShareFiles.takesFile))
+            if let now = Self.consentOnDevice(storage) {
+                for r in records.values where r.state == .uploaded && r.takes == .pending {
+                    // the list of a recording whose stamp cannot be read stays as it is at this look
+                    guard let current = ShareFiles.stamped(ShareFiles.stamp(folder(r.id)), with: now.count) else { continue }
+                    guard !now.on || !current else { continue }
+                    endTakes(r.id, .dropped)
+                    try? FileManager.default.removeItem(at: folder(r.id).appendingPathComponent(ShareFiles.takesFile))
+                }
             }
         }
         let fm = FileManager.default
         let names = ((try? fm.contentsOfDirectory(atPath: root.path)) ?? []).filter { $0.count == 32 && $0.allSatisfy(\.isHexDigit) }
-        for name in names where records[name] == nil && !gone.contains(name) {
+        for name in names where records[name] == nil && !gone.contains(name) && !held.contains(name) {
             let f = folder(name)
-            if let d = try? Data(contentsOf: f.appendingPathComponent(Self.itemName)),
-               let rec = try? JSONDecoder().decode(Record.self, from: d), rec.id == name {
+            switch Self.item(f) {
+            case .value(let rec) where rec.id == name:
                 records[name] = rec
                 continue
+            case .unreadable:
+                // it became unreadable since the look above: left alone
+                held.insert(name)
+                continue
+            case .value, .missing:
+                break
             }
             let capturing = ShareCapture.active.withLock { $0.contains(name) }
             // an item appears with its first closed segment
             if capturing, ShareFiles.markers(f).isEmpty { continue }
-            if !capturing, !fm.fileExists(atPath: f.appendingPathComponent(ShareFiles.end).path), !ShareFiles.recover(f) { continue }
+            if !capturing, !fm.fileExists(atPath: f.appendingPathComponent(ShareFiles.end).path) {
+                switch ShareFiles.recovery(f) {
+                case .recovered: break
+                case .nothing: continue
+                case .unreadable:
+                    held.insert(name)
+                    continue
+                }
+            }
             var rec = Record(id: name)
             rec.seq = (records.values.map(\.seq).max() ?? 0) + 1
             save(rec)
         }
         // a session whose capture is gone without an end (the app was killed, in an earlier run)
-        for rec in records.values where rec.state == .active {
+        for rec in records.values where rec.state == .active && !held.contains(rec.id) {
             let f = folder(rec.id)
             if !ShareCapture.active.withLock({ $0.contains(rec.id) }), !fm.fileExists(atPath: f.appendingPathComponent(ShareFiles.end).path) {
-                if !ShareFiles.recover(f) { records[rec.id] = nil }
+                switch ShareFiles.recovery(f) {
+                case .recovered: break
+                case .nothing: records[rec.id] = nil
+                case .unreadable: held.insert(rec.id)
+                }
             }
+        }
+    }
+
+    /// When the queue opens (a launch; the queue takes the background session's results): every upload task the
+    /// system still holds for a recording that is not in the queue as one to send is cancelled (3.1.4). Such a
+    /// recording is gone (sharing was turned off, it was deleted, it failed), or it may not be sent now: it was
+    /// made under an earlier consent, or the learner's answer or one of its own files cannot be read. A task that
+    /// is cancelled for a recording that is still to send is sent again by a later pass.
+    /// Until 3.1.3 only the process that turned sharing off cancelled its tasks; one that the system still held
+    /// when the next process started went on.
+    func cancelOrphans() async {
+        guard case .background(let bg) = transport else { return }
+        scan()
+        let live = Set(records.values.filter { $0.state == .active && !held.contains($0.id) }.map(\.id))
+        for key in await bg.running() {
+            let id = String(key.prefix { $0 != "/" })
+            if !live.contains(id) { bg.cancel(prefix: id + "/") }
         }
     }
 
@@ -856,7 +1012,8 @@ actor ContributionOutbox {
         case .uploaded: status = .uploaded
         case .failed: status = .failed(code: r.failCode ?? "other", message: r.failMessage ?? "")
         }
-        let day = (try? Data(contentsOf: f.appendingPathComponent(ShareFiles.session)))
+        // unreadable is taken as not there here: this is the day a recording's status shows
+        let day = (try? StorageSeam.data(f.appendingPathComponent(ShareFiles.session)))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["day"] as? String ?? ""
         return Contribution(id: r.id, segments: markers.count, bytes: markers.reduce(0) { $0 + $1.bytes },
                             durationMs: end?.durationMs ?? 0, day: day, completed: end?.completed, status: status,
@@ -870,7 +1027,7 @@ actor ContributionOutbox {
         if gone.contains(rec.id) { return }
         records[rec.id] = rec
         if let d = try? JSONEncoder().encode(rec) {
-            try? d.write(to: folder(rec.id).appendingPathComponent(Self.itemName), options: .atomic)
+            try? d.write(to: folder(rec.id).appendingPathComponent(Self.itemName), options: StorageProtection.atomic)
         }
         let c = snapshot(rec)
         for w in watchers.values { w.yield(c) }

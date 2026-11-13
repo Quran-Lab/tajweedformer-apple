@@ -102,6 +102,9 @@ actor ModelUpdater {
                 break
             case .keyStoreFailed(let why):
                 return .failed(.storageFailed(InstallRecord.keyStoreMessage(why)))
+            case .unreadable(let why):
+                // the build's install record or manifest cannot be read now: nothing is deleted or downloaded
+                return .failed(.storageFailed(InstallRecord.unreadableMessage(why)))
             case .own(.downloading), .notOwn:
                 store.discard(id, folder: dir)
                 current = nil

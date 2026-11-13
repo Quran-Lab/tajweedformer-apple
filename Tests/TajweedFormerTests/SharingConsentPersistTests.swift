@@ -233,7 +233,7 @@ final class SharingConsentPersistTests: XCTestCase {
             try await assertNothingPresented("\(c.name): no sheet, no thank-you again, nothing handed to the app")
             XCTAssertTrue(Contributions.isActive, c.name)
             // the stored yes is the one the learner gave: its version, its time and its count are untouched
-            let stored = try XCTUnwrap(Contributions.stateFile(storage: storage).read(), c.name)
+            let stored = try XCTUnwrap(Contributions.stateFile(storage: storage).read().takingUnreadableAsMissing, c.name)
             XCTAssertEqual(stored.consent, .granted, c.name)
             XCTAssertEqual(stored.consentVersion, c.version, c.name)
             XCTAssertEqual(stored.consentTextSHA256, c.hash, c.name)

@@ -176,7 +176,8 @@ actor TokenProvider {
     /// A token valid for at least another hour.
     func token() async throws(CloudError) -> APIToken {
         if let t = usable(cached) { return t }
-        if let t = usable(file.read()) { cached = t; return t }
+        // unreadable is taken as not there here, because a token is asked for again
+        if let t = usable(file.read().takingUnreadableAsMissing) { cached = t; return t }
         let task: Task<APIToken, any Error>
         if let running = inFlight {
             task = running
@@ -338,7 +339,8 @@ actor TokenProvider {
     /// The attested key id, unless the app's files were reset under it (a reinstall).
     private func storedKey() -> String? {
         guard let k = keys.load() else { return nil }
-        guard keyMarker.read() == Self.fingerprint(k) else {
+        // unreadable is taken as not there here, because the App Attest key is then made and attested again
+        guard keyMarker.read().takingUnreadableAsMissing == Self.fingerprint(k) else {
             forgetKey()
             return nil
         }

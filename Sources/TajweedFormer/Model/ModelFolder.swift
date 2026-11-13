@@ -37,6 +37,7 @@ struct ModelFolder: Sendable {
     /// memory (tests) has none: the CDN revision the folder came from stands in, else the manifest's revision.
     var build: String {
         if !manifest.build.isEmpty { return manifest.build }
+        // unreadable is taken as not there here: the manifest's revision stands in
         let s = (try? String(contentsOf: directory.appendingPathComponent(".source"), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let s, !s.isEmpty, s.count <= 64 { return s }
@@ -131,7 +132,7 @@ struct ModelFolder: Sendable {
     /// `build` and `version`: what the signed config named, when the folder came from it.
     static func open(directory: URL, verifier: ManifestVerifier, expecting id: ModelID? = nil, build: String? = nil,
                      version: String? = nil) throws(RecognizerError) -> ModelFolder {
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent(ModelManifest.fileName)) else {
+        guard let data = try? StorageSeam.data(directory.appendingPathComponent(ModelManifest.fileName)) else {
             throw .modelMissing("no \(ModelManifest.fileName) in \(directory.lastPathComponent)")
         }
         let m: ModelManifest

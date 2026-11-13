@@ -288,7 +288,9 @@ final class ConfigStore: Sendable {
         file = JSONFile(url: storage.appendingPathComponent("cloud/config.json"))
         bucketFile = storage.appendingPathComponent("cloud/rollout-bucket")
         verifier = ConfigVerifier(trustedKeys: trustedKeys)
-        if let s = file.read(), let c = try? verifier.verify(body: s.body, signature: s.signature, keyID: s.keyID) {
+        // unreadable is taken as not there here, because the config is fetched again; until it is, none is in
+        // force, and without one sharing is not offered and nothing is uploaded
+        if let s = file.read().takingUnreadableAsMissing, let c = try? verifier.verify(body: s.body, signature: s.signature, keyID: s.keyID) {
             state.withLock { $0 = c }
             SDKLatest.note(body: s.body)
         }
@@ -306,7 +308,8 @@ final class ConfigStore: Sendable {
     /// past its `expires_at`, `none` when there is none.
     var status: String {
         if current != nil { return "fresh" }
-        return file.read() != nil ? "stale" : "none"
+        // unreadable is taken as not there here: this is a word for the diagnosis
+        return file.read().takingUnreadableAsMissing != nil ? "stale" : "none"
     }
 
     /// Whether Quran Lab answered this install's key: a config was fetched or confirmed in this process, or a verified
@@ -315,20 +318,23 @@ final class ConfigStore: Sendable {
 
     /// The version of the newest SDK release the config in force names (`sdk_latest`), when it names one.
     var latest: String? {
-        guard current != nil, let n = file.read().flatMap({ SDKLatest.parse($0.body) }), ModelVersion.isVersion(n.version) else { return nil }
+        // unreadable is taken as not there here: the note of a newer SDK is a line for the developer
+        guard current != nil, let n = file.read().takingUnreadableAsMissing.flatMap({ SDKLatest.parse($0.body) }),
+              ModelVersion.isVersion(n.version) else { return nil }
         return n.version
     }
 
     /// The staged-rollout bucket: one number 0 to 99, drawn once and kept on the device. One of
     /// 100 values identifies no one.
     var bucket: Int {
+        // unreadable is taken as not there here, because a new bucket is drawn (one number of 100)
         if let s = try? String(contentsOf: bucketFile, encoding: .utf8),
            let b = Int(s.trimmingCharacters(in: .whitespacesAndNewlines)), (0..<100).contains(b) {
             return b
         }
         let b = Int.random(in: 0..<100)
         try? FileManager.default.createDirectory(at: bucketFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? Data(String(b).utf8).write(to: bucketFile, options: .atomic)
+        try? Data(String(b).utf8).write(to: bucketFile, options: StorageProtection.atomic)
         return b
     }
 
@@ -341,7 +347,8 @@ final class ConfigStore: Sendable {
         if let pin { c.queryItems?.append(URLQueryItem(name: "model_version", value: pin)) }
         var r = URLRequest(url: c.url!)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-        let saved = file.read()
+        // unreadable is taken as not there here, because the config is then asked for in full
+        let saved = file.read().takingUnreadableAsMissing
         let stored = current
         if let etag = saved?.etag, saved?.pin == pin, let stored, stored.expiresAt.timeIntervalSince(now) > 3600 {
             r.setValue(etag, forHTTPHeaderField: "if-none-match")

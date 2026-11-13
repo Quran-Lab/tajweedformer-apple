@@ -156,7 +156,9 @@ enum QuranLab {
 
     /// This install's contribution code (32 hex), sent with every shared session and shown to the learner in the
     /// sharing settings for deletion requests.
-    static var contributorID: String { Contributor.id(storage: configuration.storageDirectory) }
+    /// Empty while the id on the device cannot be read (3.1.4): no new one is made in its place, and nothing is
+    /// recorded or sent meanwhile.
+    static var contributorID: String { Contributor.id(storage: configuration.storageDirectory) ?? "" }
 
     /// Starts a new contribution code; later shares are not linked to the earlier ones.
     static func resetContributor() { Contributor.reset(storage: configuration.storageDirectory) }

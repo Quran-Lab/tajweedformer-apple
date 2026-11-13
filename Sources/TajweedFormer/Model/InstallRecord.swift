@@ -182,6 +182,10 @@ enum InstallStanding: Sendable, Equatable {
     case notOwn(String)
     /// The key store failed: nothing is opened, deleted or downloaded.
     case keyStoreFailed(String)
+    /// The folder's install record or its manifest is there and cannot be read now (3.1.4): nothing is opened,
+    /// deleted or downloaded, and the next call reads again. Until 3.1.3 such a folder was "not the Client's": it
+    /// was deleted and the build downloaded again.
+    case unreadable(String)
 }
 
 /// The record of one build folder: `.quranlab-install` inside it (it moves with the folder when a finished download
@@ -209,15 +213,30 @@ struct InstallRecord: Codable, Sendable, Equatable {
 
     static func url(_ folder: URL) -> URL { folder.appendingPathComponent(fileName) }
 
+    /// The record of a folder in three results (3.1.4). Bytes that were read and are not a record are `unreadable`
+    /// with `damaged`: `standing` takes those for "not the Client's", as a record with another MAC.
+    static func stored(_ folder: URL) -> StoredRead<InstallRecord> {
+        StorageSeam.read(url(folder)).decoded(InstallRecord.self)
+    }
+
     static func read(_ folder: URL) -> InstallRecord? {
-        guard let data = try? Data(contentsOf: url(folder)) else { return nil }
-        return try? JSONDecoder().decode(InstallRecord.self, from: data)
+        // unreadable is taken as not there here: this is a look at the record for the tests; what decides whether
+        // a folder is opened or deleted is `standing`
+        stored(folder).takingUnreadableAsMissing
+    }
+
+    /// The build id of the manifest.json in `folder`, in three results: the first 40 hex digits of the SHA-256 of
+    /// its bytes.
+    static func storedBuild(_ folder: URL) -> StoredRead<String> {
+        StorageSeam.read(folder.appendingPathComponent(ModelManifest.fileName)).map { (data: Data) -> String in
+            String(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined().prefix(40))
+        }
     }
 
     /// The build id of the manifest.json in `folder`: the first 40 hex digits of the SHA-256 of its bytes.
     static func buildOnDisk(_ folder: URL) -> String? {
-        guard let data = try? Data(contentsOf: folder.appendingPathComponent(ModelManifest.fileName)) else { return nil }
-        return String(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined().prefix(40))
+        // unreadable is taken as not there here: this is a look at the build for the tests (see `storedBuild`)
+        storedBuild(folder).takingUnreadableAsMissing
     }
 
     /// How `folder` stands for the build `build`. The key store is asked first: when it fails, that is the answer,
@@ -230,7 +249,17 @@ struct InstallRecord: Codable, Sendable, Equatable {
         case .none:
             return .notOwn("this device has no install key")
         case .key(let key):
-            guard let r = read(folder) else { return .notOwn("the folder has no install record") }
+            let r: InstallRecord
+            switch stored(folder) {
+            case .value(let read): r = read
+            case .missing: return .notOwn("the folder has no install record")
+            // damaged is taken as no record here (bytes that were read and are not a record), as before 3.1.4:
+            // the folder is not the Client's, as with a record of another MAC, and as with a record that was deleted
+            case .unreadable(.damaged): return .notOwn("the folder has no install record")
+            // refused is held: the system does not give the record now, so the folder is neither the Client's nor
+            // not the Client's, and nothing is opened, deleted or downloaded
+            case .unreadable(.refused(let why)): return .unreadable(why)
+            }
             guard r.v == 1, r.build == build else { return .notOwn("the install record is of another build") }
             let want = Array(mac(key: key, build: build, state: r.state).utf8), got = Array(r.mac.utf8)
             var differ = UInt8(want.count == got.count ? 0 : 1)
@@ -255,10 +284,15 @@ struct InstallRecord: Codable, Sendable, Equatable {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let e = JSONEncoder()
             e.outputFormatting = [.sortedKeys]
-            try e.encode(record).write(to: url(folder), options: .atomic)
+            try e.encode(record).write(to: url(folder), options: StorageProtection.atomic)
         } catch {
             throw .storageFailed("cannot write the install record: \(error.localizedDescription)")
         }
+    }
+
+    /// The words of an install record or a manifest that cannot be read: nothing was opened, deleted or downloaded.
+    static func unreadableMessage(_ why: String) -> String {
+        "the model on this device cannot be read now (\(why)); no model was opened, deleted or downloaded, and the next call tries again"
     }
 
     /// The words of a key store failure: nothing was opened, deleted or downloaded, and the next call tries again.

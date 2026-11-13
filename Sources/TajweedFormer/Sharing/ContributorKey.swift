@@ -38,65 +38,95 @@ enum ContributorKey {
 
     // MARK: storage (Keychain, this device only; a file when the process has no Keychain)
 
-    private static func query(_ account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: account, kSecUseDataProtectionKeychain as String: true]
-    }
-
     private static func file(_ storage: URL, _ account: String) -> URL { storage.appendingPathComponent("cloud/\(account)") }
 
-    static func read(_ account: String, storage: URL) -> Data? {
-        var q = query(account)
-        q[kSecReturnData as String] = true
-        var out: CFTypeRef?
-        if SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data { return d }
-        return try? Data(contentsOf: file(storage, account))
-    }
+    // 3.1.4: a key or a code that is there and cannot be read is not "none". No new one is made then and the stored
+    // one is neither replaced nor deleted (`storedKey`, `storedCode`, and `key` and `recoveryCode`, which make one
+    // only when the device has none). Until 3.1.3 a key that could not be read was deleted and replaced by a new
+    // one, and a deletion signed with the new key was answered 202 by the server and deleted nothing.
 
-    static func write(_ account: String, _ data: Data, storage: URL) {
-        SecItemDelete(query(account) as CFDictionary)
-        var q = query(account)
-        q[kSecValueData as String] = data
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        q[kSecAttrSynchronizable as String] = false
-        if SecItemAdd(q as CFDictionary, nil) == errSecSuccess { return }
-        let f = file(storage, account)
-        try? FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: f, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: f.path)
+    /// One of the two items as the device has it, in three results: read, never made.
+    static func stored(_ account: String, storage: URL) -> StoredRead<Data> {
+        ContributorKeychain.item(account, file: file(storage, account))
     }
 
     static func delete(_ account: String, storage: URL) {
-        SecItemDelete(query(account) as CFDictionary)
+        ContributorKeychain.delete(account)
         try? FileManager.default.removeItem(at: file(storage, account))
     }
 
-    /// The key, made on first use. Stored form: 1 byte kind (1 = Secure Enclave blob, 2 = software raw) then the bytes.
-    static func key(storage: URL) -> Key? {
-        if let d = read(keyAccount, storage: storage), let kind = d.first {
-            let body = d.dropFirst()
-            if kind == 1, SecureEnclave.isAvailable, let k = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: Data(body)) {
-                return .enclave(k)
+    /// The device key as the device has it, in three results: read, never made. Stored form: 1 byte kind (1 =
+    /// Secure Enclave blob, 2 = software raw) then the bytes. Bytes that are not a key, and a Secure Enclave key
+    /// that the enclave does not give now, are there and cannot be read.
+    static func storedKey(storage: URL) -> StoredRead<Key> {
+        switch stored(keyAccount, storage: storage) {
+        case .missing: return .missing
+        case .unreadable(let why): return .unreadable(why)
+        case .value(let d):
+            guard let kind = d.first else { return .unreadable(.damaged("an empty device key")) }
+            let body = Data(d.dropFirst())
+            if kind == 1 {
+                guard SecureEnclave.isAvailable, let k = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: body) else {
+                    return .unreadable(.refused("the Secure Enclave did not give the device key"))
+                }
+                return .value(.enclave(k))
             }
-            if kind == 2, let k = try? P256.Signing.PrivateKey(rawRepresentation: Data(body)) { return .software(k) }
+            if kind == 2, let k = try? P256.Signing.PrivateKey(rawRepresentation: body) { return .value(.software(k)) }
+            return .unreadable(.damaged("not a device key"))
         }
-        if SecureEnclave.isAvailable, let k = try? SecureEnclave.P256.Signing.PrivateKey() {
-            write(keyAccount, Data([1]) + k.dataRepresentation, storage: storage)
-            return .enclave(k)
-        }
-        let k = P256.Signing.PrivateKey()
-        write(keyAccount, Data([2]) + k.rawRepresentation, storage: storage)
-        return .software(k)
     }
 
-    /// The recovery code, made with the key.
-    static func recoveryCode(storage: URL) -> String {
-        if let d = read(codeAccount, storage: storage), let s = String(data: d, encoding: .utf8), RecoveryCode.normalise(s) != nil { return s }
-        var bytes = [UInt8](repeating: 0, count: 16)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        let code = RecoveryCode.encode(bytes)
-        write(codeAccount, Data(code.utf8), storage: storage)
-        return code
+    /// The key, made now when the device has none (the first share). Nil while the one it has cannot be read: none
+    /// is made then, and the stored one stays.
+    static func key(storage: URL) -> Key? {
+        switch storedKey(storage: storage) {
+        case .value(let k): return k
+        case .unreadable: return nil
+        case .missing:
+            let made: Key
+            let bytes: Data
+            if SecureEnclave.isAvailable, let k = try? SecureEnclave.P256.Signing.PrivateKey() {
+                made = .enclave(k)
+                bytes = Data([1]) + k.dataRepresentation
+            } else {
+                let k = P256.Signing.PrivateKey()
+                made = .software(k)
+                bytes = Data([2]) + k.rawRepresentation
+            }
+            ContributorKeychain.keep(keyAccount, bytes, file: file(storage, keyAccount))
+            // the key the device has now (another caller may have kept one a moment before)
+            if case .value(let kept) = storedKey(storage: storage) { return kept }
+            return made
+        }
+    }
+
+    /// The recovery code as the device has it, in three results: read, never made. An item that is not a recovery
+    /// code is there and cannot be read.
+    static func storedCode(storage: URL) -> StoredRead<String> {
+        switch stored(codeAccount, storage: storage) {
+        case .missing: return .missing
+        case .unreadable(let why): return .unreadable(why)
+        case .value(let d):
+            guard let s = String(data: d, encoding: .utf8), RecoveryCode.normalise(s) != nil else {
+                return .unreadable(.damaged("not a recovery code"))
+            }
+            return .value(s)
+        }
+    }
+
+    /// The recovery code, made with the key when the device has none. Nil while the one it has cannot be read.
+    static func recoveryCode(storage: URL) -> String? {
+        switch storedCode(storage: storage) {
+        case .value(let s): return s
+        case .unreadable: return nil
+        case .missing:
+            var bytes = [UInt8](repeating: 0, count: 16)
+            _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+            let code = RecoveryCode.encode(bytes)
+            ContributorKeychain.keep(codeAccount, Data(code.utf8), file: file(storage, codeAccount))
+            if case .value(let kept) = storedCode(storage: storage) { return kept }
+            return code
+        }
     }
 
     /// Forgets the key and the code (after a deletion, a revocation or a key mismatch: the next share makes new ones).

@@ -310,12 +310,15 @@ final class AnalyticsStore: Sendable {
     init(storage: URL, enabled: Bool, context: Context, clock: @escaping @Sendable () -> Date = { Date() }) {
         let f = JSONFile<State>(url: storage.appendingPathComponent("cloud/analytics-deltas.json"))
         file = f
-        var s = f.read()
+        // unreadable is taken as not there here, because these are telemetry counts not yet sent: they are lost or
+        // start again, and nothing of the learner's goes with them
+        var s = f.read().takingUnreadableAsMissing
         if s == nil {
             // 2.0.0 kept whole days until they were complete: they are sealed under their own day at the next send point
             let legacy = JSONFile<[String: Day]>(url: storage.appendingPathComponent("cloud/analytics-v2.json"))
             var fresh = State()
-            fresh.open = legacy.read() ?? [:]
+            // unreadable is taken as not there here, for the same reason
+            fresh.open = legacy.read().takingUnreadableAsMissing ?? [:]
             if !fresh.open.isEmpty { f.write(fresh) }
             legacy.delete()
             s = fresh
@@ -340,7 +343,8 @@ final class AnalyticsStore: Sendable {
     }
 
     func recordAbortedSession() {
-        guard let o = openFile.read(), o.pid != ProcessInfo.processInfo.processIdentifier else { return }
+        // unreadable is taken as not there here, because it only decides whether one aborted session is counted
+        guard let o = openFile.read().takingUnreadableAsMissing, o.pid != ProcessInfo.processInfo.processIdentifier else { return }
         openFile.delete()
         record(.sessionAborted(cohort: o.cohort))
     }
@@ -806,7 +810,9 @@ final class IssueQueue: Sendable {
 
     init(storage: URL, cap: Int = 50) {
         file = JSONFile(url: storage.appendingPathComponent("cloud/issues.json"))
-        items = Locked((file.read() ?? []).filter(IssueReport.fresh))
+        // unreadable is taken as not there here, because these are error reports not yet sent: they are lost or
+        // sent again
+        items = Locked((file.read().takingUnreadableAsMissing ?? []).filter(IssueReport.fresh))
         self.cap = cap
     }
 

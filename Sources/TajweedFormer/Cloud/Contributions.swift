@@ -40,55 +40,63 @@ struct Contribution: Sendable, Hashable, Identifiable {
 /// device only, never synced), sent only with shared sessions. The server keeps only an HMAC of
 /// it with the app id. Where the Keychain is unavailable (a test binary without entitlements) it
 /// is a file in the SDK's storage.
+///
+/// 3.1.4: an id that is there and cannot be read is not "no id". No new one is made then, the stored one is not
+/// replaced, and nothing is shared or deleted under another name until it reads (`stored`, `id`). Until 3.1.3 an
+/// id that could not be read was replaced by a new one.
 enum Contributor {
     static let service = "quranlab.sdk"
     static let account = "contributor"
 
-    static func id(storage: URL) -> String {
-        if let v = read(storage: storage) { return v }
-        var bytes = [UInt8](repeating: 0, count: 16)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        let v = Data(bytes).hex
-        write(v, storage: storage)
-        return read(storage: storage) ?? v
+    /// The id as the device has it, in three results: read, never made. An item that is not an id (32 lowercase
+    /// hex) is there and cannot be read.
+    static func stored(storage: URL) -> StoredRead<String> {
+        switch ContributorKeychain.item(account, file: file(storage)) {
+        case .missing: return .missing
+        case .unreadable(let why): return .unreadable(why)
+        case .value(let d):
+            guard let s = String(data: d, encoding: .utf8), valid(s) else { return .unreadable(.damaged("not a contributor id")) }
+            return .value(s)
+        }
+    }
+
+    /// The id, made now when the device has none. Nil while the one it has cannot be read: none is made then.
+    static func id(storage: URL) -> String? {
+        switch stored(storage: storage) {
+        case .value(let v): return v
+        case .unreadable: return nil
+        case .missing:
+            var bytes = [UInt8](repeating: 0, count: 16)
+            _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+            let v = Data(bytes).hex
+            ContributorKeychain.keep(account, Data(v.utf8), file: file(storage))
+            if case .value(let kept) = stored(storage: storage) { return kept }
+            return v
+        }
+    }
+
+    /// Whether the contributor's id, device key and recovery code are in hand: the device gives each of them, or
+    /// has none yet (the first share makes it). False while one of them is there and the device does not give it:
+    /// nothing is sent then. (The key's stored bytes are asked for here, not a key ready to sign: an upload needs
+    /// no signature.)
+    static func isReadable(storage: URL) -> Bool {
+        !stored(storage: storage).isUnreadable
+            && !ContributorKey.stored(ContributorKey.keyAccount, storage: storage).isUnreadable
+            && !ContributorKey.stored(ContributorKey.codeAccount, storage: storage).isUnreadable
     }
 
     /// A new contributor: the code, the device key and the recovery code all go (the next share makes new ones).
     static func reset(storage: URL) {
-        SecItemDelete(query() as CFDictionary)
+        ContributorKeychain.delete(account)
         try? FileManager.default.removeItem(at: file(storage))
         ContributorKey.reset(storage: storage)
     }
 
-    static func query() -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: account, kSecUseDataProtectionKeychain as String: true]
-    }
+    static func query() -> [String: Any] { ContributorKeychain.query(account) }
 
     private static func file(_ storage: URL) -> URL { storage.appendingPathComponent("cloud/contributor") }
 
     private static func valid(_ s: String) -> Bool { s.count == 32 && s.allSatisfy { $0.isHexDigit && !$0.isUppercase } }
-
-    private static func read(storage: URL) -> String? {
-        var q = query()
-        q[kSecReturnData as String] = true
-        var out: CFTypeRef?
-        if SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data,
-           let s = String(data: d, encoding: .utf8), valid(s) { return s }
-        if let d = try? Data(contentsOf: file(storage)), let s = String(data: d, encoding: .utf8), valid(s) { return s }
-        return nil
-    }
-
-    private static func write(_ v: String, storage: URL) {
-        var q = query()
-        q[kSecValueData as String] = Data(v.utf8)
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        q[kSecAttrSynchronizable as String] = false
-        if SecItemAdd(q as CFDictionary, nil) == errSecSuccess { return }
-        let f = file(storage)
-        try? FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? Data(v.utf8).write(to: f, options: [.atomic])
-    }
 }
 
 /// qlab-api's sharing routes and the PUTs to R2.
@@ -249,9 +257,22 @@ enum ShareFiles {
         var count: Int
     }
 
-    /// The count a recording's folder is stamped with; 0 for a recording of an SDK before 3.0.1 (no stamp).
-    static func consentCount(_ folder: URL) -> Int {
-        read(Stamp.self, folder.appendingPathComponent(stampFile))?.count ?? 0
+    /// The count a recording's folder is stamped with, in three results. A recording of an SDK before 3.0.1 has
+    /// no stamp (`missing`): it reads as begun under count 0. A stamp that is there and cannot be read is not that
+    /// (3.1.4): its recording is neither one of an earlier consent nor one that may be sent, until the stamp reads.
+    /// Until 3.1.3 a stamp that could not be read was count 0, and the recording was deleted unsent.
+    static func stamp(_ folder: URL) -> StoredRead<Int> {
+        stored(Stamp.self, folder.appendingPathComponent(stampFile)).map { (s: Stamp) -> Int in s.count }
+    }
+
+    /// Whether a recording whose stamp read as `stamp` was begun under the count `count`; nil while the stamp
+    /// cannot be read.
+    static func stamped(_ stamp: StoredRead<Int>, with count: Int) -> Bool? {
+        switch stamp {
+        case .missing: return count == 0
+        case .value(let c): return c == count
+        case .unreadable: return nil
+        }
     }
 
     /// `takes.json`, and the body of the take list call.
@@ -268,29 +289,44 @@ enum ShareFiles {
 
     /// `takes.json`: the recording's takes so far (written when a take joins, so two or more), replaced in one step.
     static func writeTakes(_ folder: URL, _ takes: [ShareTake]) throws {
-        try takesBody(takes).write(to: folder.appendingPathComponent(takesFile), options: .atomic)
+        try takesBody(takes).write(to: folder.appendingPathComponent(takesFile), options: StorageProtection.atomic)
     }
 
-    /// The takes of a recording, or nil when it has one take (no file) or the file is not a take list: the first
-    /// entry with gap 0, starting after its pre-roll (0 without one, at most the ring's second; SDK 3.0.0), `start_ms`
-    /// strictly increasing, each gap 0 to 10000, at most `TakeJoin.maxTakes` entries.
-    static func takes(_ folder: URL) -> [ShareTake]? {
-        guard let list = read(TakeList.self, folder.appendingPathComponent(takesFile))?.takes,
-              (2...TakeJoin.maxTakes).contains(list.count), list[0].gap_ms == 0,
-              (0...ShareFeed.ringMs).contains(list[0].start_ms) else { return nil }
-        for (i, t) in list.enumerated() {
-            guard t.gap_ms >= 0, t.gap_ms <= TakeJoin.maxWindowMs else { return nil }
-            if i > 0, t.start_ms <= list[i - 1].start_ms { return nil }
+    /// The takes of a recording in three results. `.value(nil)`: it has one take (no file), or the file was read
+    /// and is not a take list: the first entry with gap 0, starting after its pre-roll (0 without one, at most the
+    /// ring's second; SDK 3.0.0), `start_ms` strictly increasing, each gap 0 to 10000, at most `TakeJoin.maxTakes`
+    /// entries. A file the system does not give is `unreadable` (3.1.4): the list is neither sent nor dropped then.
+    static func storedTakes(_ folder: URL) -> StoredRead<[ShareTake]?> {
+        switch StorageSeam.read(folder.appendingPathComponent(takesFile)) {
+        case .missing: return .value(nil)
+        case .unreadable(let why): return .unreadable(why)
+        case .value(let d):
+            // bytes that were read and are not a take list: no list, as before 3.1.4 (the recording is uploaded
+            // all the same, without its take boundaries)
+            guard let list = (try? JSONDecoder().decode(TakeList.self, from: d))?.takes,
+                  (2...TakeJoin.maxTakes).contains(list.count), list[0].gap_ms == 0,
+                  (0...ShareFeed.ringMs).contains(list[0].start_ms) else { return .value(nil) }
+            for (i, t) in list.enumerated() {
+                guard t.gap_ms >= 0, t.gap_ms <= TakeJoin.maxWindowMs else { return .value(nil) }
+                if i > 0, t.start_ms <= list[i - 1].start_ms { return .value(nil) }
+            }
+            return .value(list)
         }
-        return list
+    }
+
+    /// The takes of a recording, or nil when it has one take or the file is not a take list.
+    static func takes(_ folder: URL) -> [ShareTake]? {
+        // unreadable is taken as not there here, because this is the count of takes a recording's status shows
+        if case .value(let list) = storedTakes(folder) { return list }
+        return nil
     }
 
     /// Keeps the takes that start inside the first `durationMs` of the recording (what a recovery left of it); fewer
-    /// than two left: no list (the file goes).
+    /// than two left: no list (the file goes). A list that cannot be read is left as it is.
     static func trimTakes(_ folder: URL, durationMs: Int) {
         let url = folder.appendingPathComponent(takesFile)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        let all = takes(folder) ?? []
+        guard FileManager.default.fileExists(atPath: url.path), case .value(let read) = storedTakes(folder) else { return }
+        let all = read ?? []
         let kept = all.filter { $0.start_ms < durationMs }
         if kept.count < 2 {
             try? FileManager.default.removeItem(at: url)
@@ -300,7 +336,7 @@ enum ShareFiles {
     }
 
     static func sha256(_ url: URL) -> (Int64, String)? {
-        guard let h = try? FileHandle(forReadingFrom: url) else { return nil }
+        guard !StorageSeam.refuses(url), let h = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? h.close() }
         var hash = SHA256Hasher()
         var n: Int64 = 0
@@ -312,11 +348,18 @@ enum ShareFiles {
     }
 
     static func write<T: Encodable>(_ v: T, _ url: URL) throws {
-        try JSONEncoder().encode(v).write(to: url, options: .atomic)
+        try JSONEncoder().encode(v).write(to: url, options: StorageProtection.atomic)
+    }
+
+    /// One of a recording's JSON files in three results (3.1.4).
+    static func stored<T: Decodable>(_ t: T.Type, _ url: URL) -> StoredRead<T> {
+        StorageSeam.read(url).decoded(t)
     }
 
     static func read<T: Decodable>(_ t: T.Type, _ url: URL) -> T? {
-        (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(t, from: $0) }
+        // unreadable is taken as not there here, because this read serves what a recording's status shows (its
+        // length, whether it ended); whatever decides an upload or a deletion reads with `stored`
+        stored(t, url).takingUnreadableAsMissing
     }
 
     /// Closes segment `n`: its marker, from the files as they are on disk.
@@ -345,30 +388,79 @@ enum ShareFiles {
     }
 
     static func markers(_ folder: URL) -> [Marker] {
+        // unreadable is taken as not there here, because this list serves what a recording's status shows and the
+        // estimate of the backlog; an upload goes by `closed`, which leaves out no segment
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         return names.filter { $0.hasPrefix("seg-") && $0.hasSuffix(".json") }.compactMap { read(Marker.self, folder.appendingPathComponent($0)) }
             .sorted { $0.n < $1.n }
     }
 
+    /// The closed segments of a recording, in three results (3.1.4): every marker read, or `unreadable` when one
+    /// of them is there and cannot be read. The recording is then left as it is: until 3.1.3 a marker that could
+    /// not be read left its segment out, and the recording was finished and that segment's audio deleted unsent.
+    static func closed(_ folder: URL) -> StoredRead<[Marker]> {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        var out: [Marker] = []
+        for name in names where name.hasPrefix("seg-") && name.hasSuffix(".json") {
+            switch stored(Marker.self, folder.appendingPathComponent(name)) {
+            case .value(let m): out.append(m)
+            case .unreadable(let why): return .unreadable(why)
+            // gone between the listing and the read
+            case .missing: continue
+            }
+        }
+        return .value(out.sorted { $0.n < $1.n })
+    }
+
+    /// What became of a recording the app was killed in.
+    enum Recovery: Equatable {
+        /// Closed and ended as not completed: it is uploaded.
+        case recovered
+        /// There was nothing to share: the folder is removed.
+        case nothing
+        /// One of its files is there and cannot be read: nothing was changed, and it is looked at again later.
+        case unreadable
+    }
+
     /// A session the app was killed in: the last segment is cut back to its last whole page,
     /// closed, and the session ended as not completed. A recording of several takes (2.0.3) keeps the takes that
     /// start inside what was recovered.
-    /// Returns false when there is nothing to share (the folder is then removed).
+    /// Returns false when there is nothing to share (the folder is then removed), and when one of its files cannot
+    /// be read (nothing is changed then).
     @discardableResult
-    static func recover(_ folder: URL) -> Bool {
+    static func recover(_ folder: URL) -> Bool { recovery(folder) == .recovered }
+
+    /// `recover`, with its three outcomes. A capture file, a marker, a take list or an open segment's audio that is
+    /// there and cannot be read leaves the recording as it is (3.1.4); until 3.1.3 it was deleted as one with
+    /// nothing to share.
+    static func recovery(_ folder: URL) -> Recovery {
         let fm = FileManager.default
-        guard let cap = read(Capture.self, folder.appendingPathComponent(capture)) else {
+        let cap: Capture
+        switch stored(Capture.self, folder.appendingPathComponent(capture)) {
+        case .value(let c): cap = c
+        case .unreadable: return .unreadable
+        case .missing:
             try? fm.removeItem(at: folder)
-            return false
+            return .nothing
         }
-        var marks = markers(folder)
+        guard case .value(let before) = closed(folder), !storedTakes(folder).isUnreadable else { return .unreadable }
+        var marks = before
         let names = (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
         let open = names.filter { $0.hasSuffix(".opus") }.compactMap { Int($0.dropFirst(4).dropLast(5)) }
             .filter { n in !marks.contains { $0.n == n } }.sorted()
+        // every open segment's audio is read before anything is changed
+        var audioOf: [Int: Data] = [:]
+        for n in open {
+            switch StorageSeam.read(folder.appendingPathComponent(name(n)).appendingPathExtension("opus")) {
+            case .value(let d): audioOf[n] = d
+            case .unreadable: return .unreadable
+            case .missing: continue
+            }
+        }
         for n in open {
             let base = folder.appendingPathComponent(name(n))
             let audio = base.appendingPathExtension("opus")
-            let d = (try? Data(contentsOf: audio)) ?? Data()
+            guard let d = audioOf[n] else { continue }
             let (keep, granule) = wholePages(d)
             if keep == 0 {
                 try? fm.removeItem(at: audio)
@@ -381,15 +473,16 @@ enum ShareFiles {
             let bitrate: Int? = cap.bitrates.flatMap { (b: [Int]) -> Int? in n >= 1 && n <= b.count ? b[n - 1] : nil }
             try? mark(folder, n: n, granule: granule, bitrate: bitrate)
         }
-        marks = markers(folder)
+        guard case .value(let after) = closed(folder) else { return .unreadable }
+        marks = after
         guard let last = marks.last else {
             try? fm.removeItem(at: folder)
-            return false
+            return .nothing
         }
         let ms = Int(max(0, last.granule - Int64(cap.preSkip)) / 48)
         trimTakes(folder, durationMs: ms)
         try? write(End(durationMs: ms, completed: false), folder.appendingPathComponent(end))
-        return true
+        return .recovered
     }
 
     /// The length of the whole pages at the start of `d` (each with a valid CRC), and the last
@@ -463,14 +556,22 @@ final class ShareCapture: ShareRecording {
         id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         folder = outbox.root.appendingPathComponent(id, isDirectory: true)
         let weights = weightsSHA256
-        let contributor = Contributor.id(storage: outbox.storage), day = Day.string()
+        let day = Day.string()
+        // the contributor's id, device key and recovery code: read, or made now for a device that has none (the
+        // first share). One that is there and cannot be read is not made anew (3.1.4): no recording begins then.
+        let contributor = Contributor.id(storage: outbox.storage)
         let key = ContributorKey.key(storage: outbox.storage)?.contributorKey
-        let recovery = RecoveryCode.hash(ContributorKey.recoveryCode(storage: outbox.storage))
+        let recovery = ContributorKey.recoveryCode(storage: outbox.storage).flatMap { RecoveryCode.hash($0) }
         session = { rate, route, seq, gap in
             ContributionClient.session(modelRevision: modelRevision, backend: backend, weightsSHA256: weights,
-                                       consentVersion: consentVersion, contributor: contributor, day: day,
+                                       consentVersion: consentVersion, contributor: contributor ?? "", day: day,
                                        inputSampleRate: rate, inputRoute: route, contributorKey: key, recoveryHash: recovery,
                                        consentTextSHA256: consentTextSHA256, modelBuild: modelBuild, takeSeq: seq, gapMsPrev: gap)
+        }
+        guard contributor != nil, key != nil, recovery != nil else {
+            // not alive: nothing is written for it, and no take joins it
+            failed = true
+            return
         }
         let id = self.id
         Self.active.withLock { _ = $0.insert(id) }
@@ -496,10 +597,11 @@ final class ShareCapture: ShareRecording {
         guard Contributions.isActive else { return abandon() }
         if writer == nil {
             do {
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try StorageProtection.makeFolder(folder)
                 // the stamp before anything else is in the folder: a recording without one reads as begun under count 0
                 try ShareFiles.write(ShareFiles.Stamp(count: consentCount), folder.appendingPathComponent(ShareFiles.stampFile))
-                try session(Int(rate.rounded()), AudioRoute.current(), takeSeq, gapMsPrev).write(to: folder.appendingPathComponent(ShareFiles.session))
+                try session(Int(rate.rounded()), AudioRoute.current(), takeSeq, gapMsPrev)
+                    .write(to: folder.appendingPathComponent(ShareFiles.session), options: StorageProtection.inPlace)
             } catch {
                 throw .storageFailed("cannot create \(folder.lastPathComponent): \(error.localizedDescription)")
             }

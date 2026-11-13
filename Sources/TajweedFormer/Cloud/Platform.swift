@@ -2,7 +2,7 @@ import Foundation
 
 /// The SDK's own version, sent in registration, events and issue reports.
 enum SDKInfo {
-    static let version = "3.1.3"
+    static let version = "3.1.4"
     /// Where the SDK runs: the one sentence every `runtime_unsupported` error ends its fix with. It says what the
     /// README's "Before you start" says.
     static let minimum = "iOS 15 or macOS 12 or later, on Apple silicon (an arm64 device, the arm64 simulator or an arm64 Mac)"

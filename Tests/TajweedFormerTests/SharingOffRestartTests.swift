@@ -23,7 +23,12 @@ import XCTest
 /// - `on_again_works`: a recording made after sharing came on again is uploaded, and it is the only one uploaded.
 /// - the optional case (`delete_unanswered`): the process ends while the server is being asked to delete. This SDK
 ///   writes on the device that a deletion is being asked before it asks, and a process that finds that at its
-///   launch takes it for an off.
+///   launch takes it for an off and asks the server again (3.1.4). Only the first process's request goes
+///   unanswered, as the case says; the next start's request is answered. By the rule of 3.1.4, nothing is
+///   recorded for sharing while that deletion is not confirmed, also after the learner turned sharing on again
+///   (their yes is stored at once and takes effect when the server has confirmed): so for this case the test
+///   waits until the deletion is confirmed before sharing comes on again, and `on_again_works` is measured on a
+///   recording made after that.
 final class SharingOffRestartTests: XCTestCase {
     struct Case {
         let name: String
@@ -95,8 +100,9 @@ final class SharingOffRestartTests: XCTestCase {
         StubProtocol.reset { (s: StubProtocol.Seen) -> StubProtocol.Reply in
             if s.path == "/v1/contributions/challenge" {
                 var r = StubProtocol.Reply.json(["nonce": "d1.1794000000.AAAA.BBBB", "expires_in": 300])
-                // the server that is being asked and has not answered
-                if unanswered { r.hold = gate }
+                // the server that is being asked by the first process and has not answered; a later request (the
+                // next start's, which asks again) is answered
+                if unanswered, StubProtocol.seen("/v1/contributions/challenge").count == 1 { r.hold = gate }
                 return r
             }
             if s.path == "/v1/contributions/delete" { return .json(["ok": true], status: 202) }
@@ -179,8 +185,18 @@ final class SharingOffRestartTests: XCTestCase {
             if c.then == nil, Self.onDisk(root, ids) != 0 { fail("earlier_consent_deleted") }
         }
         if c.then == "on" {
+            if unanswered {
+                // the rule of 3.1.4: while the deletion that the first process asked is not confirmed, nothing is
+                // recorded for sharing, whatever the learner answers meanwhile. The next start has asked the server
+                // again; the test waits until it has confirmed (the mark is gone) before sharing comes on again.
+                let mark = DeletionMark.url(storage).path
+                let confirmed = await until(10) { !FileManager.default.fileExists(atPath: mark) }
+                if !confirmed { fail("setup: the next start's deletion was not confirmed") }
+            }
             // sharing on again while the recordings still cannot be deleted
             await Contributions.setSharing(true)
+            // (for that case also until sharing is in force: the end of the confirmed deletion's work)
+            if unanswered { _ = await until(2) { Contributions.isActive } }
             await cloud.outbox.drain(ignoringBackoff: true)
             let next = try record()
             let outbox = cloud.outbox
@@ -272,6 +288,11 @@ final class SharingOffRestartTests: XCTestCase {
         let queue = first.outbox
         let waiting = await until(15) { await queue.items.count == 1 }
         XCTAssertTrue(waiting)
+        // the first launch's queue is at rest before its files are changed by hand: a pass that was started before
+        // the shutdown would read the recording without its stamp against the state this process still holds, and
+        // remove it as one made under an earlier consent (seen once in six runs of the suite, and once in 300 runs
+        // of these steps; `hold()` returns when the pass has left)
+        await first.outbox.hold()
         first.outbox.shutdown()
         // as an earlier SDK left it: the recording has no stamp, and the saved answer has no count
         let fm = FileManager.default

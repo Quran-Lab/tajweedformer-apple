@@ -33,6 +33,12 @@ import Foundation
 /// `model_not_allowed`), `sdk_too_old`, `environment_mismatch`, a 429, a 503 `network_blocked`, every 5xx, no
 /// answer, an answer that does not verify. A learner without a connection keeps working after a real download.
 ///
+/// A remembered refusal that is there and cannot be read is not "no refusal" (3.1.4): while the system does not
+/// give the file, no model is opened and nothing is downloaded (`unreadable`, asked by `QuranLabCloud.modelStop`
+/// and before every download), nothing is removed, and the file is read again at the next call. Until 3.1.3 the
+/// file was read once, when the Client was made, and one that could not be read then was no refusal for the life
+/// of the process: a model that was still on the device was opened.
+///
 /// Tried before (to 3.0.1): a refusal stopped the network calls of the launch and nothing else; the model on the
 /// device kept serving a refused key for ever.
 final class ModelGate: Sendable {
@@ -70,7 +76,7 @@ final class ModelGate: Sendable {
     }
 
     private let file: JSONFile<Refusal>
-    private let state: Locked<Refusal?>
+    private let state: Locked<StoredRead<Refusal>>
     /// Every model build the SDK holds: `<storage>/models`.
     private let models: URL
     /// The Client holds an open Model: its files stay until it is closed.
@@ -80,7 +86,7 @@ final class ModelGate: Sendable {
 
     init(storage: URL) {
         file = JSONFile(url: storage.appendingPathComponent("cloud/model-stop.json"))
-        state = Locked(file.read())
+        state = Locked(Self.load(file))
         models = storage.appendingPathComponent("models")
         // a start that finds a remembered refusal and any model file removes the files first
         removeModelsIfStopped()
@@ -105,17 +111,52 @@ final class ModelGate: Sendable {
         if !isOpen { removeModelsIfStopped() }
     }
 
+    /// The remembered refusal as the device has it, in three results.
+    private static func load(_ file: JSONFile<Refusal>) -> StoredRead<Refusal> {
+        let read = file.read()
+        // damaged is taken as not there here (bytes that were read and are not a refusal), as before 3.1.4: a
+        // damaged file and a deleted one must not behave differently, and a refusal that is still in force comes
+        // back with the server's next answer. A file the system does not give (refused) is held: no model is
+        // opened and nothing is downloaded until it reads.
+        if case .unreadable(.damaged) = read { return .missing }
+        return read
+    }
+
+    /// The remembered refusal as this process has it now. One that could not be read is read again here.
+    private func current() -> StoredRead<Refusal> {
+        let file = self.file
+        return state.withLock { (s: inout StoredRead<Refusal>) -> StoredRead<Refusal> in
+            if s.isUnreadable { s = Self.load(file) }
+            return s
+        }
+    }
+
     /// The refusal that stops the model now, when one is remembered.
-    var stop: Refusal? { state.withLock { $0 } }
+    var stop: Refusal? { current().takingUnreadableAsMissing }
+
+    /// Why the remembered refusal cannot be read now, when it is there and cannot: no model is opened and nothing
+    /// is downloaded until it reads.
+    var unreadable: String? {
+        if case .unreadable(let why) = current() { return why.why }
+        return nil
+    }
+
+    /// What a call raises while the remembered refusal cannot be read.
+    static func unreadableError(_ why: String) -> RecognizerError {
+        .storageFailed("what this device remembers of the server's last answer cannot be read now (\(why)); "
+                       + "no model was opened or downloaded, and the next call tries again")
+    }
 
     /// An answer of the server that was an error: when it is a stop it is remembered and the model files are
     /// removed, before the call that received it returns its error; else nothing.
     func note(_ e: CloudError, from: Source) {
         guard case .rejected(let status, let code, let message, let reason) = e, let reason, Self.stops(reason: reason) else { return }
         let r = Refusal(status: status, code: code, message: message, reason: reason, from: from)
-        let changed = state.withLock { (s: inout Refusal?) -> Bool in
-            defer { s = r }
-            return s != r
+        // a new refusal is the server's newest word: it is remembered also over a file that cannot be read now
+        let changed = state.withLock { (s: inout StoredRead<Refusal>) -> Bool in
+            defer { s = .value(r) }
+            if case .value(let had) = s { return had != r }
+            return true
         }
         if changed { file.write(r) }
         removeModelsIfStopped()
@@ -124,9 +165,10 @@ final class ModelGate: Sendable {
     /// The server accepted the key: the API with a config, a registration or a token, or the CDN with a model
     /// request it served. A remembered refusal from the same side is over; one from the other side stays.
     func accepted(_ by: Source) {
-        let had = state.withLock { (s: inout Refusal?) -> Bool in
-            guard s?.from == by else { return false }
-            s = nil
+        // a refusal that cannot be read now is not cleared: what side it came from is not known, and the file stays
+        let had = state.withLock { (s: inout StoredRead<Refusal>) -> Bool in
+            guard case .value(let r) = s, r.from == by else { return false }
+            s = .missing
             return true
         }
         if had { file.delete() }

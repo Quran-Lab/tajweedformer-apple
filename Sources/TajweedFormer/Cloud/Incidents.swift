@@ -85,7 +85,9 @@ final class IncidentLedger: Sendable {
 
     init(storage: URL) {
         file = JSONFile(url: storage.appendingPathComponent("cloud/incidents.json"))
-        var s = file.read() ?? State()
+        // unreadable is taken as not there here, because these are accelerator incident reports: one is lost or
+        // sent again
+        var s = file.read().takingUnreadableAsMissing ?? State()
         s.pending = s.pending.filter(IssueReport.fresh)
         state = Locked(s)
     }

@@ -346,13 +346,13 @@ struct ModelManifest: Sendable, Hashable {
     }
 
     func write(to directory: URL) throws(RecognizerError) {
-        do { try (raw ?? jsonData()).write(to: directory.appendingPathComponent(Self.fileName), options: .atomic) } catch {
+        do { try (raw ?? jsonData()).write(to: directory.appendingPathComponent(Self.fileName), options: StorageProtection.atomic) } catch {
             throw .storageFailed("cannot write \(Self.fileName): \(error.localizedDescription)")
         }
     }
 
     static func read(_ directory: URL) throws(RecognizerError) -> ModelManifest {
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent(fileName)) else {
+        guard let data = try? StorageSeam.data(directory.appendingPathComponent(fileName)) else {
             throw .modelMissing("no \(fileName) in \(directory.lastPathComponent)")
         }
         return try parse(data)
