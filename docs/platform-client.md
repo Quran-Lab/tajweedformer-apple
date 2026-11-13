@@ -35,8 +35,8 @@ answers "Share", and a learner who never answers never shares.
 1. **Default.** The SDK shows its own sheet at a good moment (after a finished session with feedback, never
    at first launch), in the learner's language, right to left for Arabic and Urdu, with a guardian variant
    for children's apps.
-2. **Themed.** Colours, corner radius and fonts of the SDK's sheets can be set; the words stay the SDK's.
-   This does not change the consent version.
+2. **Themed.** Colours, corner radius and fonts of the SDK's sheets can be set; the words, their order, every
+   line and the name at the top stay the SDK's. This does not change the consent version.
 3. **Your own UI.** The app receives the SDK's request to ask, shows its own UI with the SDK's localized
    strings (the copy deck the SDK exposes), and reports the learner's answer with the SDK's grant and
    decline calls, only from the learner's own tap. The SDK counts each ask against the same three.

@@ -104,7 +104,18 @@ jobs:
             echo "::notice::no test-fixtures-v4 release and no QURANLAB_CI_KEY secret: the model-dependent tests skip"
           fi
       - name: swift test
+        # SharingSheetLayoutTests also draws the sharing sheet with SwiftUI into this folder (PNG): the pictures a
+        # release's review looks at, uploaded below as the artifact sharing-sheet-pictures
+        env:
+          QURANLAB_SHEET_PICTURES: ${{ runner.temp }}/sharing-sheet-pictures
         run: set -o pipefail; swift test 2>&1 | tee "$RUNNER_TEMP/test.log"
+      - name: The sharing sheet's pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sharing-sheet-pictures
+          path: ${{ runner.temp }}/sharing-sheet-pictures
+          if-no-files-found: warn
       - name: The privacy manifest is in the built package
         run: |
           found=$(find .build -name PrivacyInfo.xcprivacy -path '*TajweedFormer_TajweedFormer*' | head -1)

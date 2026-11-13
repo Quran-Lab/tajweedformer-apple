@@ -549,7 +549,12 @@ final class OnlineOnlyTests: XCTestCase {
     func testEveryCaseOfTheModelGateVector() async throws {
         let v = try Vectors30.json("model_gate.json")
         XCTAssertEqual(v["format"] as? String, "quranlab.sdk-model-gate-vectors/3")
-        XCTAssertEqual(v["sdk"] as? String, SDKInfo.version, "the vector's texts name this SDK's version")
+        // `sdk` names the version the file was built with and fills {sdk} in its texts: this SDK is that version or a
+        // later 3.1.x, and puts its own version in its place before it compares
+        let written = try XCTUnwrap(v["sdk"] as? String)
+        XCTAssertTrue(ModelManifest.version(SDKInfo.version, isAtLeast: written), "SDK \(SDKInfo.version) is not older than the vector's \(written)")
+        XCTAssertEqual(SDKInfo.version.split(separator: ".").prefix(2).joined(separator: "."), "3.1", "the vector holds for SDK 3.1.x")
+        func ours(_ text: Any?) -> String? { (text as? String)?.replacingOccurrences(of: "this is " + written + ".", with: "this is " + SDKInfo.version + ".") }
         XCTAssertEqual(Set(try XCTUnwrap(v["stop_reasons"] as? [String])), ModelGate.stopReasons, "the list of refusals that stop a model, in one constant")
         XCTAssertEqual(Set(try XCTUnwrap(v["key_reasons"] as? [String])), ModelGate.keyReasons, "the stop reasons whose error is invalid_key")
         XCTAssertTrue(ModelGate.keyReasons.isSubset(of: ModelGate.stopReasons))
@@ -624,8 +629,8 @@ final class OnlineOnlyTests: XCTestCase {
                     let e = try XCTUnwrap(got.error, at)
                     if let wanted {
                         XCTAssertEqual(e.code, wanted["code"] as? String, at)
-                        XCTAssertEqual(e.message, wanted["message"] as? String, at)
-                        XCTAssertEqual(e.fix, wanted["fix"] as? String, at)
+                        XCTAssertEqual(e.message, ours(wanted["message"]), at)
+                        XCTAssertEqual(e.fix, ours(wanted["fix"]), at)
                     } else {
                         XCTAssertFalse(["server_rejected", "invalid_key", "sdk_too_old"].contains(e.code), "\(at): no refusal of its own, got \(e.code)")
                     }
@@ -640,7 +645,7 @@ final class OnlineOnlyTests: XCTestCase {
                 let offline = try await launch(storage, app: app)
                 XCTAssertNil(offline.build, "\(at): a relaunch without a network stays stopped")
                 XCTAssertEqual(offline.error?.code, wanted["code"] as? String, at)
-                XCTAssertEqual(offline.error?.message, wanted["message"] as? String, at)
+                XCTAssertEqual(offline.error?.message, ours(wanted["message"]), at)
                 XCTAssertEqual(snapshot(models).filter { !$0.hasPrefix("recommended.json") }, [], "\(at): still no model on the device")
                 // a launch the server accepts: the stop is cleared. A refusal of the API ends with the API's answer;
                 // a refusal of a model request ends when the CDN, asked again, serves the key. The device holds no

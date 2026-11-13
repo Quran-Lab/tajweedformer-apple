@@ -17,7 +17,7 @@ body:
     id: sdk-version
     attributes:
       label: SDK version, if it matters
-      placeholder: "3.1.0"
+      placeholder: "3.1.1"
   - type: dropdown
     id: sent-by
     attributes:

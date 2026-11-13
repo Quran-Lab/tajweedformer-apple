@@ -593,7 +593,7 @@ The thank-you line with its du'a, and (when the server answers) the learner's re
 public struct SharingTheme: Sendable
 ```
 
-How the SDK's sharing views look in the app: colours, corner radius and fonts. The words are the deck's.
+How the SDK's sharing views look in the app: colours, corner radius and fonts. The words are the deck's, and a theme never changes the sheet's structure or hides a line. `accent` fills the share button and the switch; the "Not now" button's fill, the emblem's and the hadith's (the accent at a few percent over the background) and the share button's label (white where white reads on the accent, else near black) are derived from it, and where the accent cannot be read on what is behind it (3 to 1, or 4.5 to 1 when the device asks for more contrast) the "Not now" label and the icons take the text colour. `background`, `text` and `secondaryText` left at their defaults give the sheet's own colours for light and dark; set, the cards, the dividers and the body text are mixed from them. `cornerRadius` is the buttons' (the cards', the emblem's and the sheet's radii scale with it). `titleFont` and `bodyFont` left at their defaults give the sheet's own type, which follows the system's text size.
 
 - `public var accent: Color`
 - `public var background: Color`

@@ -1,5 +1,79 @@
 # Changelog
 
+## 3.1.1
+
+The sharing sheet has a new design. No word, no consent rule and no consent version changed, and nothing else in
+the SDK changed: the same engine, the same model builds and the same API as 3.1.0.
+
+### The sharing sheet has a new design
+- What a learner sees: at the top the Quran Lab emblem and the name "Quran Lab", then the title and the body; one
+  card with what is shared, who receives it and how to stop, each line with its icon; the hadith in a card of its
+  own; the line about mistakes; in a children's app the guardian's switch. The two buttons sit in a bar at the
+  bottom that does not scroll, so they are always in view: "Share my recitations", filled with the accent colour,
+  and "Not now", filled with a light tint of it, of the same size, shape and type. What is shared, who receives it
+  and how to stop now come before the hadith, so on an iPhone they are on the first screen with the buttons.
+- Before (3.1.0): the deck's lines stacked in one font, a box with a stroke, two outlined buttons of different
+  heights at the end of the scroll, and the hadith before what is shared.
+- On an iPhone the sheet opens at full height with a grabber; on an iPad and on a Mac it is a centred card 480
+  points wide. Arabic and Urdu sheets are laid out right to left, whatever the app's own direction, and the other
+  six languages left to right. Under the buttons there are 30 points, or the bottom safe area where it is larger.
+- The text is the system font at the design's sizes and weights (the title 26 points bold, the body 15.5, the
+  card's lines 14.5, the buttons 16 semibold), in its own colours for light and dark mode, and it grows with the
+  learner's text size (Larger Text on iOS) up to the largest accessibility size; the buttons then grow in height,
+  keep their label on two lines at most, and never cut it. Nothing set on the app's own views reaches the sheet: a
+  font, a weight, bold or italic, a text size, a line limit, upper case, an alignment or a placeholder redaction set
+  near the app's root no longer changes how it looks (in 3.1.0 a `.fontWeight(.semibold)` or `.bold()` on the app's
+  views made every line of the sheet semibold). One exception: `.monospacedDigit()`, which SwiftUI gives no way to
+  undo, still gives the digits of the hadith's reference equal widths. The system's Bold Text setting still applies.
+- What a theme still changes. `SharingTheme` keeps its fields and its initialiser, so an app that themes the sheet
+  compiles as before. `accent` (by default the app's accent colour, as before) fills the share button and the
+  switch, and the tint of "Not now", of the emblem and of the hadith's card comes from it. The share button's
+  label is white, or near black where white cannot be read on the accent; the "Not now" label and the icons are in
+  the accent, or in the text colour where the accent cannot be read on the tint or the card. "Read" means 3 to 1,
+  as the system's own buttons have (so the system's blue gets a white label and blue icons), and 4.5 to 1 when the
+  learner has turned on Increase Contrast. The running text never takes the accent and keeps 4.5 to 1.
+  `background`, `text` and `secondaryText` replace the sheet's own colours, and the cards, the dividers and the
+  body text follow them. `cornerRadius` sets the buttons' radius and scales the others with it. `titleFont` and
+  `bodyFont` replace the title's and the running text's font. A theme does not change the order, hide a line, or
+  change or hide the name at the top.
+- The thank-you and the settings views take the same colours and type; what they hold is unchanged.
+- Fixed (since 3.0): in Arabic and Urdu a line that begins with Latin letters was laid out as a left to right
+  paragraph: who receives the recordings (the sheet's line that starts with the name Quran Lab, in both
+  languages) and, in Urdu, the line shown when deleting fails without a network. Read from the right, the name came
+  at the end of the line's first row and the full stop on the wrong side. Every text of the sheet, the thank-you
+  and the settings now takes its direction from the deck, whatever its first letter. A screen reader reads the
+  same words as before.
+- The SDK's own presentations (the sheet it shows by itself, `.quranLabSharing(client)`,
+  `SharingConsentViewController`) ask iOS for the large detent and the design's corner radius on an iPhone and a
+  480 point card on an iPad; `SharingConsentViewControllerMac` asks for 480 by 680 points.
+- Unchanged: every word (copy deck `2026-11-12.1` in eight languages), the consent version `share-2026-11-12`,
+  when and how often the sheet is shown, and what each button records.
+
+### Tests
+The tests below run on the public CI's Mac runner; the sheet is drawn by SwiftUI on that Mac, not on an iPhone.
+Not run on a device: the large detent and the corner radius of the iPhone sheet, the switch's colour, and the text
+size, Bold Text and Increase Contrast read from the device.
+- Every line of the sheet is drawn whole, as the deck file has it, in each of the eight languages, in the first
+  ask, the re-ask and the guardian's variant, and the name is at the top (also with a theme that sets every field
+  and with the app's own wording). The 3.1.0 test of the deck's lines is unchanged and passes.
+- The two buttons have the same width and height in every language, at the default and the largest text size, on
+  a 390 and a 320 point wide phone; 52 points high (one line) at the default size, and never more than two lines of
+  a label.
+- In the guardian's variant the share button cannot be tapped until the switch is on; clicking the switch enables
+  it and clicking it again disables it; "Not now" always can.
+- The layout direction follows the deck, also in an app laid out the other way, and every text of every deck (the
+  sheet, the thank-you, the settings, the plural forms) is a paragraph in the deck's direction, as Core Text
+  resolves the string the views draw.
+- Under the buttons: 30 points to the sheet's edge without a safe area and the safe area where it is larger.
+- Nothing of the scrolled column is drawn in the grabber's band at the top of the phone sheet (its pixels, light
+  and dark).
+- The sheet drawn inside each of 22 modifiers an app may set on its views is the same, pixel for pixel, as without
+  them.
+- The colours: the design's tokens in light and dark mode, the tint and the label on the accent as the design
+  derives them; the running text at 4.5 to 1; the labels and icons at 3 to 1, or 4.5 with Increase Contrast, with
+  the system's blue (a white label and blue icons in light and dark mode; near black and the text colour with
+  Increase Contrast), a yellow accent (near black, the text colour) and the design's teal.
+
 ## 3.1.0
 
 A model comes from Quran Lab's server, through the Client, and in no other way. The same change in the Android,
