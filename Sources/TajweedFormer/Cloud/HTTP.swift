@@ -95,12 +95,18 @@ enum CloudError: Error, Equatable, Sendable {
     }
 }
 
-/// Refuses every redirect of the request it is given to: the 3xx is the answer. A model request carries the key and
-/// the install's token, and never leaves the host it was made to (SPEC 15.4).
+/// Refuses every redirect of the request it is given to: the 3xx is the answer. No request of the SDK follows a
+/// redirect (SPEC 15.4, contract 1.17.0): a system that follows one by itself sends the request's own headers to
+/// the new host (the developer key in `x-qlab-key`, a token, a recording's id), and on a 307 or 308 the body too,
+/// which can be a report or a recording.
 final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
+    /// The system asked about a redirect, and was told no.
+    let refused = Locked(false)
+
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest) async -> URLRequest? {
-        nil
+        refused.withLock { $0 = true }
+        return nil
     }
 }
 
@@ -130,18 +136,30 @@ struct HTTPClient: Sendable {
         return URLSession(configuration: c)
     }
 
-    func send(_ request: URLRequest, followRedirects: Bool = true) async throws(CloudError) -> Response {
+    /// The answers that name another address for the request.
+    static let redirects: Set<Int> = [301, 302, 303, 307, 308]
+
+    /// Sends one request. This is the one place every request of the SDK's ordinary session passes: the API's
+    /// calls (config, registration, attestation and token, telemetry, issues, every sharing call, the deletion
+    /// calls), the model requests, and a segment's PUT to its signed URL when it runs in the app. None of them
+    /// follows a redirect (SPEC 15.4): the task's delegate tells the system no, and the 3xx is a failed request,
+    /// `offline` like an answer that did not come. It is never a refusal of the key, and it is asked again only by
+    /// the rule the call already has for a failed request.
+    /// Tried before (to 3.1.2): only a model request had the refusing delegate (since 3.1.0). Every other request
+    /// was sent with `session.data(for:)` and no delegate, which leaves a redirect to the system, and the system
+    /// follows it.
+    func send(_ request: URLRequest) async throws(CloudError) -> Response {
         let data: Data, response: URLResponse
+        let watch = NoRedirect()
         do {
-            if followRedirects {
-                (data, response) = try await session.data(for: request)
-            } else {
-                (data, response) = try await session.data(for: request, delegate: NoRedirect())
-            }
+            (data, response) = try await session.data(for: request, delegate: watch)
         } catch {
             throw .offline(error.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else { throw .invalid("not an HTTP response") }
+        if watch.refused.withLock({ $0 }) || Self.redirects.contains(http.statusCode) {
+            throw .offline("the server answered with a redirect (HTTP \(http.statusCode)), which the SDK never follows")
+        }
         var headers: [String: String] = [:]
         for (k, v) in http.allHeaderFields {
             if let k = k as? String, let v = v as? String { headers[k] = v }
@@ -151,10 +169,9 @@ struct HTTPClient: Sendable {
 
     /// Sends and checks the status: 2xx returns, 5xx is offline, 4xx is rejected with the error
     /// code from the body.
-    func checked(_ request: URLRequest, followRedirects: Bool = true) async throws(CloudError) -> Response {
-        let r = try await send(request, followRedirects: followRedirects)
+    func checked(_ request: URLRequest) async throws(CloudError) -> Response {
+        let r = try await send(request)
         if (200..<300).contains(r.status) { return r }
-        if !followRedirects, (300..<400).contains(r.status) { throw .offline("the server answered with a redirect (HTTP \(r.status)), which a model request never follows") }
         if r.status >= 500 { throw .offline("HTTP \(r.status)") }
         let o = (try? JSONSerialization.jsonObject(with: r.body)) as? [String: Any]
         throw .rejected(status: r.status, code: o?["error"] as? String ?? "http_\(r.status)", message: Self.message(o),

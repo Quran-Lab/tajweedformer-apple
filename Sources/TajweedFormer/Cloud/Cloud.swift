@@ -106,14 +106,22 @@ final class QuranLabCloud: Sendable {
         self.tokens = tokens
         let config = ConfigStore(storage: storage, trustedKeys: cloud.signingKeys)
         self.config = config
+        let issueQueue = IssueQueue(storage: storage)
+        let reportsIssues = cloud.issueReports
         outbox = ContributionOutbox(storage: storage, http: http, apiURL: cloud.apiURL, tokens: tokens, config: config,
-                                    options: cloud, app: app, clock: clock)
+                                    options: cloud, app: app, clock: clock, redirected: { host in
+                                        // SPEC 15.4: a background upload that the system redirected is reported with
+                                        // the host it ended on, and nothing else of the address
+                                        guard reportsIssues, config.current?.flags.issues ?? true else { return }
+                                        issueQueue.add(QuranLabCloud.issue(kind: "other", code: "upload_redirected:" + host, app: app,
+                                                                           backend: nil, revision: nil))
+                                    })
         analytics = AnalyticsStore(storage: storage, enabled: options.analytics != .off,
                                    context: .init(platform: app.platform, sdkVersion: SDKInfo.version, appVersion: app.version,
                                                   deviceClass: DeviceContext.deviceClass, soc: DeviceContext.soc,
                                                   osMajor: DeviceContext.osMajor, ramTier: DeviceContext.ramTier),
                                    clock: clock)
-        issues = IssueQueue(storage: storage)
+        issues = issueQueue
         incidents = IncidentLedger(storage: storage)
         let store = ModelStore(root: storage.appendingPathComponent("models"),
                                verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true),

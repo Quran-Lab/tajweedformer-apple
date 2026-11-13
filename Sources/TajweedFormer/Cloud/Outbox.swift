@@ -119,8 +119,13 @@ actor ContributionOutbox {
     /// Bad-request issues reported for take lists by this outbox (one per refused list).
     private(set) var takesIssues = 0
 
+    /// Told the host a background upload was redirected to (3.1.3): reported as an issue, the host only.
+    private let onRedirect: @Sendable (String) -> Void
+
     init(storage: URL, http: HTTPClient, apiURL: URL, tokens: TokenProvider?, config: ConfigStore, options: CloudOptions,
-         app: AppIdentity, clock: @escaping @Sendable () -> Date, ladder: BitrateLadder = BitrateLadder()) {
+         app: AppIdentity, clock: @escaping @Sendable () -> Date, ladder: BitrateLadder = BitrateLadder(),
+         redirected: @escaping @Sendable (String) -> Void = { _ in }) {
+        onRedirect = redirected
         self.storage = storage
         self.ladder = ladder
         root = storage.appendingPathComponent("outbox")
@@ -716,6 +721,24 @@ actor ContributionOutbox {
         }
     }
 
+    /// A segment's upload on the background session ended on another host than its signed URL's (SPEC 15.4, the
+    /// second exception): there the system follows a redirect without asking the SDK, so the PUT, with the
+    /// segment's bytes and neither key nor token, has by then gone to that host. The segment counts as NOT
+    /// uploaded, whatever that host answered: it is not marked sent, its file stays, its URL is dropped so that
+    /// the next attempt asks the API for a fresh one, and the attempt comes by the queue's ordinary rule for an
+    /// upload that failed. The host, and nothing else of the address, is reported.
+    func redirected(_ id: String, _ name: String, to host: String) {
+        inFlight.remove("\(id)/\(name)")
+        onRedirect(host)
+        // an upload a stop cancelled goes again when the queue goes on, as in `put`
+        if aborted.remove("\(id)/\(name)") != nil { return }
+        guard !gone.contains(id), var rec = records[id], rec.state == .active else { return }
+        rec.attempts += 1
+        rec.urls?.removeAll { ShareFiles.name($0.n) + ".opus" == name }
+        save(rec)
+        retry(id, "PUT \(name): redirected to \(host)")
+    }
+
     /// After a relaunch: PUTs no longer running are sent again.
     private func reconcile() async {
         guard case .background(let bg) = transport else { return }
@@ -875,9 +898,19 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate, @unchecked Sen
     static func identifier(for app: AppIdentity) -> String { "ai.quranlab.contributions." + app.bundleID }
 
     let identifier: String
+    /// Where a finished upload goes: the outbox (`attach(_ outbox:)`), or a test's own.
+    struct Sink: Sendable {
+        /// The upload "<id>/<name>" ended with this answer, or without one.
+        let put: @Sendable (_ id: String, _ name: String, _ result: Result<HTTPClient.Response, CloudError>) async -> Void
+        /// The upload ended on another host than the one it was made to.
+        let redirected: @Sendable (_ id: String, _ name: String, _ host: String) async -> Void
+    }
+
     private struct State {
         var bodies: [Int: Data] = [:]
-        var outbox: ContributionOutbox?
+        /// The redirects the system followed for a task, as its metrics say (by task identifier).
+        var redirects: [Int: Int] = [:]
+        var sink: Sink?
         var finished: (@Sendable () -> Void)?
     }
     private let state = Locked(State())
@@ -919,26 +952,61 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate, @unchecked Sen
     /// The app delegate's completion handler for `handleEventsForBackgroundURLSession`.
     func setFinishedHandler(_ h: @escaping @Sendable () -> Void) { state.withLock { $0.finished = h } }
 
-    func attach(_ outbox: ContributionOutbox) { state.withLock { $0.outbox = outbox } }
+    func attach(_ outbox: ContributionOutbox) {
+        attach(Sink(put: { id, name, result in
+            await outbox.put(id, name, result)
+            await outbox.drain()
+        }, redirected: { id, name, host in
+            await outbox.redirected(id, name, to: host)
+            await outbox.drain()
+        }))
+    }
+
+    func attach(_ sink: Sink) { state.withLock { $0.sink = sink } }
+
+    /// The host a finished task ended on, when the system redirected it; nil when it did not. A background
+    /// session follows a redirect without asking its delegate, so this is read after the fact: the task was
+    /// redirected when the system's metrics count a redirect, or when the answer's URL has another scheme, host
+    /// (compared without case) or port than the URL the task was made to. What is returned is the host only, in
+    /// lower case (`unknown` when the answer has no URL).
+    static func redirectedHost(asked: URL?, final: URL?, redirects: Int = 0) -> String? {
+        func port(_ u: URL) -> Int { u.port ?? (u.scheme?.lowercased() == "http" ? 80 : 443) }
+        var moved = redirects > 0
+        if let asked, let final {
+            moved = moved || asked.scheme?.lowercased() != final.scheme?.lowercased() || asked.host?.lowercased() != final.host?.lowercased()
+                || port(asked) != port(final)
+        }
+        guard moved else { return nil }
+        return final?.host?.lowercased() ?? "unknown"
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        guard metrics.redirectCount > 0 else { return }
+        state.withLock { $0.redirects[task.taskIdentifier] = metrics.redirectCount }
+    }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         state.withLock { $0.bodies[dataTask.taskIdentifier, default: Data()].append(data) }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        let (body, outbox) = state.withLock { s in (s.bodies.removeValue(forKey: task.taskIdentifier) ?? Data(), s.outbox) }
-        guard let key = task.taskDescription, let slash = key.firstIndex(of: "/"), let outbox else { return }
+        let (body, redirects, sink) = state.withLock { s in
+            (s.bodies.removeValue(forKey: task.taskIdentifier) ?? Data(), s.redirects.removeValue(forKey: task.taskIdentifier) ?? 0, s.sink)
+        }
+        guard let key = task.taskDescription, let slash = key.firstIndex(of: "/"), let sink else { return }
         let id = String(key[..<slash]), name = String(key[key.index(after: slash)...])
+        // the system followed a redirect: the segment is not uploaded, whatever the other host answered (SPEC 15.4)
+        if let host = Self.redirectedHost(asked: task.originalRequest?.url, final: task.response?.url, redirects: redirects) {
+            Task.detached(priority: .utility) { await sink.redirected(id, name, host) }
+            return
+        }
         let result: Result<HTTPClient.Response, CloudError>
         if let http = task.response as? HTTPURLResponse, error == nil {
             result = .success(.init(status: http.statusCode, headers: [:], body: body))
         } else {
             result = .failure(.offline(error?.localizedDescription ?? "no response"))
         }
-        Task.detached(priority: .utility) {
-            await outbox.put(id, name, result)
-            await outbox.drain()
-        }
+        Task.detached(priority: .utility) { await sink.put(id, name, result) }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

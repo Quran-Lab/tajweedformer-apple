@@ -60,18 +60,18 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
   no tajweed settings (SDK 2.x did; see [docs/migrating-to-3.md](docs/migrating-to-3.md)). It hosts only V4.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon. The Neural Engine backend needs iOS 18 or macOS 15; on older
   systems the exact CPU engine runs.
-- **Status:** released; this is version 3.1.2. CI builds every push for iOS and macOS and runs the tests on macOS.
+- **Status:** released; this is version 3.1.3. CI builds every push for iOS and macOS and runs the tests on macOS.
   The whole path through the public API (the key and the signed config, the download, the verified model, the
   promotion pipeline, takes on the CPU engine and on the Neural Engine) has run on an Apple silicon Mac against
   Quran Lab's servers with `scripts/prove-on-mac.sh` (version 3.0.0); that proof has not been run on an iPhone.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.2. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.3. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.2"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.3"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -86,6 +86,7 @@ dependencies: [
 | **Permissions** | `NSMicrophoneUsageDescription` in Info.plist: without it the system ends the app at the first use of the microphone. A sandboxed or hardened Mac app also needs the `com.apple.security.device.audio-input` entitlement. |
 | **Capabilities** | None for recognition. If your app offers recording sharing, add the App Attest capability: uploads need an attested install. Without it the SDK still runs, unattested. |
 | **Download** | The first launch downloads the model: 56.5 MB, once (73.5 MB on disk), on any network. On iOS 18 and macOS 15 the Neural Engine's build follows in the background on Wi-Fi: 76.1 MB more. |
+| **Network** | No request of the SDK follows a redirect: an answer that is one is a failed request, never followed. |
 | **Model** | A model comes only from Quran Lab's server, through the Client: `try await client.model()`, or `client.prefetch()` ahead of use; the Client opens only a model it downloaded itself on this device, and an app that updates from an SDK before 3.1.0 downloads the model once more. When Quran Lab refuses the key or the app (a revoked key, a paused or blocked app), the SDK stops running the model and removes the downloaded model from the device. Once the key is accepted again the model is downloaded again. What the system cached by itself stays: the compiled form that Core ML keeps for the Neural Engine of a package the SDK loaded. |
 | **Keychain** | The SDK keeps one key per install in the Keychain (this device only) and marks with it the model it downloaded. A Mac app without a provisioning profile (an unsigned or ad hoc signed binary, a command line tool) is refused by that keychain: there the key lives in the Mac's login keychain, in an item named for the app's bundle id, and can travel to another Mac with the keychain. |
 | **Takes** | A Model has one open Session (one take) at a time; the next take is a new Session. A take holds at most 20 minutes of audio. |
@@ -348,6 +349,11 @@ wording and SDK upgrades, and every shared recording carries that version.
   launch. A learner who agrees from then on agrees to your words, under a consent version derived from them. Your
   words must still say that the audio of recitation takes is sent to Quran Lab, what else is sent, what it is used
   for, and how to stop and delete.
+
+No request of the SDK follows a redirect: an answer that is one is a failed request, never followed. On one path
+the system does not ask the SDK, the background session that uploads shared recordings on iOS: there the system
+follows a redirect by itself, and the SDK then does not count that upload as done, sends the segment again later
+with a fresh address, and reports the host it ended on (the host only) to Quran Lab.
 
 While the learner shares, every take is uploaded in full as it runs: Ogg Opus, mono, 48 kHz, in segments, PUT to
 presigned URLs from a persistent outbox that survives force-quit and reboot; on a bad network the SDK lowers the
