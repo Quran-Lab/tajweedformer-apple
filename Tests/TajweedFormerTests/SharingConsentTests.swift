@@ -153,8 +153,8 @@ final class SharingConsentTests: XCTestCase {
 
     func testTheBundledDeck() throws {
         let c = try XCTUnwrap(SharingCopy.bundled("en"))
-        XCTAssertEqual(c.consentVersion, "share-2026-11-12")
-        XCTAssertEqual(c.version, "2026-11-12.1")
+        XCTAssertEqual(c.consentVersion, "share-2026-11-09")
+        XCTAssertEqual(c.version, "2026-11-13.1")
         XCTAssertEqual(c.deleteDays, 0, "deletion is immediate")
         for k in ["sheet.title", "sheet.what", "sheet.who", "sheet.control", "sheet.share", "sheet.not_now", "thanks",
                   "settings.toggle", "settings.what", "settings.delete", "what.detail", "delete.confirm", "reask",

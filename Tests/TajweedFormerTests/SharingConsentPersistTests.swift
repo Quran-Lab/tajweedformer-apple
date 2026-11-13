@@ -109,7 +109,7 @@ final class SharingConsentPersistTests: XCTestCase {
         let storage = CloudFixtures.storage()
         try Self.write200(Self.granted200(version: "share-2026-11-07b"), storage: storage)
         let cloud = await launch(server, storage: storage)
-        XCTAssertEqual(Contributions.consentVersionInForce, "share-2026-11-12", "the bundled deck is in force")
+        XCTAssertEqual(Contributions.consentVersionInForce, "share-2026-11-09", "the bundled deck is in force")
         XCTAssertEqual(Contributions.consent, .granted)
         XCTAssertTrue(Contributions.isActive, "no pause")
         assertNeverAsked(3, "a 2.0.0 grant before a session")
@@ -169,7 +169,7 @@ final class SharingConsentPersistTests: XCTestCase {
         XCTAssertEqual(Contributions.state().asks, 1, "the ask count carried over")
     }
 
-    // MARK: the deck of SDK 3.1.0 after a yes under the deck before it
+    // MARK: a yes given under another deck than the bundled one
 
     /// The sharing state as SDK 3.0.1 left it on the device after a learner said yes under its bundled deck
     /// (`share-2026-11-09`) and shared for a while: the JSON object that SDK wrote, field for field.
@@ -178,60 +178,91 @@ final class SharingConsentPersistTests: XCTestCase {
         "consentVersion":"share-2026-11-09","guardian":false,"sharedOnce":true,"consentCount":1,"deleting":false}
         """
 
-    /// SDK 3.1.0 bundles a new deck (`share-2026-11-12`: no human ever listens to a recording). An install that
-    /// holds a yes under `share-2026-11-09` is NOT asked again: not at start, not after many sessions, not after a
-    /// restart, not at the app's own timing. Sharing is not paused, the stored yes is not rewritten, and every
-    /// recording it sends carries `share-2026-11-09`, the version the learner agreed to. A learner who is asked
-    /// from now on agrees to `share-2026-11-12`.
-    func testAYesUnderTheEarlierDeckIsNotAskedAgainAndKeepsItsVersion() async throws {
+    /// The same as SDK 3.1.0 and 3.1.1 left it after a yes under their bundled deck (`share-2026-11-12`).
+    static let granted311 = """
+        {"v":1,"consent":"granted","asks":1,"lastAskSession":2,"sessions":41,"thanked":true,"decidedAt":1794300000,\
+        "consentVersion":"share-2026-11-12","guardian":false,"sharedOnce":true,"consentCount":1,"deleting":false}
+        """
+
+    /// And after a yes to an app's own wording under SDK 3.1.1: a `custom-` version and the hash of the words.
+    static let customVersion = "custom-0123456789abcdef01234567"
+    static let customHash = String(repeating: "0123456789abcdef", count: 4)
+    static let grantedCustom311 = """
+        {"v":1,"consent":"granted","asks":1,"lastAskSession":2,"sessions":41,"thanked":true,"decidedAt":1794300000,\
+        "consentVersion":"custom-0123456789abcdef01234567",\
+        "consentTextSHA256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",\
+        "guardian":false,"sharedOnce":true,"consentCount":1,"deleting":false}
+        """
+
+    /// SDK 3.1.2 bundles deck `2026-11-13.1`, whose consent version is `share-2026-11-09`. An install that holds
+    /// a yes is NOT asked again, whatever version the yes was given under: not at start, not after many sessions,
+    /// not after a restart, not at the app's own timing. Sharing is not paused, the stored yes is not rewritten,
+    /// and every recording it sends carries the version the learner agreed to. The cases: the upgrade from 3.1.1
+    /// to 3.1.2 (a yes under `share-2026-11-12`, a name that is newer than the bundled deck's), a yes under
+    /// `share-2026-11-09` (3.0, or 3.1.2 itself), and a yes to an app's own wording given under 3.1.1 (its
+    /// `custom-` version and hash). A learner who is asked from now on agrees to `share-2026-11-09`.
+    func testAStoredYesIsNotAskedAgainAndKeepsItsVersionWhateverDeckIsBundled() async throws {
+        XCTAssertEqual(Self.customHash.count, 64)
+        let cases: [(name: String, state: String, version: String, hash: String?)] = [
+            ("3.1.1 to 3.1.2, a yes under share-2026-11-12", Self.granted311, "share-2026-11-12", nil),
+            ("a yes under share-2026-11-09", Self.granted301, "share-2026-11-09", nil),
+            ("3.1.1 to 3.1.2, a yes to an app's own wording", Self.grantedCustom311, Self.customVersion, Self.customHash),
+        ]
+        for c in cases {
+            seen.withLock { $0 = [] }
+            let server = SharingTests.Server()
+            StubProtocol.reset(server.handler)
+            let storage = CloudFixtures.storage()
+            let file = storage.appendingPathComponent("cloud/sharing-state.json")
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(c.state.utf8).write(to: file, options: .atomic)
+
+            // at start
+            let cloud = await launch(server, storage: storage)
+            XCTAssertEqual(Contributions.consentVersionInForce, "share-2026-11-09", "\(c.name): the bundled deck is in force")
+            XCTAssertEqual(Contributions.consent, .granted, c.name)
+            XCTAssertTrue(Contributions.isActive, "\(c.name): no pause")
+            XCTAssertEqual(Contributions.consentVersion, c.version, "\(c.name): the version the learner agreed to")
+            assertNeverAsked(3, "\(c.name), at start")
+            // the next recording: the body that leaves the device carries the version agreed to
+            let meta = try await sharedSession(cloud, count: 1)
+            XCTAssertEqual(meta["consent_version"] as? String, c.version, "\(c.name): the version the learner agreed to, not the bundled deck's")
+            XCTAssertEqual(meta["consent_text_sha256"] as? String, c.hash, c.name)
+            // after many sessions
+            assertNeverAsked(60, "\(c.name), after many sessions")
+            try await assertNothingPresented("\(c.name): no sheet, no thank-you again, nothing handed to the app")
+            XCTAssertTrue(Contributions.isActive, c.name)
+            // the stored yes is the one the learner gave: its version, its time and its count are untouched
+            let stored = try XCTUnwrap(Contributions.stateFile(storage: storage).read(), c.name)
+            XCTAssertEqual(stored.consent, .granted, c.name)
+            XCTAssertEqual(stored.consentVersion, c.version, c.name)
+            XCTAssertEqual(stored.consentTextSHA256, c.hash, c.name)
+            XCTAssertEqual(stored.decidedAt, 1_794_300_000, c.name)
+            XCTAssertEqual(stored.consentCount, 1, "\(c.name): the yes was not given again")
+            XCTAssertEqual(stored.asks, 1, "\(c.name): no ask was counted")
+
+            // after a restart (the state read back from the device)
+            let again = await launch(server, storage: storage)
+            XCTAssertTrue(Contributions.isActive, c.name)
+            assertNeverAsked(5, "\(c.name), after a restart")
+            let next = try await sharedSession(again, count: 2)
+            XCTAssertEqual(next["consent_version"] as? String, c.version, c.name)
+            assertNeverAsked(30, "\(c.name), after the restart and another recording")
+            try await assertNothingPresented("\(c.name): nothing after the restart either")
+            XCTAssertEqual(SharingTests.starts.map { $0.json?["consent_version"] as? String }, [c.version, c.version],
+                           "\(c.name): every recording this install sent carries the version it agreed to")
+        }
+
+        // a learner who is asked from now on (another install) agrees to the bundled deck's version
+        seen.withLock { $0 = [] }
         let server = SharingTests.Server()
         StubProtocol.reset(server.handler)
-        let storage = CloudFixtures.storage()
-        let file = storage.appendingPathComponent("cloud/sharing-state.json")
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(Self.granted301.utf8).write(to: file, options: .atomic)
-
-        // at start
-        let cloud = await launch(server, storage: storage)
-        XCTAssertEqual(Contributions.consentVersionInForce, "share-2026-11-12", "the new deck is in force")
-        XCTAssertEqual(Contributions.consent, .granted)
-        XCTAssertTrue(Contributions.isActive, "no pause")
-        XCTAssertEqual(Contributions.consentVersion, "share-2026-11-09", "the version the learner agreed to")
-        assertNeverAsked(3, "a yes under the earlier deck, at start")
-        // the next recording: the body that leaves the device carries the earlier version
-        let meta = try await sharedSession(cloud, count: 1)
-        XCTAssertEqual(meta["consent_version"] as? String, "share-2026-11-09", "the version the learner agreed to, not the new deck's")
-        XCTAssertNil(meta["consent_text_sha256"])
-        // after many sessions
-        assertNeverAsked(60, "a yes under the earlier deck, after many sessions")
-        try await assertNothingPresented("no sheet, no thank-you again, nothing handed to the app")
-        XCTAssertTrue(Contributions.isActive)
-        // the stored yes is the one the learner gave: its version, its time and its count are untouched
-        let stored = try XCTUnwrap(Contributions.stateFile(storage: storage).read())
-        XCTAssertEqual(stored.consent, .granted)
-        XCTAssertEqual(stored.consentVersion, "share-2026-11-09")
-        XCTAssertEqual(stored.decidedAt, 1_794_300_000)
-        XCTAssertEqual(stored.consentCount, 1, "the yes was not given again")
-        XCTAssertEqual(stored.asks, 1, "no ask was counted")
-
-        // after a restart (the state read back from the device)
-        let again = await launch(server, storage: storage)
-        XCTAssertTrue(Contributions.isActive)
-        assertNeverAsked(5, "a yes under the earlier deck, after a restart")
-        let next = try await sharedSession(again, count: 2)
-        XCTAssertEqual(next["consent_version"] as? String, "share-2026-11-09")
-        assertNeverAsked(30, "after the restart and another recording")
-        try await assertNothingPresented("nothing after the restart either")
-        XCTAssertEqual(SharingTests.starts.map { $0.json?["consent_version"] as? String }, ["share-2026-11-09", "share-2026-11-09"],
-                       "every recording this install sent carries the version it agreed to")
-
-        // a learner who is asked from now on (another install) agrees to the new deck
         let other = await launch(server, storage: CloudFixtures.storage())
         XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
         Contributions.answer(share: true)
-        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-12")
-        let fresh = try await sharedSession(other, count: 3)
-        XCTAssertEqual(fresh["consent_version"] as? String, "share-2026-11-12")
+        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-09")
+        let fresh = try await sharedSession(other, count: 1)
+        XCTAssertEqual(fresh["consent_version"] as? String, "share-2026-11-09")
     }
 
     // MARK: a deck or wording change after a grant

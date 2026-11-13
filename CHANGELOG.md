@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.2
+
+- **Changed: the sharing sheet and "What is shared" have the text of copy deck `2026-11-09.1` again.** Copy
+  deck `2026-11-13.1` (consent `share-2026-11-09`), in eight languages. A learner who already agreed is not
+  asked again, and their recordings keep the version they agreed to.
+- Tests (on the public CI's Mac runner, against a stub server; none ran on a phone): the eight bundled decks are
+  the published ones by their SHA-256; the sheet's strings are the deck's `sheet.who` and `what.detail`, whole, in
+  each of the eight languages (checked on the strings the sheet is built from, not on a drawn sheet), and none of
+  the deck's strings holds the sentence that deck `2026-11-12.1` added (the test knows that sentence by its length
+  and SHA-256 per language only); an install with a stored yes under `share-2026-11-12`, under `share-2026-11-09`
+  and under an app's own wording (the stored state written by the test as 3.1.1 and 3.0.1 left it) is not asked
+  at start, after many sessions or after a restart, and the recordings it uploads to the stub carry the version
+  it agreed to.
+
 ## 3.1.1
 
 The sharing sheet has a new design, and two fixes from a report on real devices. No word, no consent rule and no
