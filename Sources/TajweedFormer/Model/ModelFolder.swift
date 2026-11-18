@@ -163,13 +163,7 @@ struct ModelFolder: Sendable {
             }
         }
         guard verified.contains(m.tokens) else { throw .modelMissing("\(m.tokens) is not in \(directory.lastPathComponent)") }
-        // nothing unlisted may sit in a CoreML package, where CoreML would read it
-        let listed = Set(m.files.map(\.localPath))
-        for pkg in packages(m.files.filter { DownloadProfile.packageRoles.contains($0.role) }) where fm.fileExists(atPath: directory.appendingPathComponent(pkg).path) {
-            for p in try filesUnder(directory, pkg) where !listed.contains(p) {
-                appleProblem = appleProblem ?? "\(p) is in the CoreML package but not in the manifest"
-            }
-        }
+        if appleProblem == nil { appleProblem = try strayProblem(m, directory: directory) }
         let vocab = try Vocabulary(tokensFile: directory.appendingPathComponent(m.tokens))
         guard vocab.count == 38, vocab.blank == 0 else {
             throw .manifestInvalid("tokens.txt has \(vocab.count) tokens, blank \(vocab.blank); V4 is tj3, 38, blank 0")
@@ -180,6 +174,46 @@ struct ModelFolder: Sendable {
             throw .modelMissing("no context of \(m.modelID) has all its CPU files in \(directory.lastPathComponent)")
         }
         return model
+    }
+
+    /// Nothing unlisted may sit in a CoreML package, where CoreML would read it: the first file under a package
+    /// directory of the manifest that the manifest does not list, as the problem that turns CoreML off.
+    static func strayProblem(_ m: ModelManifest, directory: URL) throws(RecognizerError) -> String? {
+        let fm = FileManager.default
+        let listed = Set(m.files.map(\.localPath))
+        for pkg in packages(m.files.filter { DownloadProfile.packageRoles.contains($0.role) }) where fm.fileExists(atPath: directory.appendingPathComponent(pkg).path) {
+            for p in try filesUnder(directory, pkg) where !listed.contains(p) {
+                return "\(p) is in the CoreML package but not in the manifest"
+            }
+        }
+        return nil
+    }
+
+    /// The same folder with its accelerator files checked again from disk (3.1.5), exactly as `open` checks them:
+    /// every Apple file of the manifest that is on disk by size and SHA-256, and every CoreML package for files the
+    /// manifest does not list. The CPU files keep the verdict of `open`. The promotion's download stage judges the
+    /// build by this, the files on disk after the download.
+    /// Tried before (to 3.1.4): the stage judged the build by the problem `open` had found at launch (`adding`), so a
+    /// download that had just set the files right (an interrupted download's working file resumed and gone) was still
+    /// refused with the old problem.
+    func rechecked() throws(RecognizerError) -> ModelFolder {
+        let fm = FileManager.default
+        var verified = verifiedFiles
+        var problem: String?
+        for f in manifest.files where DownloadProfile.appleRoles.contains(f.role) {
+            verified.remove(f.localPath)
+            let url = directory.appendingPathComponent(f.localPath)
+            guard fm.fileExists(atPath: url.path) else { continue }
+            let (size, sha) = try ModelManifest.digest(url)
+            if size == f.localSize && sha == f.localSHA256 {
+                verified.insert(f.localPath)
+            } else {
+                problem = problem ?? "\(f.localPath) does not match the manifest"
+            }
+        }
+        if problem == nil { problem = try Self.strayProblem(manifest, directory: directory) }
+        return ModelFolder(id: id, directory: directory, manifest: manifest, vocabulary: vocabulary, verifiedFiles: verified,
+                           coreMLProblem: problem)
     }
 
     /// Every regular file under `directory/sub`, as paths relative to `directory`, sorted.

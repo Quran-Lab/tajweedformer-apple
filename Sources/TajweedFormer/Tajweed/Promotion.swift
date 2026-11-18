@@ -225,6 +225,9 @@ enum PromotionPolicy {
     static let goldenTimeout: TimeInterval = 900
     /// Waits after failed attempts 1, 2 and 3 of a key; the 4th failure ends the key's budget.
     static let backoff: [TimeInterval] = [3600, 6 * 3600, 24 * 3600]
+    /// Background stops of one attempt in a row (the system ended the app in the background during a compile, load or
+    /// first inference) that end the attempt as `hang` (3.1.5); fewer cost nothing.
+    static let backgroundStopsInARow = 3
     /// A failover demotes the build; it is tested again no sooner than this.
     static let failoverRetest: TimeInterval = 24 * 3600
     /// The first run of a key starts after the first session ends, or after this much time without one.
@@ -346,6 +349,11 @@ struct PromotionRecord: Codable, Sendable, Equatable {
     /// force when the build has one. Recorded also for a build judged on tokens alone, and for a test that failed
     /// (its `failed` then names the measures that decided it).
     var golden: Divergence?
+    // 3.1.5 (optional, so earlier records decode)
+    /// Stages this key's attempts were stopped in by a quit or by the system (never a failure), all attempts.
+    var stops: Int?
+    /// Background stops of the attempt in progress in a row (`PromotionPolicy.backgroundStopsInARow`).
+    var backgroundStops: Int?
 
     struct DeadlineMiss: Codable, Sendable, Equatable {
         var session: String
@@ -370,12 +378,41 @@ struct PromotionRecord: Codable, Sendable, Equatable {
 struct PromotionStore: Sendable {
     let dir: URL
     var recordsURL: URL { dir.appendingPathComponent("promotions.json") }
+    /// The one sentinel of SDKs to 3.1.4, shared by every process of the app (read once by 3.1.5, never written).
     var sentinelURL: URL { dir.appendingPathComponent("promotion-sentinel.json") }
 
     struct Sentinel: Codable, Equatable, Sendable {
         var key: String
         var stage: PromotionStage
+        // 3.1.5 (optional, so an earlier SDK's sentinel decodes)
+        /// The process that wrote it, and when.
+        var pid: Int32?
+        var at: Date?
     }
+
+    /// How the process that left a sentinel ended, as far as the device can tell (3.1.5).
+    enum Exit: String, Sendable, Equatable {
+        /// No mark: the process died in the stage while the app was in front (or a process with no app state).
+        case crash
+        /// A normal exit (`exit`, returning from `main`), the app's willTerminate, or on the Mac SIGINT or SIGTERM.
+        case quit
+        /// The app was in the background when it ended: the system stopped it (suspended, then ended).
+        case background
+        /// A sentinel of an SDK to 3.1.4, which kept no mark.
+        case unknown
+    }
+
+    /// A sentinel whose process is gone, with how it ended.
+    struct Stranded: Sendable, Equatable {
+        var sentinel: Sentinel
+        var exit: Exit
+    }
+
+    /// 3.1.5: one sentinel per process, `promotion-sentinel-<pid>.json`, beside its lock (`.lock`, held with `flock`
+    /// while the stage runs, so another process of the app can tell a stage under way from one whose process is gone:
+    /// the system drops the lock when a process ends, however it ends) and its marks (`.quit`, `.background`).
+    func sentinelURL(pid: Int32) -> URL { dir.appendingPathComponent("promotion-sentinel-\(pid).json") }
+    func sentinelFile(pid: Int32, _ ext: String) -> URL { dir.appendingPathComponent("promotion-sentinel-\(pid).\(ext)") }
 
     private static let lock = NSLock()
 
@@ -414,17 +451,127 @@ struct PromotionStore: Sendable {
         if let d = try? enc.encode(a) { try? d.write(to: recordsURL, options: .atomic) }
     }
 
-    /// Written before every compile, load and first inference; removed after. Found at launch: the process died there.
+    /// Written before every compile, load and first inference; removed after. Found later with its process gone: the
+    /// process ended there (`takeStranded`). This process's own, under its lock (3.1.5).
+    /// Tried before (to 3.1.4): one file for every process of the app and no way to tell how a process ended, so a
+    /// normal exit during a stage (a command-line tool returning from `main`, an app quit in its first seconds) and a
+    /// second process of the app starting while the first was in a stage were both taken for a crash, which turns the
+    /// build off for good for the key.
     func writeSentinel(_ key: String, _ stage: PromotionStage) {
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let d = try? JSONEncoder().encode(Sentinel(key: key, stage: stage)) { try? d.write(to: sentinelURL, options: .atomic) }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        writeSentinel(Sentinel(key: key, stage: stage, pid: pid, at: Date()))
     }
 
-    func clearSentinel() { try? FileManager.default.removeItem(at: sentinelURL) }
+    /// A sentinel as given (tests: another process's, by its pid).
+    func writeSentinel(_ s: Sentinel) {
+        Self.sentinelLock.lock()
+        defer { Self.sentinelLock.unlock() }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let pid = s.pid ?? ProcessInfo.processInfo.processIdentifier
+        if pid == ProcessInfo.processInfo.processIdentifier {
+            // the lock first: a sentinel is never on disk without its process holding the lock
+            StageSentinel.shared.begin(lock: sentinelFile(pid: pid, "lock"), quit: sentinelFile(pid: pid, "quit"),
+                                       background: sentinelFile(pid: pid, "background"))
+        }
+        if let d = try? JSONEncoder().encode(s) { try? d.write(to: sentinelURL(pid: pid), options: .atomic) }
+    }
+
+    /// Removes this process's sentinel, its marks and its lock.
+    func clearSentinel() {
+        Self.sentinelLock.lock()
+        defer { Self.sentinelLock.unlock() }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let fm = FileManager.default
+        StageSentinel.shared.disarm()
+        try? fm.removeItem(at: sentinelURL(pid: pid))
+        try? fm.removeItem(at: sentinelFile(pid: pid, "quit"))
+        try? fm.removeItem(at: sentinelFile(pid: pid, "background"))
+        StageSentinel.shared.end(lock: sentinelFile(pid: pid, "lock"))
+    }
+
+    private static let sentinelLock = NSLock()
 
     // unreadable is taken as not there here (3.1.4 leaves the accelerator's files as they were): a crash of the
     // launch before is then not counted against the accelerator
-    func sentinel() -> Sentinel? { (try? Data(contentsOf: sentinelURL)).flatMap { try? JSONDecoder().decode(Sentinel.self, from: $0) } }
+    /// This process's sentinel, while one of its stages runs.
+    func sentinel() -> Sentinel? {
+        let url = sentinelURL(pid: ProcessInfo.processInfo.processIdentifier)
+        return (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Sentinel.self, from: $0) }
+    }
+
+    /// The sentinels whose process is gone, each with how it ended, removed as they are read: an earlier SDK's one
+    /// sentinel (`unknown`), and every process's own whose lock no process holds. A sentinel whose lock is held belongs
+    /// to a stage under way in a process of this app (another one, or this one): it is left as it is.
+    func takeStranded() -> [Stranded] {
+        Self.sentinelLock.lock()
+        defer { Self.sentinelLock.unlock() }
+        let fm = FileManager.default
+        var out: [Stranded] = []
+        if let d = try? Data(contentsOf: sentinelURL) {
+            if let s = try? JSONDecoder().decode(Sentinel.self, from: d) { out.append(Stranded(sentinel: s, exit: .unknown)) }
+            try? fm.removeItem(at: sentinelURL)
+        }
+        let names = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).sorted()
+        for name in names where name.hasPrefix("promotion-sentinel-") && name.hasSuffix(".json") {
+            guard let pid = Int32(name.dropFirst("promotion-sentinel-".count).dropLast(".json".count)) else { continue }
+            if StageSentinel.isHeld(sentinelFile(pid: pid, "lock")) { continue }
+            let quit = fm.fileExists(atPath: sentinelFile(pid: pid, "quit").path)
+            let background = fm.fileExists(atPath: sentinelFile(pid: pid, "background").path)
+            if let d = try? Data(contentsOf: sentinelURL(pid: pid)), let s = try? JSONDecoder().decode(Sentinel.self, from: d) {
+                out.append(Stranded(sentinel: s, exit: quit ? .quit : background ? .background : .crash))
+            }
+            for ext in ["json", "quit", "background", "lock"] { try? fm.removeItem(at: sentinelFile(pid: pid, ext)) }
+        }
+        return out
+    }
+
+    /// Forgets this device's verdict on one key (`TajweedModel.prepareAccelerator(again: true)`, 3.1.5).
+    func remove(_ key: String) {
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        var a = read()
+        guard a.removeValue(forKey: key) != nil else { return }
+        write(a)
+    }
+
+    // MARK: the upgrade to 3.1.5
+
+    var migrated315URL: URL { dir.appendingPathComponent("migrated-3.1.5") }
+
+    /// Once per store (a marker file written after it): the verdicts an SDK to 3.1.4 could not get right get one more
+    /// attempt, at the next run of their key.
+    /// - `crash` at compile, warm-up or golden: SDKs to 3.1.4 took a normal exit or a stop by the system in the
+    ///   background for a crash (the server saw them on every iPhone generation alike). A real crash is seen again,
+    ///   and 3.1.5 tells it from a quit.
+    /// - `verify` at download, and a download stage that used up the retry budget (`network`, `storage`): SDKs to
+    ///   3.1.4 refused a correct download after an interrupted one (the working file in the CoreML package).
+    /// Every other verdict stays. Returns the keys given another attempt.
+    @discardableResult
+    func migrate315() -> [String] {
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        guard !FileManager.default.fileExists(atPath: migrated315URL.path) else { return [] }
+        var all = read()
+        var again: [String] = []
+        for (k, r0) in all where r0.status == .failed || r0.status == .retry {
+            let stages: [PromotionStage] = [.compile, .warmup, .golden]
+            let reasons: [PromotionReason] = [.verify, .network, .storage]
+            let crash = r0.lastReason == .crash && (r0.lastStage.map { stages.contains($0) } ?? false)
+            let download = r0.lastStage == .download && (r0.lastReason.map { reasons.contains($0) } ?? false)
+            guard crash || download else { continue }
+            var r = r0
+            r.status = .retry
+            r.notBefore = nil
+            r.launch = nil
+            r.failures = min(r.failures, PromotionPolicy.backoff.count)
+            all[k] = r
+            again.append(k)
+        }
+        if !again.isEmpty { write(all) }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? Data("3.1.5\n".utf8).write(to: migrated315URL, options: .atomic)
+        return again.sorted()
+    }
 
     // MARK: the upgrade from 2.0.1
 

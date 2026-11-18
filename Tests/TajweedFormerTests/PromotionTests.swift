@@ -210,7 +210,8 @@ final class PromotionTests: XCTestCase {
     }
 
     /// A process death inside a stage: the sentinel is found at the next launch and that attempt ends with reason
-    /// crash at that stage (deterministic: never again for the key).
+    /// crash at that stage (deterministic: never again for the key). 3.1.5: a process's own sentinel, its lock free and
+    /// no mark of a quit or of the background (DownloadAndStopTests has those).
     func testTheCrashSentinelEndsTheAttemptAtItsStage() async {
         for (i, stage) in [PromotionStage.compile, .warmup, .golden].enumerated() {
             h = Harness()
@@ -219,9 +220,9 @@ final class PromotionTests: XCTestCase {
             r.attempts = 1
             r.attemptStarted = h.now.withLock { $0 }
             c.store.save(r)
-            c.store.writeSentinel(c.key, stage)
+            c.store.writeSentinel(PromotionStore.Sentinel(key: c.key, stage: stage, pid: 2_000_000_100, at: Date()))
             let next = h.controller(revision: "c\(i)", launch: "L2")
-            XCTAssertNil(next.store.sentinel(), "read once")
+            XCTAssertTrue(next.store.takeStranded().isEmpty, "read once")
             XCTAssertEqual(next.record?.lastReason, .crash)
             XCTAssertEqual(next.record?.lastStage, stage)
             XCTAssertEqual(next.record?.status, .failed)

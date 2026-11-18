@@ -219,6 +219,46 @@ public final class TajweedModel: Sendable {
         }
     }
 
+    /// Prepares the Neural Engine's build for `context` (nil: the default context) now and waits for it (3.1.5): the
+    /// download on an unmetered network, the compile, the test against the CPU engine, then the build loaded and warm,
+    /// so the next Session with `backend: .auto` runs on it from its first chunk. A build promoted at an earlier launch
+    /// is loaded and warmed again (no test). `again: true` first forgets this device's verdict on the build (a failure,
+    /// a demotion, a promotion) and prepares it from the start: the way to ask for it again after a failure.
+    ///
+    /// The preparation also runs by itself in the background (the first `.auto` engine of a launch starts it after the
+    /// first take or 20 s without one); a process that ends during it simply goes on with it at a later launch. Call
+    /// this when the app needs the Neural Engine at a known point, or when its takes name `backend: .cpu` (an engine
+    /// for `.cpu` alone never prepares the Neural Engine). Returns `backend` as it stands when the build is ready, the
+    /// preparation stopped (`demoted` with a reason, or `cpu` while it waits for an unmetered network, power or a
+    /// backoff), or `timeout` seconds passed; after a timeout the preparation goes on in the background. Throws
+    /// `session_open` while a Session is open. Never needed for correctness: the CPU engine serves every take.
+    public func prepareAccelerator(context: String? = nil, again: Bool = false, timeout: Double = 300) async throws(TajweedError) -> TajweedBackend {
+        guard state.withLock({ $0.open }) == nil else { throw TajweedError(.sessionOpen) }
+        var f = folder
+        let ctx = context ?? Self.defaultContext(f)
+        guard f.manifest.contexts.contains(ctx) else {
+            throw .argument("context \(ctx) is not one of \(f.manifest.contexts.joined(separator: ", "))")
+        }
+        let selection = Set(TajweedSessionOptions.defaultHeads.compactMap { HeadID(rawValue: $0) })
+        do throws(RecognizerError) {
+            if !f.isUsable(context: ctx) {
+                guard client != nil else { throw RecognizerError.modelMissing("the files of \(ctx) are not in the folder") }
+                f = try await ModelFolder.load(f.id, sources: [.cache, .cdn], context: ctx)
+                let fetched = f
+                state.withLock { (s: inout State) in
+                    s.folder = fetched
+                    s.recognizer = nil
+                    s.reference = nil
+                }
+            }
+            let r = try recognizer(f, context: ctx, backend: .auto, selection: selection)
+            try await r.prepare()
+            return await r.prepareAcceleratorNow(again: again, timeout: timeout)
+        } catch {
+            throw TajweedError(from: error)
+        }
+    }
+
     /// The CoreML build a Session's `backend` names: the compact one for `coremlCompact`; nil when it names none (the
     /// Session then gets the fp16 build).
     static func namedCompact(_ backend: TajweedSessionOptions.Backend) -> Bool? { backend == .coremlCompact ? true : nil }

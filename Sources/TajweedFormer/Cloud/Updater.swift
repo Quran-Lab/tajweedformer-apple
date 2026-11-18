@@ -125,8 +125,11 @@ actor ModelUpdater {
         let profileName = "apple-cpu"
         let relay = progress
         defer { relay.ended() }
+        // the CDN answered with the build's manifest: from here a failure is a failed download, whatever its cause
+        var started = false
         do throws(RecognizerError) {
             let manifest = try await client.manifest(id, revision: cdnRevision, version: version)
+            started = true
             let ctx = resolve(context, manifest)
             guard manifest.contexts.contains(ctx) else { throw RecognizerError.invalidArgument("context \(ctx) is not in \(id) \(cdnRevision)") }
             // the CPU set only: the accelerator's files come later, from the promotion pipeline
@@ -158,10 +161,20 @@ actor ModelUpdater {
             if activate || current == nil || isCurrent { return .installed(model, report) }
             return .pending(revision: model.revision)
         } catch {
+            // 3.1.5: every failed download is counted, with its reason; through 3.1.4 one the network stopped or that
+            // had no room was not counted at all, and none said why. A device with no network (no manifest) is not a
+            // failed download.
+            let deferred: Bool
+            switch error {
+            case .offline, .insufficientStorage: deferred = true
+            default: deferred = false
+            }
+            if started || !deferred {
+                record(.download(revision: version ?? cdnRevision, build: cdnRevision, profile: profileName, bytes: report.downloadedBytes,
+                                 success: false, resumed: report.resumed, failure: DownloadFailure(error)))
+            }
             if case .offline = error { return .deferred("offline: \(error)") }
             if case .insufficientStorage = error { return .deferred(error.description) }
-            record(.download(revision: version ?? cdnRevision, build: cdnRevision, profile: profileName, bytes: report.downloadedBytes,
-                             success: false, resumed: report.resumed))
             self.report(error, cdnRevision)
             return .failed(error)
         }
@@ -182,9 +195,9 @@ actor ModelUpdater {
                              bytes: r.downloadedBytes, success: true, resumed: r.resumed))
             return r
         } catch {
-            if case .offline = error { throw error }
+            // 3.1.5: a download the network stopped is counted too (through 3.1.4 it was not), and every failure says why
             record(.download(revision: model.version.isEmpty ? model.identity : model.version, build: model.identity, profile: name,
-                             bytes: 0, success: false, resumed: false))
+                             bytes: 0, success: false, resumed: false, failure: DownloadFailure(error)))
             throw error
         }
     }

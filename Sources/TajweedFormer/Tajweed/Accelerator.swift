@@ -117,6 +117,8 @@ struct AcceleratorIncident: Sendable, Equatable {
     var context: String
     var thermal: String?
     var lowPower: Bool?
+    /// A stage the previous process did not finish (3.1.5): false when the system ended the app in the background.
+    var foreground: Bool? = nil
     var code: String { "\(stage):\(cause)" }
 }
 
@@ -207,13 +209,21 @@ final class AcceleratorController: @unchecked Sendable {
         store = PromotionStore(dir: env.storage)
         // the first launch of 2.0.2: 2.0.1's blank and deadline demotions are cleared (once per store)
         store.migrate(now: env.clock())
-        // the process died during a compile, load or first inference: that key's attempt ends with reason crash
-        if let s = store.sentinel() {
-            store.clearSentinel()
+        // the first launch of 3.1.5: the crash and download verdicts earlier SDKs could not get right get one more attempt
+        store.migrate315()
+        // a process that ended during a compile, load or first inference (its sentinel's lock is free): a crash ends that
+        // key's attempt with reason crash; a quit, a stop by the system in the background, or an earlier SDK's sentinel
+        // leaves the attempt to go on at the next run (3.1.5). A stage under way in another process is left alone.
+        for t in store.takeStranded() {
+            let s = t.sentinel
             var r = store.record(s.key) ?? PromotionRecord(key: s.key)
             let wasReady = r.status == .ready
-            recordFailure(&r, s.stage, PromotionFailure(.crash, "the app stopped during the \(s.stage.rawValue) stage"), reload: wasReady,
-                          sameKey: s.key == key)
+            if t.exit == .crash {
+                recordFailure(&r, s.stage, PromotionFailure(.crash, "the app stopped during the \(s.stage.rawValue) stage"), reload: wasReady,
+                              sameKey: s.key == key)
+            } else {
+                noteStop(&r, s.stage, t.exit, sameKey: s.key == key)
+            }
         }
         let r = store.record(key)
         if let why = env.denied() {
@@ -456,6 +466,8 @@ final class AcceleratorController: @unchecked Sendable {
                 continue
             }
             rec.completed = stage
+            // a stage that finished ends a row of background stops (3.1.5)
+            rec.backgroundStops = nil
             store.save(rec)
             guard let n = stage.next else { return }
             stage = n
@@ -545,7 +557,11 @@ final class AcceleratorController: @unchecked Sendable {
     /// Ends the attempt with a failure (or demotes a promoted key that failed to load again): the record, the retry
     /// time, the telemetry and the incident report.
     private func recordFailure(_ rec: inout PromotionRecord, _ stage: PromotionStage, _ f: PromotionFailure, reload: Bool, sameKey: Bool) {
-        rec.failures += 1
+        // a download the network stopped, or that had no room, says nothing about the build (3.1.5): retried with the
+        // backoff, never using up the key's retry budget, so a device on a poor network is not kept off for good
+        let counted = !(stage == .download && (f.reason == .network || f.reason == .storage))
+        if counted { rec.failures += 1 }
+        rec.backgroundStops = nil
         rec.lastStage = stage
         rec.lastReason = f.reason
         rec.lastDetail = "\(stage.rawValue): \(f.detail)"
@@ -558,7 +574,7 @@ final class AcceleratorController: @unchecked Sendable {
             rec.notBefore = nil
         } else {
             rec.status = .retry
-            rec.notBefore = env.clock().addingTimeInterval(PromotionPolicy.backoff[rec.failures - 1])
+            rec.notBefore = env.clock().addingTimeInterval(PromotionPolicy.backoff[min(PromotionPolicy.backoff.count - 1, max(0, rec.failures - 1))])
         }
         store.save(rec)
         let parts = rec.key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
@@ -578,6 +594,45 @@ final class AcceleratorController: @unchecked Sendable {
                                          attempt: max(1, min(100, rec.attempts)), revision: named.revision, build: named.build,
                                          context: context, thermal: c.thermal, lowPower: c.lowPower))
         if sameKey { set(.disabled(rec.lastDetail ?? f.detail)) }
+    }
+
+    /// A stage whose process ended without a crash (3.1.5): the app was quit (`quit`), the system ended it in the
+    /// background (`background`), or an SDK to 3.1.4 left the sentinel with no mark (`unknown`). Not a fault of the
+    /// build: the attempt stays open and goes on at the next run from the stage it was at (a promoted build that was
+    /// being loaded again is loaded again), with nothing counted against the key; only a third background stop in a row
+    /// of one attempt ends it, as `hang` (retried with the backoff, never for good). No promotion telemetry; the report
+    /// says `interrupted`, or for a background stop `crash_on_last_run` with `foreground` false, which the server
+    /// files as a quiet exit.
+    private func noteStop(_ rec: inout PromotionRecord, _ stage: PromotionStage, _ exit: PromotionStore.Exit, sameKey: Bool) {
+        if exit == .background {
+            let n = (rec.backgroundStops ?? 0) + 1
+            if n >= PromotionPolicy.backgroundStopsInARow {
+                recordFailure(&rec, stage, PromotionFailure(.hang, "the system ended the app in the background during the \(stage.rawValue) stage \(n) times in a row"),
+                              reload: rec.status == .ready, sameKey: sameKey)
+                return
+            }
+            rec.backgroundStops = n
+        }
+        rec.stops = (rec.stops ?? 0) + 1
+        store.save(rec)
+        let parts = rec.key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        let revision = parts.first ?? env.revision, context = parts.count > 1 ? parts[1] : env.context
+        let named = named(revision)
+        let c = AcceleratorController.conditionsNow()
+        let why = exit == .background ? "the system ended the app in the background during the \(stage.rawValue) stage"
+            : exit == .quit ? "the app was quit during the \(stage.rawValue) stage" : "the app stopped during the \(stage.rawValue) stage (an earlier SDK's mark)"
+        env.incident(AcceleratorIncident(kind: .promotionFailed, stage: stage.rawValue, cause: exit == .background ? "crash_on_last_run" : "interrupted",
+                                         message: why, attempt: max(1, min(100, rec.attempts)), revision: named.revision, build: named.build,
+                                         context: context, thermal: c.thermal, lowPower: c.lowPower, foreground: exit == .background ? false : nil))
+        if sameKey, rec.status != .ready { set(.cpu) }
+    }
+
+    /// Forgets this device's verdict on the key and the build loaded for it in this process
+    /// (`TajweedModel.prepareAccelerator(again: true)`): the next run prepares the build from the start.
+    func forget() {
+        hold(nil)
+        store.remove(key)
+        set(.cpu)
     }
 
     private func noteDenied(_ rec: inout PromotionRecord, _ why: String) {
