@@ -1,0 +1,8 @@
+// COpus as a module: only COpus.h is its interface (opus.h and the shim). The other Opus headers in this folder
+// are for the Opus sources themselves. With an explicit header instead of SwiftPM's generated umbrella, Xcode no
+// longer warns, in every app that uses the package, that the umbrella header does not include
+// opus_multistream.h, opus_custom.h and opus_projection.h (a developer's report on 3.1.4 with Xcode 27.2).
+module COpus {
+    header "COpus/COpus.h"
+    export *
+}
