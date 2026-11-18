@@ -323,6 +323,29 @@ actor TajweedRecognizer {
         requested != .exact && !ModelContexts.isCPUOnly(context)
     }
 
+    /// `TajweedModel.prepareAccelerator` (3.1.5): the promotion now, at the app's priority, not after the idle delay;
+    /// with `again`, this device's verdict on the build is forgotten first. Waits until the build is promoted, loaded
+    /// and warm, or the pipeline stops (failed, waiting for conditions or a backoff), or `timeout` seconds pass; the
+    /// pipeline goes on in the background after a timeout. Returns the Backend of the next take.
+    func prepareAcceleratorNow(again: Bool, timeout: Double) async -> TajweedBackend {
+        try? setUpAccelerator()
+        guard let c = controllerBox.withLock({ $0 }) else { return backendNext }
+        if again { c.forget() }
+        pipelineStarted = true
+        let start = Date()
+        let run = Task.detached(priority: .userInitiated) { [weak self] in await self?.runPipeline() }
+        await withTaskGroup(of: Void.self) { g in
+            g.addTask { await run.value }
+            g.addTask { try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1e9)) }
+            _ = await g.next()
+            g.cancelAll()
+        }
+        // a run already under way (the launch's own) is waited for by its state
+        let left = timeout - Date().timeIntervalSince(start)
+        if left > 0, c.state == .preparing { _ = await c.awaitReady(timeout: left) }
+        return backendNext
+    }
+
     private func idleDelayPassed() {
         // a session running now starts the pipeline when it ends
         guard !pipelineStarted, !takeOpen else { return }
@@ -367,16 +390,9 @@ actor TajweedRecognizer {
                 // this recognizer's build and no other
                 if m.coreML(context: ctx, compact: compact) != nil { return }
                 guard let cloud = QuranLab.cloud else { throw PromotionFailure(.network, "no Quran Lab cloud to download the CoreML build from") }
-                do throws(RecognizerError) {
-                    _ = try await cloud.updater.installAccelerator(m, context: ctx, compact: compact)
-                } catch {
-                    throw Self.downloadFailure(error)
-                }
-                let profile = DownloadProfile(context: ctx, coreML: true, compact: compact)
-                let updated = m.adding(verified: profile.appleFiles(m.manifest).map(\.localPath),
-                                       removing: profile.otherBuildFiles(m.manifest).map(\.localPath))
-                guard updated.coreML(context: ctx, compact: compact) != nil else {
-                    throw PromotionFailure(.verify, updated.coreMLProblem ?? "the downloaded CoreML build is not usable")
+                let updated = try await Self.downloadAccelerator(m, context: ctx, compact: compact) {
+                    (folder: ModelFolder) async throws(RecognizerError) -> Void in
+                    _ = try await cloud.updater.installAccelerator(folder, context: ctx, compact: compact)
                 }
                 box.withLock { $0 = updated }
             },
@@ -420,6 +436,23 @@ actor TajweedRecognizer {
         #if DEBUG
         Logger(subsystem: "ai.quranlab.sdk", category: "accelerator").notice("\(line, privacy: .public)")
         #endif
+    }
+
+    /// The download stage once it has found the build is not usable in `m`: `install` brings the build's files (and
+    /// first sets right what an earlier download left, `ModelInstaller.repairAccelerator`), then the build is judged by
+    /// the files now on disk (`ModelFolder.rechecked`), never by what `m` found before the download. A build that still
+    /// does not verify is a `verify` failure, and what did not verify is deleted at once, so the next attempt downloads
+    /// it again from nothing (3.1.5).
+    static func downloadAccelerator(_ m: ModelFolder, context: String, compact: Bool,
+                                    install: (ModelFolder) async throws(RecognizerError) -> Void) async throws(PromotionFailure) -> ModelFolder {
+        do throws(RecognizerError) { try await install(m) } catch { throw downloadFailure(error) }
+        let updated: ModelFolder
+        do throws(RecognizerError) { updated = try m.rechecked() } catch { throw PromotionFailure(.verify, "\(error)") }
+        guard updated.coreML(context: context, compact: compact) != nil else {
+            ModelInstaller.repairAccelerator(m.manifest, in: m.directory)
+            throw PromotionFailure(.verify, updated.coreMLProblem ?? "the downloaded CoreML build is not usable")
+        }
+        return updated
     }
 
     static func downloadFailure(_ e: RecognizerError) -> PromotionFailure {

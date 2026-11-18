@@ -1,5 +1,65 @@
 # Changelog
 
+## 3.1.5
+
+Corrections to the preparation of the Neural Engine's build: a download that the network or the system stopped,
+and a process that ends while the build is being prepared. One new call to prepare the build at a known point. The
+same engine, the same model builds and the same API as 3.1.4 otherwise.
+
+- **Fixed: a download stopped in the middle of the CoreML package kept the Neural Engine off.** Through 3.1.4 a
+  download's working file (`<stored path>.part`) was kept next to its file, which for the CoreML build is inside
+  the package, and a gzip file was inflated straight into place. A download the network or the system stopped
+  (the connection lost, the request timed out, the app suspended or ended) left there a file the manifest does not
+  list, or a short decoded file. At the next launch the folder's check turned CoreML off for it ("... is in the
+  CoreML package but not in the manifest", "... does not match the manifest"), and the promotion's download stage,
+  which judged the build by that check from before the download, refused the download that had just finished it
+  (`verify`). Each such refusal took one of the build's tries for that OS build. Now working files live in the
+  model folder's own working folder (`.work/`), outside every package, and a decoded file is moved into place only
+  once it is the manifest's file; the download stage judges the build by the files on disk after the download.
+- **What an earlier download left is set right before the build is installed.** A working file an earlier SDK
+  kept inside a package is moved out and the download goes on from where it stopped; an Apple file on disk that
+  does not have the manifest's size and SHA-256 is deleted and downloaded again; any other file in a package that
+  the manifest does not list deletes the whole package, which is then downloaded again from nothing. The folder's
+  check is as strict as before: nothing the manifest does not list is ever taken, and hashes are not relaxed. A
+  build that still does not verify after the download is a `verify` failure and its files are deleted at once, so
+  the next attempt starts from nothing.
+- **A download the network stopped, or that had no room, no longer uses up the build's tries.** It is retried
+  after 1 hour, 6 hours, then every 24 hours, and never turns the Neural Engine off for good.
+- **Fixed: a process that ended normally during the preparation was taken for a crash.** The compile, the first
+  load and the first inference of the build run in the background of the app's process, with a mark on disk that
+  a crash leaves behind. Through 3.1.4 a process that ended normally during one of them (a command-line tool that
+  returned from `main`, an app quit in its first seconds) and an app the system ended in the background left the
+  same mark as a crash, and a crash turns the build off for good for that model build and OS build. A second
+  process of the same app that started while the first was in a stage also read the first one's mark as a crash.
+  Now each process keeps its own mark under a lock the system releases when the process ends, so a stage under way
+  in another process is never judged; a normal exit (`exit`, returning from `main`, the app's willTerminate, and on
+  the Mac SIGINT and SIGTERM when the app left them to the system) and an end in the background are told from a
+  crash. After an exit or a stop in the background the preparation goes on at the next launch from the stage it
+  was at, with nothing counted (a third stop in the background in a row of one attempt counts as one failure,
+  `hang`). Only a process that dies in the foreground during a stage is a crash.
+- **The first launch of 3.1.5 gives these verdicts of an earlier SDK one more attempt:** a crash at the compile,
+  warm-up or golden stage, and a download stage that ended with `verify`, `network` or `storage`. A golden-test
+  mismatch and the other verdicts stay.
+- **Added: `model.prepareAccelerator(context:again:timeout:)`.** It prepares the Neural Engine's build now (the
+  download on an unmetered network, the compile, the test against the CPU engine) and returns `model.backend` when
+  the build is loaded and warm, when the preparation stopped, or after `timeout` seconds (the work goes on in the
+  background). At a later launch it loads and warms a build promoted before, so the next take runs on the Neural
+  Engine from its first chunk. `again: true` first forgets this device's verdict on the build and prepares it from
+  the start. The preparation still runs by itself as before; it belongs to the Model's `.auto` engine, so an app
+  whose takes name `backend: .cpu` uses this call to have it prepared.
+- **Telemetry: a failed download says why.** A download entry carries `failure_reasons` (`network`, `http`,
+  `hash_mismatch`, `signature`, `storage`, `other`). A failed download of the model the network stopped or that
+  had no room is now counted as failed; through 3.1.4 it was not counted, and no failure said why. An incident
+  report of a stop says `interrupted`, or for a stop in the background `crash_on_last_run` with `foreground`
+  false.
+- The COpus module has an explicit module map with `COpus.h` as its one header, so apps no longer get three
+  umbrella-header warnings from the package.
+
+Tests: `DownloadAndStopTests` (the stopped download, the leftover of 3.1.4 resumed from its byte, a file in the
+package that is not the downloader's, a build that still does not verify, a quit at each stage, stops in the
+background, a stage under way in another process, the upgrade's verdicts, the telemetry's reasons), red on the
+code of 3.1.4 first for the download stage and the normal exit during the warm-up.
+
 ## 3.1.4
 
 Corrections to what the SDK does with something it keeps on the device and cannot read at that moment, and to

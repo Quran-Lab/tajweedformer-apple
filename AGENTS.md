@@ -35,7 +35,7 @@ Everything an assistant needs to integrate this SDK correctly: use only the name
 </td>
 <td valign="top">
 
-**Data for your own judge**<br>The SDK scores nothing. The model's thresholds come with it as read-only data, so your app can judge a recitation its own way. The expected units of each ayah do not: with this release and the model build served now, `model.reference` is nil.
+**Data for your own judge**<br>The SDK scores nothing. The model's thresholds and the expected units of each ayah come with it as read-only data, so your app can judge a recitation its own way.
 
 </td>
 </tr>
@@ -67,11 +67,11 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.4. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.5. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.4"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.5"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -238,8 +238,8 @@ package: it always runs on the exact CPU engine.
 The Neural Engine's build is the fp16 CoreML build (`coreml`). The compact build (`coreml-compact`: int8 weights, a
 download of 1.7 MB where the fp16 build's is 76.1 MB, for devices short of storage) is fetched and tried only when a
 Session names it, `TajweedSessionOptions(backend: .coremlCompact)`; a device does not try it on its own. Both go
-through the same pipeline, and a folder may hold both. One limit in 3.0.0: a Model warms the default Session when it
-is opened, and that Session's pipeline starts by itself after 20 seconds without a take, so an app that names
+through the same pipeline, and a folder may hold both. One limit since 3.0.0: a Model warms the default Session when
+it is opened, and that Session's pipeline starts by itself after 20 seconds without a take, so an app that names
 `.coremlCompact` and whose first take starts later than that also downloads the fp16 build (on Wi-Fi or Ethernet).
 
 With `backend: .auto` (the default, no code needed):
@@ -247,7 +247,9 @@ With `backend: .auto` (the default, no code needed):
 1. **First run.** The first install downloads only the CPU set. The first take runs on the exact CPU engine and
    nothing is queued in front of it: the Neural Engine's work starts after the first take ends, or after 20 seconds
    with no take. On every later launch the CPU engine serves until the Neural Engine is loaded and warm again; a
-   take never waits for it.
+   take never waits for it. The work belongs to the Model's `.auto` engine: a take that names `backend: .cpu`
+   replaces that engine (one engine at a time), and nothing of the Neural Engine runs while only `.cpu` takes are
+   made. `model.prepareAccelerator()` (below) starts it at any time.
 2. **In the background,** one pipeline per model build, context, OS build and device model, with its state kept on
    disk after each stage (an app killed in the middle resumes at the next launch where it stopped): download (the
    CoreML build, its keep table and the self-test set, on Wi-Fi or Ethernet only, resumable, every file verified),
@@ -266,8 +268,22 @@ With `backend: .auto` (the default, no code needed):
    with a `reason` when it failed).
 5. **Failing safe.** Any failure keeps the CPU engine and records the stage and the reason. A failure is retried
    for the same model build and OS build after 1 hour, 6 hours and 24 hours, then not again; a golden-test mismatch,
-   a NaN or a crash is never retried for them (a new build or an OS update tries again). The signed config's
-   deny-list (`denylist` and `accel_deny` rules) keeps the Neural Engine off.
+   a NaN or a crash is never retried for them (a new build or an OS update tries again). A download that the network
+   stopped or that had no room is retried after 1 hour, 6 hours, then every 24 hours, and never uses up those tries.
+   The signed config's deny-list (`denylist` and `accel_deny` rules) keeps the Neural Engine off.
+   - **A process that ends is not a crash.** The preparation runs in the background of the app's process. When the
+     process ends during it normally (it returns from `main` or calls `exit`, the app is quit, or on the Mac Ctrl-C or
+     `kill`), or the system ends the app while it is in the background, nothing is held against the build: the
+     preparation goes on at the next launch from the stage it was at (a third stop in the background in a row counts
+     as one failure). Only a process that dies in the foreground during a compile, load or first test is a crash.
+     Two processes of one app never judge each other's preparation.
+   - **Waiting for it, and asking again.** `try await model.prepareAccelerator()` prepares the build now (download,
+     compile, test, then loaded and warm) and returns `model.backend` once it is ready, has stopped (`demoted` with a
+     reason, or `cpu` while it waits for Wi-Fi, power or a retry time) or after `timeout` seconds (300 by default; the
+     work goes on in the background). At a later launch it loads and warms a build promoted before, so the next
+     take runs on the Neural Engine from its first chunk; a command-line tool that must stay alive until then calls
+     it before its takes. `prepareAccelerator(again: true)` forgets this device's verdict on the build first (a
+     failure, a demotion) and prepares it from the start.
 6. **During a take**, every Neural Engine chunk is checked: an exception, a NaN or infinite value, a value outside
    the heads' range, or a chunk that misses its deadline. The take then switches to the CPU engine at that chunk:
    its recent audio is replayed through it, and the take continues with no error. When the CPU's replay changes

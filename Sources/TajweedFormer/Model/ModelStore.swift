@@ -200,7 +200,9 @@ struct ModelStore: Sendable {
         // download leftovers never travel with a model
         if let e = fm.enumerator(atPath: folder.path) {
             var parts: [String] = []
-            while let p = e.nextObject() as? String { if p.hasSuffix(".part") || p.hasPrefix(".rebuild") { parts.append(p) } }
+            while let p = e.nextObject() as? String {
+                if p.hasSuffix(".part") || p.hasPrefix(".rebuild") || p.hasPrefix(ModelInstaller.workFolder) { parts.append(p) }
+            }
             for p in parts { try? fm.removeItem(at: folder.appendingPathComponent(p)) }
         }
         do {
