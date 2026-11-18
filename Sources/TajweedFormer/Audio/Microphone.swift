@@ -114,7 +114,7 @@ public final class Microphone: @unchecked Sendable {
             })
         } catch {
             c.finish()
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "audio")
         }
         keep(c)
         return out

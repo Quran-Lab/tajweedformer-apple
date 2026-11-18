@@ -1,0 +1,1 @@
+Copied from the Quran Lab SDK 4.0 contract (private), sdk_4.0.0/vectors/: errors_40.json (section 24, error reports, which 24.11 asks of Apple 3.1.5; made by tools/errors40.py --write, checked with --check).

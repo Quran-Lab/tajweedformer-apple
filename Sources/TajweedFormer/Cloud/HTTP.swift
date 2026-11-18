@@ -154,7 +154,8 @@ struct HTTPClient: Sendable {
         do {
             (data, response) = try await session.data(for: request, delegate: watch)
         } catch {
-            throw .offline(error.localizedDescription)
+            // no answer: the system's words, and its error's domain and code for the error report
+            throw .offline(ErrorCause.noAnswer(error))
         }
         guard let http = response as? HTTPURLResponse else { throw .invalid("not an HTTP response") }
         if watch.refused.withLock({ $0 }) || Self.redirects.contains(http.statusCode) {

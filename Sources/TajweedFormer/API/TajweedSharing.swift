@@ -53,7 +53,7 @@ public final class TajweedSharing: Sendable {
         do throws(RecognizerError) {
             try await Contributions.switchSharing(on, guardianConfirmed: guardianConfirmed)
         } catch {
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "sharing")
         }
     }
 
@@ -99,7 +99,7 @@ public final class TajweedSharing: Sendable {
         do throws(RecognizerError) {
             try await Contributions.deleteShared()
         } catch {
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "sharing")
         }
     }
 
@@ -114,7 +114,7 @@ public final class TajweedSharing: Sendable {
         do throws(RecognizerError) {
             try Contributions.setWording(overrides)
         } catch {
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "sharing")
         }
     }
 }

@@ -173,8 +173,23 @@ actor TokenProvider {
         return t
     }
 
+    /// Why the last call of `token()` failed, nil when it gave a token: a call made with the token tells by it whether
+    /// it was the token that failed (an error report's stage `attest`, contract 24.3).
+    nonisolated let lastFailure = Locked<CloudError?>(nil)
+
     /// A token valid for at least another hour.
     func token() async throws(CloudError) -> APIToken {
+        do throws(CloudError) {
+            let t = try await obtain()
+            lastFailure.withLock { $0 = nil }
+            return t
+        } catch {
+            lastFailure.withLock { $0 = error }
+            throw error
+        }
+    }
+
+    private func obtain() async throws(CloudError) -> APIToken {
         if let t = usable(cached) { return t }
         // unreadable is taken as not there here, because a token is asked for again
         if let t = usable(file.read().takingUnreadableAsMissing) { cached = t; return t }

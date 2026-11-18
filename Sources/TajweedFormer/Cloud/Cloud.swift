@@ -36,6 +36,15 @@ final class QuranLabCloud: Sendable {
     private let refusal = Locked<(status: Int, code: String, message: String, reason: String?)?>(nil)
     /// Whether this start has asked the server again for a deletion that a process ended in (once per start).
     private let deletionAsked = Locked(false)
+    /// Error reports: every failure that reaches the app and every silent one of 24.1.
+    let errorReports: ErrorReporter
+    /// Why the last config request failed (nil once one succeeds): the cause a model call without a config names.
+    let configFailure = Locked<ErrorCause?>(nil)
+    /// The 30-second send point of error reports is set (24.6: one timer for the SDK).
+    private let errorTimer = Locked(false)
+    /// Whether the install's first process is this one (no marker of an earlier start), per storage folder, as the
+    /// first Client of the process found it.
+    private static let firstStarts = Locked<[String: Bool]>([:])
 
     /// The one turn of a start to ask again for a deletion: true for the caller that takes it.
     func takeDeletionTurn() -> Bool {
@@ -137,6 +146,24 @@ final class QuranLabCloud: Sendable {
                                    clock: clock)
         issues = issueQueue
         incidents = IncidentLedger(storage: storage)
+        // contract section 24: the error reports. The install's first process is the one that found no marker of an
+        // earlier start (the marker the first registration writes)
+        let marker = storage.appendingPathComponent("cloud/installed").path
+        let firstStart = QuranLabCloud.firstStarts.withLock { (m: inout [String: Bool]) -> Bool in
+            if let known = m[storage.path] { return known }
+            let first = !FileManager.default.fileExists(atPath: marker)
+            m[storage.path] = first
+            return first
+        }
+        let reports = ErrorReporter(storage: storage, app: app, firstLaunch: firstStart, clock: clock,
+                                     context: { () -> (revision: String?, build: String?) in
+                                         // the model version and build in use or being fetched: the config's
+                                         guard let c = config.current else { return (nil, nil) }
+                                         let id = RecommendedModel.resolve(config: c, storage: storage)
+                                         if let r = c.recommended, r.model == id.repository { return (r.version, r.revision) }
+                                         return (c.models[id.repository]?.version, c.models[id.repository]?.revision)
+                                     })
+        errorReports = reports
         let store = ModelStore(root: storage.appendingPathComponent("models"),
                                verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true),
                                updates: options.updates, installKeys: installKeys)
@@ -183,6 +210,7 @@ final class QuranLabCloud: Sendable {
                                                                   app: issueContext.app, backend: nil, revision: rev))
                                },
                                stopped: { gate.stop })
+        errorReports.onNew.withLock { $0 = { [weak self] in self?.errorReportMade() } }
     }
 
     /// Network calls are off for this launch (a revoked key, a blocked app, an SDK too old for the key).
@@ -208,6 +236,7 @@ final class QuranLabCloud: Sendable {
     /// The server answered this install: a refusal that did not stop the launch's calls is over, and so is a
     /// remembered refusal of the API that stopped the model (the answer accepts the key).
     private func answered() {
+        configFailure.withLock { $0 = nil }
         if !isStopped { refusal.withLock { $0 = nil } }
         gate.accepted(.api)
     }
@@ -275,6 +304,8 @@ final class QuranLabCloud: Sendable {
         } catch {
             stopIfFatal(error)
             if !error.retryable { pendingRegistration.delete() }
+            // 24.1 item 2: the launch goes on without it
+            noteSilent(ErrorCause.of(error, stage: stage(of: error, route: "register")))
             return false
         }
     }
@@ -305,6 +336,11 @@ final class QuranLabCloud: Sendable {
                 let first = signatureReported.withLock { d -> Bool in defer { d = today }; return d != today }
                 if first { report(.signatureInvalid, backend: nil, revision: nil) }
             }
+            // 24.1 item 2: the SDK goes on with the config it has, or none; a model call that fails for want of it
+            // names this cause (24.4)
+            let cause = ErrorCause.of(error, stage: stage(of: error, route: "config"))
+            configFailure.withLock { $0 = cause }
+            noteSilent(cause)
             return nil
         }
     }
@@ -444,7 +480,10 @@ final class QuranLabCloud: Sendable {
         lastSeal.withLock { $0 = clock() }
         let flags = config.current?.flags ?? RemoteConfig.Flags()
         if !flags.analytics { analytics.dropAll() }
-        if !flags.issues { issues.dropAll() }
+        if !flags.issues {
+            issues.dropAll()
+            errorReports.dropQueue()
+        }
         guard key != nil, !isStopped else { return (0, 0) }
         var events = 0, sentIssues = 0
         if analyticsOn && flags.analytics {
@@ -457,6 +496,10 @@ final class QuranLabCloud: Sendable {
                         return r
                     }
                 } catch {
+                    // contract 24.1 item 2: a telemetry report the server refused (400, 413) is dropped
+                    if case .rejected(let s, _, _, _) = error, s == 400 || s == 413 {
+                        self.noteSilent(ErrorCause(stage: "events", reason: "http", httpStatus: s))
+                    }
                     // a body the server refuses is the SDK's bug: dropped, and reported (kind and code only)
                     if case .rejected(400, _, _, _) = error {
                         self.report(.serverRejected(status: 400, code: "bad_request", message: ""), kind: "other", code: "bad_request:events",
@@ -470,7 +513,68 @@ final class QuranLabCloud: Sendable {
             // the first accelerator incident of each kind per revision goes whatever flags.issues says
             sentIssues = await sendIssues(regular: flags.issues)
         }
+        // contract 24.6: every telemetry send point (the launch's comes after its config) sends the error reports, after
+        // the telemetry. 3.1.5 (24.11): `flags.issues` and the SDK's issue switch (`CloudOptions.issueReports`) turn
+        // them off
+        if flags.issues && options.issueReports { await sendErrorReports() }
         return (events, sentIssues)
+    }
+
+    // MARK: error reports
+
+    /// An occurrence of a failure: recorded off the caller's path; `flags.issues: false` (or the SDK's issue switch
+    /// off) records nothing.
+    func errorOccurred(_ cause: ErrorCause, code: String) {
+        errorReports.occur(cause, code: code, enabled: options.issueReports && (config.current?.flags.issues ?? true))
+    }
+
+    /// A failure of a background call the app is not told of (24.1 item 2: the config, registration, the token, a
+    /// telemetry report): code `none`, never a plain network failure. A model call it makes fail is its own report,
+    /// with the code the app got.
+    func noteSilent(_ cause: ErrorCause) {
+        guard cause.reason != "network" else { return }
+        errorOccurred(cause, code: "none")
+    }
+
+    /// The stage of a failed call made with the token: `attest` when it was the token that failed.
+    func stage(of e: CloudError, route: String) -> String {
+        tokens?.lastFailure.withLock({ $0 }) == e ? "attest" : route
+    }
+
+    /// 24.6: 30 seconds after an occurrence that made a new report, while the app is in the foreground (one timer).
+    private func errorReportMade() {
+        guard !lifecycle.withLock({ $0.background }) else { return }
+        let start = errorTimer.withLock { (on: inout Bool) -> Bool in
+            defer { on = true }
+            return !on
+        }
+        guard start else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+            guard let self else { return }
+            self.errorTimer.withLock { $0 = false }
+            await self.sendErrorReports()
+        }
+    }
+
+    /// Sends the queued error reports, oldest first, one request each (24.6): 202 sent, 400 or 413 dropped, anything
+    /// else keeps the rest for the next send point. A failure to send one is never reported.
+    @discardableResult
+    func sendErrorReports() async -> Int {
+        guard key != nil, !isStopped, options.issueReports, config.current?.flags.issues ?? true else { return 0 }
+        return await errorReports.send { (d: Data) async -> Int? in
+            do throws(CloudError) {
+                return try await self.authed { (token: String) throws(CloudError) -> URLRequest in
+                    var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/issues"), body: nil, auth: token)
+                    r.httpBody = d
+                    r.setValue("application/json", forHTTPHeaderField: "content-type")
+                    return r
+                }.status
+            } catch {
+                if case .rejected(let s, _, _, _) = error { return s }
+                return nil
+            }
+        }
     }
 
     func sendIssues(regular: Bool = true) async -> Int {

@@ -37,6 +37,13 @@ actor ModelUpdater {
     /// a listener that comes while one is running (the launch's own update check may have started it) gets its
     /// progress from where it stands.
     nonisolated let progress = ProgressRelay()
+    /// The last failed install and its cause: the stage it was at, what answered, whether part of
+    /// the build was on the device. Cleared when a run starts.
+    struct RunFailure: Sendable {
+        let error: RecognizerError
+        let cause: ErrorCause
+    }
+    nonisolated let lastFailure = Locked<RunFailure?>(nil)
 
     func setProgress(_ p: (@Sendable (Int64, Int64) -> Void)?) { progress.listen(p) }
 
@@ -86,6 +93,7 @@ actor ModelUpdater {
     }
 
     private func run(_ id: ModelID, _ cdnRevision: String, _ version: String?, _ context: String?, _ activate: Bool) async -> Outcome {
+        lastFailure.withLock { $0 = nil }
         // The device's key store first (SPEC 15.2): when it fails, nothing is opened, nothing is deleted and nothing
         // is downloaded; the next call tries again.
         if case .failed(let why) = store.installKeys.load() { return .failed(.storageFailed(InstallRecord.keyStoreMessage(why))) }
@@ -125,12 +133,15 @@ actor ModelUpdater {
         let profileName = "apple-cpu"
         let relay = progress
         defer { relay.ended() }
+        // where the run is, for the error report
+        var stage = "manifest"
         do throws(RecognizerError) {
             let manifest = try await client.manifest(id, revision: cdnRevision, version: version)
             let ctx = resolve(context, manifest)
             guard manifest.contexts.contains(ctx) else { throw RecognizerError.invalidArgument("context \(ctx) is not in \(id) \(cdnRevision)") }
             // the CPU set only: the accelerator's files come later, from the promotion pipeline
             let profile = DownloadProfile(context: ctx, coreML: false)
+            stage = "download"
             var installer = ModelInstaller(source: client.source(id, revision: cdnRevision), rangeSize: rangeSize)
             installer.meter = ProgressMeter { (done: Int64, total: Int64) in relay.report(done, total) }
             let model: ModelFolder
@@ -158,10 +169,16 @@ actor ModelUpdater {
             if activate || current == nil || isCurrent { return .installed(model, report) }
             return .pending(revision: model.revision)
         } catch {
+            // the cause, for the error report the call's failure makes
+            var cause = ErrorCause.of(error, stage: stage)
+            cause.partial = report.downloadedBytes > 0 || report.resumed
+            let failure = RunFailure(error: error, cause: cause)
+            lastFailure.withLock { $0 = failure }
+            // every failed download is counted, with its reason's telemetry name, the manifest's too
+            record(.download(revision: version ?? cdnRevision, build: cdnRevision, profile: profileName, bytes: report.downloadedBytes,
+                             success: false, resumed: report.resumed, failure: DownloadFailure(reason: cause.reason)))
             if case .offline = error { return .deferred("offline: \(error)") }
             if case .insufficientStorage = error { return .deferred(error.description) }
-            record(.download(revision: version ?? cdnRevision, build: cdnRevision, profile: profileName, bytes: report.downloadedBytes,
-                             success: false, resumed: report.resumed))
             self.report(error, cdnRevision)
             return .failed(error)
         }
@@ -182,9 +199,10 @@ actor ModelUpdater {
                              bytes: r.downloadedBytes, success: true, resumed: r.resumed))
             return r
         } catch {
-            if case .offline = error { throw error }
+            // 3.1.5: a download the network stopped is counted too (through 3.1.4 it was not), and every failure says why,
+            // by the names of contract 24.8
             record(.download(revision: model.version.isEmpty ? model.identity : model.version, build: model.identity, profile: name,
-                             bytes: 0, success: false, resumed: false))
+                             bytes: 0, success: false, resumed: false, failure: DownloadFailure(reason: ErrorCause.of(error, stage: "download").reason)))
             throw error
         }
     }

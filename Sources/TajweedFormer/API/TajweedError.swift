@@ -134,7 +134,17 @@ extension TajweedError {
     /// The catalogue's entry for `code`, its placeholders filled (`detail`, `version`, `sdk`, `needed`, `available`,
     /// `file`). With `reason` (the server's code of a refusal) the message and the fix are that reason's, when the
     /// catalogue has it; the error's `code` stays the same.
-    init(_ code: ErrorCode, _ values: [String: String] = [:], reason: String? = nil, catalogue c: ErrorCatalogue = .shared) {
+    /// 3.1.5: this and `init(from:)` are where every error the app gets is made, so every one is
+    /// reported here, once, with the stage of its CAUSE (`cause`; without one, the code's own, `ErrorCause.of(code:)`).
+    /// The codes of the app's own misuse make no report (`ErrorRules.notReported`).
+    init(_ code: ErrorCode, _ values: [String: String] = [:], reason: String? = nil, catalogue c: ErrorCatalogue = .shared,
+         cause: ErrorCause? = nil) {
+        self.init(made: code, values, reason: reason, catalogue: c)
+        ErrorReporter.raised(code.rawValue, cause: cause ?? ErrorCause.of(code: code))
+    }
+
+    /// The error, made and not reported: `init(from:)` reports it once, with the cause of the failure.
+    private init(made code: ErrorCode, _ values: [String: String] = [:], reason: String? = nil, catalogue c: ErrorCatalogue = .shared) {
         let e = c.texts(code.rawValue, reason: reason)
         var v = values
         if v["sdk"] == nil { v["sdk"] = SDKInfo.version }
@@ -150,58 +160,60 @@ extension TajweedError {
     /// `invalid_argument` with what was wrong.
     static func argument(_ detail: String) -> TajweedError { TajweedError(.invalidArgument, ["detail": detail]) }
 
-    /// The catalogue code of an internal failure. Every failure the SDK raises maps to one of the 26 codes.
-    init(from e: RecognizerError) {
+    /// The catalogue code of an internal failure. Every failure the SDK raises maps to one of the 26 codes. Reported
+    /// once (24.1) with `cause`, else the failure's own at `stage` (where the call was: `model_open`, `session`, ...).
+    init(from e: RecognizerError, cause: ErrorCause? = nil, stage: String? = nil) {
         switch e {
-        case .modelMissing(let why): self.init(.modelMissing, ["detail": why])
-        case .checksumMismatch(let file): self.init(.checksumMismatch, ["file": file])
-        case .signatureInvalid: self.init(.signatureInvalid)
-        case .manifestInvalid(let why): self.init(.modelInvalid, ["detail": why])
-        case .modelIncompatible(let why): self.init(.modelIncompatible, ["detail": why])
-        case .unsupportedAudioFormat(let why): self.init(.invalidArgument, ["detail": "audio format: \(why)"])
+        case .modelMissing(let why): self.init(made: .modelMissing, ["detail": why])
+        case .checksumMismatch(let file): self.init(made: .checksumMismatch, ["file": file])
+        case .signatureInvalid: self.init(made: .signatureInvalid)
+        case .manifestInvalid(let why): self.init(made: .modelInvalid, ["detail": why])
+        case .modelIncompatible(let why): self.init(made: .modelIncompatible, ["detail": why])
+        case .unsupportedAudioFormat(let why): self.init(made: .invalidArgument, ["detail": "audio format: \(why)"])
         case .microphoneUnavailable(let why):
-            self.init(why.hasPrefix(Self.deniedMark) ? .microphoneDenied : .microphoneUnavailable, ["detail": why])
-        case .neuralEngineUnavailable(let why): self.init(.engineFailed, ["detail": "Neural Engine: \(why)"])
-        case .engineFailed(let code, let message): self.init(.engineFailed, ["detail": "\(message) (\(code))"])
-        case .sessionActive: self.init(.sessionOpen)
-        case .sessionClosed: self.init(.sessionClosed)
-        case .cancelled: self.init(.cancelled)
-        case .serviceUnavailable: self.init(.sharingUnavailable)
-        case .offline(let why): self.init(.downloadFailed, ["detail": why])
+            self.init(made: why.hasPrefix(Self.deniedMark) ? .microphoneDenied : .microphoneUnavailable, ["detail": why])
+        case .neuralEngineUnavailable(let why): self.init(made: .engineFailed, ["detail": "Neural Engine: \(why)"])
+        case .engineFailed(let code, let message): self.init(made: .engineFailed, ["detail": "\(message) (\(code))"])
+        case .sessionActive: self.init(made: .sessionOpen)
+        case .sessionClosed: self.init(made: .sessionClosed)
+        case .cancelled: self.init(made: .cancelled)
+        case .serviceUnavailable: self.init(made: .sharingUnavailable)
+        case .offline(let why): self.init(made: .downloadFailed, ["detail": why])
         case .serverRejected(let status, let code, let message, let reason):
             // a reason that names the page's origin names the app id here (an app has no origin)
             let app = QuranLab.cloud?.app.bundleID ?? Bundle.main.bundleIdentifier ?? "this app"
             if let reason, ModelGate.keyReasons.contains(reason) {
                 // a key Quran Lab revoked or never issued, whatever the answer's `error` (also a token whose key was
                 // revoked after it was issued, and the CDN's 401 to a model request)
-                self.init(.invalidKey)
+                self.init(made: .invalidKey)
             } else if let named = Self.knownReason(reason) {
                 // the answer's `reason` is read first: the API answers an origin, key-type or allow-list refusal as a
                 // bad key (401 `invalid_key`) and names the check that refused there
-                self.init(.serverRejected, ["detail": named, "origin": app], reason: named)
+                self.init(made: .serverRejected, ["detail": named, "origin": app], reason: named)
             } else if code == "invalid_key" || (status == 401 && code == Self.cdnBareRefusal) {
                 // a key the server does not know; the CDN's bare 401 says the same of a model request
-                self.init(.invalidKey)
+                self.init(made: .invalidKey)
             } else if status == 429 && code == "model_limit" {
                 // a model request over Quran Lab's daily limit: the download stopped, try later; never a refusal
-                self.init(.downloadFailed, ["detail": "Quran Lab's daily limit for model downloads is reached; try again later"])
+                self.init(made: .downloadFailed, ["detail": "Quran Lab's daily limit for model downloads is reached; try again later"])
             } else if status == 401 && code == "invalid_token" {
                 // the token was renewed once and the repeat was refused too: the download failed, as any download does
-                self.init(.downloadFailed, ["detail": "Quran Lab did not accept this install's token"])
+                self.init(made: .downloadFailed, ["detail": "Quran Lab did not accept this install's token"])
             } else if code == "sdk_too_old" {
-                self.init(.sdkTooOld, ["version": Self.version(in: message) ?? "a newer version"])
+                self.init(made: .sdkTooOld, ["version": Self.version(in: message) ?? "a newer version"])
             } else {
                 // the answer's `error` picks its own message and fix when the catalogue has them; any other refusal
                 // names that code
-                self.init(.serverRejected, ["detail": code, "origin": app], reason: code)
+                self.init(made: .serverRejected, ["detail": code, "origin": app], reason: code)
             }
         case .insufficientStorage(let needed, let available):
-            self.init(.storageFull, ["needed": String(needed), "available": String(available)])
-        case .updateDeferred(let why): self.init(.downloadFailed, ["detail": why])
-        case .storageFailed(let why): self.init(.storageFailed, ["detail": why])
-        case .contributionUnavailable: self.init(.sharingUnavailable)
-        case .invalidArgument(let why): self.init(.invalidArgument, ["detail": why])
+            self.init(made: .storageFull, ["needed": String(needed), "available": String(available)])
+        case .updateDeferred(let why): self.init(made: .downloadFailed, ["detail": why])
+        case .storageFailed(let why): self.init(made: .storageFailed, ["detail": why])
+        case .contributionUnavailable: self.init(made: .sharingUnavailable)
+        case .invalidArgument(let why): self.init(made: .invalidArgument, ["detail": why])
         }
+        ErrorReporter.raised(code, cause: cause ?? ErrorCause.of(e, stage: stage))
     }
 
     /// The `error` of the CDN's 401 to a model request without a key it knows.

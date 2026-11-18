@@ -122,7 +122,9 @@ enum AnalyticsEvent: Sendable, Hashable {
     case sessionFinished(SessionTelemetry)
     case sessionAborted(cohort: TelemetryCohort)
     /// A model download: `revision` is the model version when it is known (else the build), `build` the build id.
-    case download(revision: String, build: String, profile: String, bytes: Int64, success: Bool, resumed: Bool)
+    /// `failure`: why a download that failed failed (3.1.5, the telemetry's `failure_reasons`).
+    case download(revision: String, build: String, profile: String, bytes: Int64, success: Bool, resumed: Bool,
+                  failure: DownloadFailure? = nil)
     /// The Neural Engine's promotion pipeline and in-session failovers (telemetry `promotions`).
     case promotion(PromotionTelemetry)
 }
@@ -131,6 +133,26 @@ enum AnalyticsEvent: Sendable, Hashable {
 /// at once.
 protocol AnalyticsSink: Sendable {
     func record(_ event: AnalyticsEvent)
+}
+
+/// Why a model download failed, as the telemetry's `downloads[].failure_reasons` names it (3.1.5; the server's
+/// DOWNLOAD_FAILURES). Through 3.1.4 a failure carried no reason, and a download the network stopped or that had no
+/// room was not counted at all.
+enum DownloadFailure: String, Sendable, CaseIterable {
+    case network, http
+    case hashMismatch = "hash_mismatch"
+    case signature, storage, other
+
+    /// The name of a failure whose reason is `reason`: contract 24.8 (`ErrorRules.telemetryReason`).
+    /// Before 24.8 a 5xx or a redirect, worded as no answer, was counted as `network`, and a manifest that did not
+    /// parse as `signature`.
+    init(reason: String) {
+        self = DownloadFailure(rawValue: ErrorRules.telemetryReason(reason)) ?? .other
+    }
+
+    init(_ e: RecognizerError) {
+        self.init(reason: ErrorCause.of(e, stage: "download").reason)
+    }
 }
 
 /// On-device telemetry v2 as SDK 3.0.0 sends it: sums and histograms per UTC day and cohort, the downloads, the
@@ -192,6 +214,8 @@ final class AnalyticsStore: Sendable {
 
     struct Download: Codable, Equatable {
         var bytes: Int64 = 0, success = 0, failed = 0, resumed = 0
+        /// 3.1.5 (optional, so an earlier day's record decodes): the failed downloads by reason (`DownloadFailure`).
+        var failureReasons: [String: Int]?
     }
 
     /// One `promotions` entry: a backend, model version, build and context.
@@ -429,13 +453,14 @@ final class AnalyticsStore: Sendable {
             cohort(co) { c in if passed { c.selfTestPass += 1 } else { c.selfTestFail += 1 } }
         case .fallback(let reason, let co):
             cohort(co) { $0.fallbacks[reason.rawValue, default: 0] += 1 }
-        case .download(let rev, let build, let profile, let bytes, let ok, let resumed):
+        case .download(let rev, let build, let profile, let bytes, let ok, let resumed, let failure):
             let k = "\(rev)|\(build)|\(profile)"
             mutate { d, _ in
                 var x = d.downloads[k] ?? Download()
                 x.bytes += bytes
                 if ok { x.success += 1 } else { x.failed += 1 }
                 if resumed { x.resumed += 1 }
+                if !ok, let failure { x.failureReasons = (x.failureReasons ?? [:]).merging([failure.rawValue: 1], uniquingKeysWith: +) }
                 d.downloads[k] = x
             }
         case .promotion(let t):
@@ -579,6 +604,7 @@ final class AnalyticsStore: Sendable {
             o["success"] = Self.clip(v.success)
             o["failed"] = Self.clip(v.failed)
             o["resumed"] = Self.clip(v.resumed)
+            if let r = v.failureReasons, !r.isEmpty { o["failure_reasons"] = r.mapValues { Self.clip($0) } }
             downloads.append(o)
         }
         var p: [String: Any] = ["v": 2, "day": d.day, "product": "apple", "platform": context.platform, "sdk_version": context.sdkVersion,

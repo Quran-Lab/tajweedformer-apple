@@ -397,7 +397,7 @@ actor SessionCore {
         do throws(RecognizerError) {
             step = try await recognizer.step(samples, sampleRate: rate, topK: topK)
         } catch {
-            await fail(TajweedError(from: error))
+            await fail(TajweedError(from: error, stage: "session"))
             return
         }
         guard isOpen else { return }
@@ -477,7 +477,7 @@ actor SessionCore {
             ended(step.take, reason: reason, heard: !(step.decoded.last?.tokens.isEmpty ?? true), hadAudio: audio)
         } catch {
             guard case .closing = phase else { return }
-            let e = TajweedError(from: error)
+            let e = TajweedError(from: error, stage: "session")
             phase = .failed(e)
             _ = shared.takeEnded(counts: false)
             eventOut.yield(.ended(.error(e)))

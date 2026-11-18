@@ -38,9 +38,12 @@ struct IncidentDetail: Codable, Equatable, Sendable {
     var attempt: Int?
     /// The model build (40 hex), next to the report's `revision`, which is the model version (SDK 3.0.0).
     var build: String?
+    /// Contract 1.22.0: a promotion stage the previous process did not finish, whether the app was in the foreground
+    /// (3.1.5 sends false for a stop by the system in the background).
+    var foreground: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
-        case stage, cause, chunk, clip, divergence, chip, accelerator, context, thermal, attempt, build
+        case stage, cause, chunk, clip, divergence, chip, accelerator, context, thermal, attempt, build, foreground
         case errorDomain = "error_domain", errorCode = "error_code", elapsedMs = "elapsed_ms", deadlineMs = "deadline_ms"
         case deviceModel = "device_model", osBuild = "os_build", computeUnits = "compute_units", lowPower = "low_power"
         case stallMs = "stall_ms"
@@ -200,7 +203,7 @@ extension QuranLabCloud {
             accelerator: "ane", computeUnits: "cpuAndNeuralEngine", context: i.context,
             thermal: i.thermal, lowPower: i.lowPower,
             stallMs: i.stallMs.map { Int(max(0, min(600_000, $0)).rounded()) },
-            attempt: i.attempt.map { max(1, min(100, $0)) }, build: build)
+            attempt: i.attempt.map { max(1, min(100, $0)) }, build: build, foreground: i.foreground)
         return r
     }
 

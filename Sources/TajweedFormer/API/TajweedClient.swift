@@ -159,6 +159,15 @@ public final class TajweedClient: Sendable {
         return model
     }
 
+    /// The error of a model call that failed for `cause`: `needs_connection`
+    /// only when no request got an answer and nothing of what the call needs is on the device; a server's answer is
+    /// `download_failed` with what answered as its detail.
+    static func modelCallError(_ cause: ErrorCause, onDevice: ErrorRules.OnDevice) -> TajweedError {
+        let code = ErrorRules.modelCallCode(cause, onDevice: onDevice)
+        if code == ErrorCode.needsConnection.rawValue { return TajweedError(.needsConnection, cause: cause) }
+        return TajweedError(ErrorCode(rawValue: code) ?? .downloadFailed, ["detail": cause.detail], cause: cause)
+    }
+
     /// Downloads and verifies the model ahead of use. Resumable: a download that stopped goes on where it stopped.
     /// With `unmeteredOnly` it follows the connection `diagnose()` reports: it downloads on `unmetered` (Wi-Fi,
     /// Ethernet) and on `unknown`, and does nothing on `metered` (cellular, a personal hotspot, Low Data Mode) and
@@ -215,9 +224,11 @@ public final class TajweedClient: Sendable {
         await cloud.updater.setProgress(progress)
         let outcome = await cloud.install(id, context: nil, activate: true)
         await cloud.updater.setProgress(nil)
+        // the install's own failure, with the stage it was at, when the outcome is that failure
+        let ran = cloud.updater.lastFailure.withLock { $0 }
         switch outcome {
         case .installed(let folder, _): return folder
-        case .failed(let e): throw TajweedError(from: e)
+        case .failed(let e): throw TajweedError(from: e, cause: ran.flatMap { $0.error == e ? $0.cause : nil })
         case .upToDate, .pending:
             do throws(RecognizerError) {
                 return try await store.resolve(id, sources: [.cache], context: nil)
@@ -226,16 +237,26 @@ public final class TajweedClient: Sendable {
             }
         case .deferred(let why):
             // the server said no to this key or app: that, not the missing connection, is what to fix
-            if let refused = cloud.rejectionError { throw TajweedError(from: refused) }
+            if let refused = cloud.rejectionError { throw TajweedError(from: refused, stage: "config") }
             // Quran Lab answered and names no model build for this SDK version
             if cloud.currentConfig != nil, cloud.targetRevision(id) == nil {
                 // a model this Client downloaded keeps serving
                 if let folder = try? await store.resolve(id, sources: [.cache], context: nil) { return folder }
                 throw TajweedError(.modelUnavailable)
             }
-            if why.contains("space") { throw TajweedError(.storageFull, ["needed": "more", "available": "too few"]) }
-            // a damaged copy on the device is reported as it is; a missing one needs the connection
-            if let local, case .modelMissing = local { throw TajweedError(.needsConnection) }
+            // the install that was put off for its failure (no answer, a server's answer, no room): its cause
+            let failed = ran.flatMap { why == "offline: \($0.error)" || why == $0.error.description ? $0.cause : nil }
+            if why.contains("space") { throw TajweedError(.storageFull, ["needed": "more", "available": "too few"], cause: failed) }
+            // a damaged copy on the device is reported as it is; a missing one: contract 24.4, `needs_connection` only
+            // when no request got any answer (the config's, the token's, the manifest's, a file's), else
+            // `download_failed` naming what answered. To 3.1.4 a server failure here was `needs_connection`
+            if let local, case .modelMissing = local {
+                if let failed { throw Self.modelCallError(failed, onDevice: failed.partial ? .partial : .nothing) }
+                if cloud.currentConfig == nil, let cause = cloud.configFailure.withLock({ $0 }) {
+                    throw Self.modelCallError(cause, onDevice: .nothing)
+                }
+                throw TajweedError(.needsConnection)
+            }
             if let local { throw TajweedError(from: local) }
             throw TajweedError(.needsConnection)
         }

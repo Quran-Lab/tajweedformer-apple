@@ -1,7 +1,7 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// TajweedFormer SDK 3.1.4: TajweedFormer V4 on iPhone and Mac, as a pure inference engine (every head of the
+// TajweedFormer SDK 3.1.5: TajweedFormer V4 on iPhone and Mac, as a pure inference engine (every head of the
 // network and the decoded layer). Two backends behind one API: the exact CPU engine (the same bits on every
 // device, always there) and, once promoted, the CoreML build on the Neural Engine (iOS 18, macOS 15), both from
 // one signed model folder.
