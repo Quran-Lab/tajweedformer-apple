@@ -178,7 +178,7 @@ enum StorageProtection {
     }
 
     /// The SDK's own folders in a storage folder.
-    static let own = ["cloud", "models", "outbox", "accelerator"]
+    static let own = ["cloud", "models", "outbox", "accelerator", "core"]
 
     /// Every path the walk of a start visits: the SDK's own folders that are there, and every file and folder in
     /// them. Not the storage folder itself, and nothing else that lies in it.

@@ -1,19 +1,13 @@
 import Foundation
 
 /// What a Client may be told besides its key. Every field has a default.
+///
+/// SDK 4.0: there is no analytics option. Anonymous analytics (daily counts and durations only, never audio, text,
+/// names or device identifiers) are always on; Quran Lab's signed config (`flags.analytics`) is the only off switch.
+///
+/// SDK 4.0: there is no audience option. Every app shows the same sharing sheet, every learner is asked under the
+/// same rules, and the choice is the learner's.
 public struct TajweedClientOptions: Sendable {
-    public enum Analytics: String, Sendable, Hashable {
-        /// Anonymous daily sums and histograms: never audio, text or identifiers.
-        case on
-        case off
-    }
-
-    public enum Audience: String, Sendable, Hashable {
-        case general
-        /// The sharing sheet addresses the parent or guardian and needs their confirmation.
-        case children
-    }
-
     /// The app's id; nil reads the bundle identifier.
     public var appId: String?
     /// The app's version; nil reads the bundle's short version.
@@ -22,24 +16,17 @@ public struct TajweedClientOptions: Sendable {
     /// `Application Support/<bundle id>/QuranLab`). The folder is the SDK's to fill: a model found there that this
     /// Client did not download itself on this device is not opened; it is deleted and downloaded.
     public var storage: URL?
-    public var analytics: Analytics
-    public var audience: Audience
 
-    public init(appId: String? = nil, appVersion: String? = nil, storage: URL? = nil, analytics: Analytics = .on,
-                audience: Audience = .general) {
+    public init(appId: String? = nil, appVersion: String? = nil, storage: URL? = nil) {
         self.appId = appId
         self.appVersion = appVersion
         self.storage = storage
-        self.analytics = analytics
-        self.audience = audience
     }
 
     /// The same choices as the SDK's internal configuration.
     var configuration: QuranLab.Options {
         var o = QuranLab.Options()
         o.storageDirectory = storage
-        o.analytics = analytics == .off ? .off : .on
-        o.audience = audience == .children ? .children : .general
         if appId != nil || appVersion != nil {
             var app = AppIdentity.main
             if let appId { app.bundleID = appId }
@@ -59,7 +46,9 @@ public struct TajweedClientOptions: Sendable {
 ///     let model = try await client.model()
 ///
 /// One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition
-/// path waits on the network once the model is on the device.
+/// path waits on the network once the model is on the device. Making the Client downloads no model: the model
+/// downloads only when the app calls `model()` or `prefetch()` (a later start checks only for an update of a build
+/// this Client installed on this device).
 ///
 /// A model comes only from Quran Lab's server, through the Client (3.1.0): the key, the signed config, the SDK's own
 /// download and its verification. No call takes a model folder, and a Client opens only a build it downloaded
@@ -72,7 +61,7 @@ public final class TajweedClient: Sendable {
     private let held = Locked<TajweedModel?>(nil)
     /// The model version the app pinned with `model(version:)`, when it did.
     private let pinned = Locked<String?>(nil)
-    /// Sharing recitations with Quran Lab: whether it is offered, the learner's choice, the outbox.
+    /// Sharing recitations with Quran Lab: whether Quran Lab's switch has it on, the learner's choice, the outbox.
     public let sharing: TajweedSharing
     /// Counters the app reports itself.
     public let analytics: TajweedAnalytics
@@ -116,6 +105,7 @@ public final class TajweedClient: Sendable {
         }
         guard first else { return }
         held.withLock { $0 = nil }
+        QuranLab.cloud?.analytics.closeSession()
         QuranLab.shutdown()
         Self.live.withLock { (current: inout UUID?) in
             if current == token { current = nil }
@@ -145,7 +135,9 @@ public final class TajweedClient: Sendable {
             pinned.withLock { $0 = version }
             await cloud.pin(version: version)
         }
-        let model = TajweedModel(try await install(progress: nil), client: self)
+        let folder = try await install(progress: nil)
+        try await Self.lease(folder)
+        let model = TajweedModel(folder, client: self)
         // from here the Client holds an open Model: a refusal that arrives now leaves its files until it is closed
         let gate = QuranLab.cloud?.gate
         gate?.modelOpen(true)
@@ -157,6 +149,51 @@ public final class TajweedClient: Sendable {
         }
         held.withLock { $0 = model }
         return model
+    }
+
+    /// SDK 4.0: the Core holds a valid lease for the build before the model opens: the one it has
+    /// (no network then, and a lease past `refresh_after` is renewed in the background), else a new one. Offline
+    /// after `exp`: `needs_connection`, and nothing is decrypted.
+    private static func lease(_ folder: ModelFolder) async throws(TajweedError) {
+        guard let runtime = ProtectedRuntime.current.withLock({ $0 }) else { throw TajweedError(.needsConnection) }
+        do throws(RecognizerError) {
+            _ = try await runtime.ensureLease(folder.manifest)
+            runtime.refreshIfDue(folder)
+        } catch {
+            let cause = ErrorCause.lease(error, runtime: runtime)
+            // contract 24.4: `needs_connection` only when the lease route got no answer and no valid lease is held (rule
+            // 1); a 5xx or 429 is `download_failed` naming it; only a stop the Core verified is a stop, and an unsigned
+            // or unverified refusal is `server_rejected` (rule 3). Before, every failure worded as `offline` was
+            // `needs_connection`, a server failure and an unsigned stop among them
+            switch error {
+            case .offline, .serverRejected: throw Self.modelCallError(cause, onDevice: .nothing, error: error)
+            default: throw TajweedError(from: error, cause: cause)
+            }
+        }
+    }
+
+    /// The error of a model call that failed for `cause`: `needs_connection`
+    /// only when no request got an answer and nothing of what the call needs is on the device; a server's answer is
+    /// `download_failed` with what answered as its detail.
+    /// A refusal is `invalid_key` or `server_rejected` with the refusal's own words (15.3), and `sdk_too_old` keeps the
+    /// version the answer names (`error`, the failure itself).
+    static func modelCallError(_ cause: ErrorCause, onDevice: ErrorRules.OnDevice, error: RecognizerError? = nil) -> TajweedError {
+        let code = ErrorRules.modelCallCode(cause, onDevice: onDevice)
+        switch code {
+        case ErrorCode.needsConnection.rawValue:
+            return TajweedError(.needsConnection, cause: cause)
+        case ErrorCode.invalidKey.rawValue:
+            return TajweedError(.invalidKey, cause: cause)
+        case ErrorCode.serverRejected.rawValue:
+            let named = cause.errorCode ?? cause.reason
+            let app = QuranLab.cloud?.app.bundleID ?? Bundle.main.bundleIdentifier ?? "this app"
+            return TajweedError(.serverRejected, ["detail": named, "origin": app], reason: TajweedError.knownReason(named), cause: cause)
+        case ErrorCode.sdkTooOld.rawValue:
+            if let error { return TajweedError(from: error, cause: cause) }
+            return TajweedError(.sdkTooOld, ["version": "a newer version"], cause: cause)
+        default:
+            return TajweedError(ErrorCode(rawValue: code) ?? .downloadFailed, ["detail": cause.detail], cause: cause)
+        }
     }
 
     /// Downloads and verifies the model ahead of use. Resumable: a download that stopped goes on where it stopped.
@@ -171,7 +208,9 @@ public final class TajweedClient: Sendable {
             let connection = await ConnectionKind.current()
             if !connection.downloadsWhenUnmeteredOnly { return }
         }
-        _ = try await install(progress: onProgress)
+        // a download ahead of use goes on to its end also when its caller stops waiting; with `unmeteredOnly` its
+        // requests carry the system's marks for an unmetered network, for as long as it runs
+        _ = try await install(progress: onProgress, ahead: true, unmeteredOnly: unmeteredOnly)
     }
 
     /// The model folder in the SDK's store, when one is there, is this Client's own download (its install record)
@@ -188,7 +227,8 @@ public final class TajweedClient: Sendable {
     /// not the app bundle (to 3.0.1 `QuranLabModels/<model id>/` was opened before any network), not a folder the
     /// app names, not a store filled in advance (a folder without this device's install record is deleted and the
     /// build downloaded).
-    private func install(progress: (@Sendable (Int64, Int64) -> Void)?) async throws(TajweedError) -> ModelFolder {
+    private func install(progress: (@Sendable (Int64, Int64) -> Void)?, ahead: Bool = false,
+                         unmeteredOnly: Bool = false) async throws(TajweedError) -> ModelFolder {
         let config = QuranLab.configuration
         let cloud = QuranLab.cloud
         // a Client the server has refused does not run the model, also not one a real download left (SPEC 15.3)
@@ -213,11 +253,17 @@ public final class TajweedClient: Sendable {
             throw TajweedError(from: local ?? .modelMissing("no model on this device"))
         }
         await cloud.updater.setProgress(progress)
-        let outcome = await cloud.install(id, context: nil, activate: true)
+        let outcome = await cloud.install(id, context: nil, activate: true, keep: ahead, unmeteredOnly: unmeteredOnly)
         await cloud.updater.setProgress(nil)
+        // the install's own failure, with the stage it was at, when the outcome is that failure
+        let ran = cloud.updater.lastFailure.withLock { $0 }
         switch outcome {
         case .installed(let folder, _): return folder
-        case .failed(let e): throw TajweedError(from: e)
+        case .failed(let e):
+            let cause = ran.flatMap { $0.error == e ? $0.cause : nil }
+            // a refusal on the lease route: a stop only when the Core verified it
+            if let cause, cause.stage == "lease", case .serverRejected = e { throw Self.modelCallError(cause, onDevice: .nothing, error: e) }
+            throw TajweedError(from: e, cause: cause)
         case .upToDate, .pending:
             do throws(RecognizerError) {
                 return try await store.resolve(id, sources: [.cache], context: nil)
@@ -226,16 +272,26 @@ public final class TajweedClient: Sendable {
             }
         case .deferred(let why):
             // the server said no to this key or app: that, not the missing connection, is what to fix
-            if let refused = cloud.rejectionError { throw TajweedError(from: refused) }
+            if let refused = cloud.rejectionError { throw TajweedError(from: refused, stage: "config") }
             // Quran Lab answered and names no model build for this SDK version
             if cloud.currentConfig != nil, cloud.targetRevision(id) == nil {
                 // a model this Client downloaded keeps serving
                 if let folder = try? await store.resolve(id, sources: [.cache], context: nil) { return folder }
                 throw TajweedError(.modelUnavailable)
             }
-            if why.contains("space") { throw TajweedError(.storageFull, ["needed": "more", "available": "too few"]) }
-            // a damaged copy on the device is reported as it is; a missing one needs the connection
-            if let local, case .modelMissing = local { throw TajweedError(.needsConnection) }
+            // the install that was put off for its failure (no answer, a server's answer, no room): its cause
+            let failed = ran.flatMap { why == "offline: \($0.error)" || why == $0.error.description ? $0.cause : nil }
+            if why.contains("space") { throw TajweedError(.storageFull, ["needed": "more", "available": "too few"], cause: failed) }
+            // a damaged copy on the device is reported as it is; a missing one: contract 24.4, `needs_connection` only
+            // when no request got any answer (the config's, the token's, the manifest's, a file's), else
+            // `download_failed` naming what answered. To 3.1.4 a server failure here was `needs_connection`
+            if let local, case .modelMissing = local {
+                if let failed { throw Self.modelCallError(failed, onDevice: failed.partial ? .partial : .nothing) }
+                if cloud.currentConfig == nil, let cause = cloud.configFailure.withLock({ $0 }) {
+                    throw Self.modelCallError(cause, onDevice: .nothing)
+                }
+                throw TajweedError(.needsConnection)
+            }
             if let local { throw TajweedError(from: local) }
             throw TajweedError(.needsConnection)
         }
@@ -313,7 +369,10 @@ public final class TajweedClient: Sendable {
         let compact = TajweedRecognizer.unnamedBuildIsCompact(model: folder, context: context)
         let build = compact ? "coreml-compact" : "coreml"
         let store = PromotionStore(dir: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"))
-        guard let r = store.record(AcceleratorController.key(revision: folder.identity, context: context, build: build)) else { return .cpu }
+        let program = AcceleratorController.programKey(folder.manifest, context: context, compact: compact)
+        guard let r = store.record(AcceleratorController.key(revision: folder.identity, context: context, build: build, program: program)) else {
+            return .cpu
+        }
         switch r.status {
         case .ready:
             // the build's package is on the device. The disk is asked, not the folder in hand: a Model's folder was
@@ -327,6 +386,40 @@ public final class TajweedClient: Sendable {
             return TajweedBackend(kind: .cpu, name: "cpu", stage: .demoted, reason: r.lastReason?.rawValue ?? "other")
         default:
             return .cpu
+        }
+    }
+
+    // MARK: background transfers
+
+    /// Whether a background URLSession identifier is one of the SDK's (they start with `ai.quranlab.`). For the
+    /// app delegate, and for SwiftUI's `.backgroundTask(.urlSession(matching:))`.
+    public static func isBackgroundSession(_ identifier: String) -> Bool { BackgroundEvents.owns(identifier) }
+
+    /// Forward the app delegate's `application(_:handleEventsForBackgroundURLSession:completionHandler:)` here.
+    /// The SDK's transfers go on while the app is suspended; when they are done the system starts the app in the
+    /// background and hands it this completion handler, which the SDK calls once its session has delivered
+    /// everything. It may be called before the app has made its Client: the handler then waits for the Client,
+    /// and is called in any case after a short while, so the system is always answered. Returns false, and does
+    /// not call `completionHandler`, when the session is not the SDK's (pass it to its owner then).
+    /// An app that does not forward loses nothing: the transfers finish all the same, and the SDK collects their
+    /// results when the Client is next made.
+    /// The handler is taken as the system declares it (not marked `@Sendable`), so an app delegate passes it on as
+    /// it is in any language mode; the SDK calls it once, on the main queue.
+    @discardableResult
+    public static func handleBackgroundEvents(identifier: String, completionHandler: @escaping () -> Void) -> Bool {
+        let handler = BackgroundEvents.SystemHandler(call: completionHandler)
+        return BackgroundEvents.handle(identifier: identifier, completionHandler: { handler.call() })
+    }
+
+    /// The same for SwiftUI (iOS 16): returns when the SDK's background session `identifier` has delivered its
+    /// events, at once when the session is not the SDK's. On the app's scene:
+    ///
+    ///     .backgroundTask(.urlSession(matching: { TajweedClient.isBackgroundSession($0) })) { identifier in
+    ///         await TajweedClient.backgroundEvents(identifier: identifier)
+    ///     }
+    public static func backgroundEvents(identifier: String) async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            if !BackgroundEvents.handle(identifier: identifier, completionHandler: { c.resume() }) { c.resume() }
         }
     }
 
@@ -378,10 +471,13 @@ public final class TajweedClient: Sendable {
         case .undetermined: permission = "notAsked"
         }
         let connection = await ConnectionKind.current()
-        return TajweedDiagnosis(sdkVersion: SDKInfo.version, sdkLatest: latest, key: key, config: configStatus,
-                                model: model, context: context, backend: backend, microphone: permission, storage: storage,
-                                lastError: ErrorCatalogue.lastRaised.withLock { $0 },
-                                droppedChunks: TakeBounds.droppedChunks.withLock { $0 }, connection: connection.rawValue)
+        var d = TajweedDiagnosis(sdkVersion: SDKInfo.version, sdkLatest: latest, key: key, config: configStatus,
+                                 model: model, context: context, backend: backend, microphone: permission, storage: storage,
+                                 lastError: ErrorCatalogue.lastRaised.withLock { $0 },
+                                 droppedChunks: TakeBounds.droppedChunks.withLock { $0 }, connection: connection.rawValue,
+                                 downloadProtocol: ModelDownloadRecord.networkProtocol)
+        d.protected = ProtectedRuntime.current.withLock { $0 }?.diagnosis()
+        return d
     }
 }
 
@@ -461,8 +557,40 @@ public struct TajweedDiagnosis: Sendable, Hashable {
     /// Mode), `none`, or `unknown` when the system does not say. `prefetch(unmeteredOnly:)` downloads on `unmetered`
     /// and `unknown`.
     public let connection: String
+    /// The protocol of the last model request that was answered for this Client in this process: `h3`, `h2` or
+    /// `http/1.1`; nil when none was made yet or the system named none. Held in memory and sent in no telemetry.
+    /// In `json` it is the optional key `downloadProtocol`, written after the eleven fields when it is known.
+    public var downloadProtocol: String?
 
-    /// The report as JSON, its eleven fields in the order every SDK writes them, for pasting.
+    /// SDK 4.0, contract section 25 (`sdk_4.0.0/DIAGNOSIS_40.md`): the protected model as the Core holds it. Its fields
+    /// in the section's order; no key, path or identifier.
+    public struct Protected: Sendable, Hashable {
+        /// Where the install's agreement key lives: `secureEnclave`, `keychain` (a software key in the Keychain), or
+        /// `file` where the Keychain refuses the process (a 0600 file in the storage folder; the Core then seals its
+        /// state under a key of its release, 18.4.7, as C's `file`). Nil before the install has a key.
+        public let keyStore: String?
+        /// `valid`, `grace` (expired, opened because Quran Lab could not be reached, 18.4.7.1), `expired`, `stopped` or
+        /// `none`.
+        public let lease: String
+        /// The `exp` of the lease the Core holds, also when it has expired or was stopped; nil only when `lease` is
+        /// `none`.
+        public let leaseExpires: Int64?
+        /// `attested` or `standard`, from the lease's flags (bit 3, 18.4.6: `attested` may use the Neural Engine), never
+        /// from `exp - iat` (18.4.7.2: how long a lease lasts is Quran Lab's); nil when `lease` is `none` or `stopped`.
+        public let leaseClass: String?
+        /// The lease's `refresh_after`; nil when `lease` is `none` or `stopped`.
+        public let refreshAfter: Int64?
+        /// `exp` + 86400 while `lease` is `grace`; nil otherwise.
+        public let graceUntil: Int64?
+        /// The Core's release and target (`qlc_version`); nil when the Core is not loaded.
+        public let core: String?
+    }
+
+    /// Nil before the protected model's runtime exists (no key configured).
+    public var protected: Protected? = nil
+
+    /// The report as JSON, its eleven fields in the order every SDK writes them, for pasting; then `downloadProtocol`
+    /// when one is known, and (4.0) `protected`.
     public var json: String {
         func q(_ s: String?) -> String {
             guard let s else { return "null" }
@@ -485,6 +613,15 @@ public struct TajweedDiagnosis: Sendable, Hashable {
         lines.append("  \"lastError\": \(q(lastError))")
         lines.append("  \"droppedChunks\": \(max(0, droppedChunks))")
         lines.append("  \"connection\": \(q(connection))")
+        // the optional key of contract 1.18.0, with one of the values the schema knows
+        if let downloadProtocol, ["h3", "h2", "http/1.1"].contains(downloadProtocol) { lines.append("  \"downloadProtocol\": \(q(downloadProtocol))") }
+        // 4.0, after the eleven shared fields and only with a runtime (as the C SDK's JSON adds it)
+        if let p = protected {
+            func n(_ v: Int64?) -> String { v.map(String.init) ?? "null" }
+            lines.append("  \"protected\": {\"keyStore\": \(q(p.keyStore)), \"lease\": \(q(p.lease)), \"leaseExpires\": \(n(p.leaseExpires)), "
+                + "\"leaseClass\": \(q(p.leaseClass)), \"refreshAfter\": \(n(p.refreshAfter)), \"graceUntil\": \(n(p.graceUntil)), "
+                + "\"core\": \(q(p.core))}")
+        }
         return "{\n" + lines.joined(separator: ",\n") + "\n}"
     }
 }

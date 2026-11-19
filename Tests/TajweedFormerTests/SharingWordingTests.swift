@@ -11,14 +11,14 @@ final class SharingWordingTests: XCTestCase {
     override func tearDown() {
         try? Contributions.setWording(nil)
         Contributions.setPresenter(nil)
+        Contributions.settleMs.withLock { $0 = ShareAsk.settleMs }
         QuranLab.configure(key: nil, options: .init(cloud: nil), cloud: nil)
     }
 
-    func configure(audience: Audience = .general) {
+    func configure() {
         let storage = Fixtures.storage()
         CloudFixtures.seedConfig(storage: storage)
         var o = CloudFixtures.options(contributions: true, storage: storage)
-        o.audience = audience
         o.sharingLocale = Locale(identifier: "en_US")
         let cloud = CloudFixtures.cloud(storage: storage, options: o)
         QuranLab.configure(key: CloudFixtures.key, options: o, cloud: cloud)
@@ -71,6 +71,44 @@ final class SharingWordingTests: XCTestCase {
         XCTAssertNil(Contributions.consentTextSHA256)
     }
 
+    /// Deck 2026-11-19.1 has no `sheet.guardian.*` key (one sheet for every app, contract 26.1 item 5): an app's own
+    /// words for one of the four are refused as for any unknown key (`invalid_argument` through the public call),
+    /// alone or beside a key the deck has, and nothing changes; no bundled deck has one.
+    func testOwnWordsForAGuardianKeyAreRefusedAsAnUnknownKey() throws {
+        configure()
+        let removed = ["sheet.guardian.title", "sheet.guardian.body", "sheet.guardian.confirm", "sheet.guardian.share"]
+        for lang in SharingCopy.bundledLanguages {
+            let deck = try XCTUnwrap(SharingCopy.bundled(lang), lang)
+            XCTAssertEqual(deck.version, "2026-11-19.1", lang)
+            XCTAssertEqual(deck.keys.filter { $0.hasPrefix("sheet.guardian") }, [], "\(lang): no guardian key in the deck")
+        }
+        XCTAssertTrue(SharingCopy.allKeys.isDisjoint(with: removed), "not a key an app may give its own words for")
+        let good = ["sheet.title": "Help other learners"]
+        try Contributions.setWording(good)
+        let version = Contributions.consentVersionInForce
+        for key in removed {
+            for overrides in [[key: "Words of the app's own"], [key: "Words of the app's own", "sheet.body": "Another line"]] {
+                do {
+                    try Contributions.setWording(overrides)
+                    XCTFail("\(key): accepted")
+                } catch {
+                    guard case .invalidArgument(let why) = error else { return XCTFail("\(key): \(error)") }
+                    XCTAssertTrue(why.contains("\(key) is not a key of the copy deck"), why)
+                }
+                XCTAssertEqual(Contributions.wording, good, "\(key): a refused wording changes nothing")
+                XCTAssertEqual(Contributions.consentVersionInForce, version, key)
+            }
+            // the public call: invalid_argument, and nothing changes
+            do {
+                try TajweedSharing().setWording([key: "Words of the app's own"])
+                XCTFail("\(key): accepted by setWording")
+            } catch {
+                XCTAssertEqual(error.code, "invalid_argument", key)
+            }
+            XCTAssertEqual(Contributions.wording, good, key)
+        }
+    }
+
     // MARK: the grant and the version
 
     /// Own wording changes the version in force, which a NEW grant records; a learner who agreed to the deck's words
@@ -78,7 +116,8 @@ final class SharingWordingTests: XCTestCase {
     /// them when the app goes back to the deck's words.
     func testCustomWordingChangesTheVersionANewGrantRecordsAndKeepsEarlierGrants() throws {
         configure()
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
         Contributions.answer(share: true)
         XCTAssertTrue(Contributions.isActive)
         XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-09")
@@ -98,7 +137,8 @@ final class SharingWordingTests: XCTestCase {
         // another install agrees under the app's words
         configure()
         try Contributions.setWording(["sheet.what": mine])
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
         Contributions.answer(share: true)
         XCTAssertEqual(Contributions.state().consentVersion, Contributions.consentVersionInForce)
         XCTAssertEqual(Contributions.state().consentTextSHA256, Contributions.consentTextSHA256)
@@ -130,8 +170,9 @@ final class SharingWordingTests: XCTestCase {
         let custom = try XCTUnwrap(SharingTests.starts.last?.json)
         XCTAssertEqual(custom["consent_version"] as? String, "custom-" + String(hash.prefix(24)))
         XCTAssertEqual(custom["consent_text_sha256"] as? String, hash)
-        XCTAssertEqual(Set(custom.keys), ["format", "audio", "decode", "consent_version", "consent_text_sha256", "contributor", "day",
-                                          "device_class", "os_major", "contributor_key", "recovery_hash"])
+        XCTAssertEqual(Set(custom.keys).subtracting(["device_model"]), ["format", "audio", "decode", "consent_version", "consent_text_sha256",
+                                                                        "contributor", "day", "device_class", "os_major", "contributor_key",
+                                                                        "recovery_hash"])
 
         // a learner who agreed to the deck's words (another install) sends no hash
         try Contributions.setWording(nil)
@@ -174,26 +215,38 @@ final class SharingWordingTests: XCTestCase {
 
     // MARK: the app's own UI
 
-    /// With a presenter the SDK hands the moment to the app (and shows nothing itself); the asks are counted and the
-    /// re-ask rules hold; nothing is captured until the app reports the learner's tap.
+    /// With a presenter the SDK hands the moment to the app (and shows nothing itself); the asks are counted as they
+    /// are handed over and the re-ask rules hold (SDK 4.0: a re-ask is a card, from deck 2026-11-15.1 with the deck's
+    /// own lines; its "See how it helps" opens the full sheet, where the yes is given); nothing is captured until the
+    /// app reports the learner's tap.
     func testTheAppsOwnUIGetsTheMomentAndNothingIsCapturedBeforeTheGrant() async throws {
         configure()
+        Contributions.settleMs.withLock { $0 = 0 }
         try Contributions.setWording(["sheet.title": "Help the next learner"])
         let seen = Locked<[SharingMoment]>([])
         Contributions.setPresenter { (m: SharingMoment) in seen.withLock { $0.append(m) } }
         XCTAssertNil(Contributions.sessionCompleted(feedback: false))
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
         let start = Date()
         while seen.withLock({ $0.isEmpty }) && Date().timeIntervalSince(start) < 5 { try await Task.sleep(nanoseconds: 10_000_000) }
-        XCTAssertEqual(seen.withLock { $0 }, [.ask(reask: false, guardian: false)], "the app's handler got the ask")
+        XCTAssertEqual(seen.withLock { $0 }, [.ask(reask: false)], "the app's handler got the ask")
         XCTAssertEqual(Contributions.state().asks, 1, "counted like the SDK's sheet")
         XCTAssertEqual(Contributions.copy.string("sheet.title"), "Help the next learner", "the strings the app shows")
         XCTAssertFalse(Contributions.isActive)
         XCTAssertNil(Contributions.capture(revision: "r", backend: .exact, weightsSHA256: nil), "offered is not consent")
         Contributions.answer(share: false)
         XCTAssertEqual(Contributions.consent, .declined)
-        for _ in 0..<6 { XCTAssertNil(Contributions.sessionCompleted(feedback: true), "the re-ask waits 7 sessions") }
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: true, guardian: false))
+        for _ in 0..<6 { XCTAssertNil(Contributions.sessionCompleted(feedback: true), "not again soon") }
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .card)
+        let again = Date()
+        while seen.withLock({ $0.count < 2 }) && Date().timeIntervalSince(again) < 5 { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(seen.withLock { $0 }.last, .card, "the card: the deck has its lines")
+        XCTAssertEqual(Contributions.state().asks, 2)
+        XCTAssertFalse(Contributions.copy.string("card.line").isEmpty, "the card's line the app shows")
+        XCTAssertTrue(Contributions.cardOpened(), "See how it helps: the full sheet for the same ask")
+        XCTAssertEqual(Contributions.state().asks, 2, "one ask")
         Contributions.answer(share: true)
         XCTAssertTrue(Contributions.isActive)
         XCTAssertNotNil(Contributions.capture(revision: "r", backend: .exact, weightsSHA256: nil))

@@ -46,15 +46,20 @@ import Foundation
 // A blank verification has no stall budget (it runs beside the session): it replays the whole ring, so a take of up to
 // 30 s is verified exactly.
 
-/// The exact CPU engine as a take sees it (TajweedExactEngine; a fake in tests).
+/// The exact CPU engine as a take sees it (the Core's, `CoreStreamEngine`; a fake in tests).
 protocol CPUStreamEngine: AnyObject {
     var chunkMs: Int { get }
+    /// False once its model was closed (another context, an install): the take runner opens the engine again.
+    var isOpen: Bool { get }
     func reset()
     func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer]
     func finish() throws(RecognizerError) -> [HeadsBuffer]
 }
 
-extension TajweedExactEngine: CPUStreamEngine {}
+extension CPUStreamEngine {
+    var isOpen: Bool { true }
+}
+
 
 /// The take's most recent 16 kHz audio, with absolute sample positions.
 struct AudioRing: Sendable {
@@ -531,10 +536,11 @@ final class TakeRunner {
         return PromotionPolicy.deadlineMs(p90Ms: AcceleratorController.percentile(s, 0.9), medianMs: AcceleratorController.percentile(s, 0.5))
     }
 
-    /// The CPU engine, opened now if it is closed.
+    /// The CPU engine, opened now if it is closed (or its model was closed under it, for an install).
     @discardableResult
     func ensureCPU() throws(RecognizerError) -> any CPUStreamEngine {
-        if let cpu { return cpu }
+        if let cpu, cpu.isOpen { return cpu }
+        cpu = nil
         let t0 = CFAbsoluteTimeGetCurrent()
         let c = try openCPU()
         lastOpenMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000

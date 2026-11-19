@@ -57,8 +57,12 @@ final class TelemetryDeltaTests: XCTestCase {
         XCTAssertEqual(relaunched.sealed.first?.reportID, kept.reportID, "the sealed delta survives a relaunch")
         let sent = Locked<[Data]>([])
         let m = await relaunched.flush(send: { (d: Data) async throws(CloudError) -> Void in sent.withLock { $0.append(d) } })
-        XCTAssertEqual(m, 1)
-        XCTAssertEqual(sent.withLock { $0 }, [kept.body], "the retry is the same body, byte for byte, with the same report id")
+        let bodies = sent.withLock { $0 }
+        XCTAssertEqual(bodies.first, kept.body, "the retry is the same body, byte for byte, with the same report id")
+        // SDK 4.0: the relaunch's own app session (`session_s`) is sealed at the send point as a delta of its own, with no
+        // take in it
+        XCTAssertTrue(bodies.dropFirst().allSatisfy { Self.sessions(Self.json($0)) == 0 && Self.json($0)["session_s"] != nil })
+        XCTAssertEqual(m, bodies.count)
         XCTAssertTrue(relaunched.sealed.isEmpty)
     }
 
@@ -96,13 +100,15 @@ final class TelemetryDeltaTests: XCTestCase {
         a.reportChecks(rule: "gemination", checked: 3, flagged: 0)
         a.reportChecks(rule: "word", checked: 7, flagged: 2)
         let p = a.payload(try XCTUnwrap(a.pending.first), reportID: AnalyticsStore.reportID())
-        XCTAssertEqual(p["ayahs"] as? Int, 3)
-        XCTAssertEqual(p["surah_ayahs"] as? [String: Int], ["36": 3], "surahs 1 to 114 only")
-        XCTAssertEqual(p["coverage"] as? [String: Int], ["36": 3], "the same values, for readers of 2.x")
+        // SDK 4.0 (17.1): the app's ranges are `app_ayahs` and `app_surah_ayahs`; `coverage` is not sent
+        XCTAssertEqual(p["app_ayahs"] as? Int, 3)
+        XCTAssertEqual(p["app_surah_ayahs"] as? [String: Int], ["36": 3], "surahs 1 to 114 only")
+        XCTAssertNil(p["ayahs"])
+        XCTAssertNil(p["coverage"])
         XCTAssertEqual(p["words"] as? Int, 7)
         XCTAssertEqual(p["rule_checks"] as? [String: Int], ["vowel_sub": 12, "insertion": 3, "madd": 5, "qalqalah": 2, "gemination": 3, "word": 7])
         XCTAssertEqual(p["rule_flags"] as? [String: Int], ["vowel_sub": 2, "madd": 1, "qalqalah": 1, "word": 2])
-        XCTAssertEqual(p["reported"] as? [String], AnalyticsStore.appReported)
+        XCTAssertEqual(p["reported"] as? [String], ["app_ayahs", "app_surah_ayahs", "words", "rule_checks", "rule_flags"])
         XCTAssertNil(p["launches"], "zero counters are left out")
         XCTAssertNil(p["share_asked"])
 
@@ -144,14 +150,18 @@ final class TelemetryDeltaTests: XCTestCase {
         QuranLab.configure(key: CloudFixtures.key, options: o, cloud: cloud)
         func today() -> AnalyticsStore.Day { cloud.analytics.pending.last ?? AnalyticsStore.Day(day: "") }
 
-        XCTAssertNotNil(Contributions.sessionCompleted(feedback: true))   // the SDK's sheet
+        Contributions.makeAskDue()
+        XCTAssertNotNil(Contributions.sessionCompleted(feedback: true))   // the SDK's sheet, at the end of a good take
         Contributions.answer(share: false)
         XCTAssertEqual([today().shareAsked, today().shareYes, today().shareNo], [1, 0, 1])
 
         let asked = Locked(0)
         Contributions.setPresenter { (_: SharingMoment) in asked.withLock { $0 += 1 } }   // the app's own UI
-        XCTAssertNotNil(Contributions.askNow())
+        Contributions.makeAskDue()
+        XCTAssertNil(Contributions.takeEnded(.normal, speechMs: 10_000))    // a short take: not the SDK's own moment
+        XCTAssertNotNil(Contributions.askNow())                             // the app's: a re-ask, the card
         try await waitUntil("the app's handler") { asked.withLock { $0 } == 1 }
+        XCTAssertTrue(Contributions.cardOpened())                           // See how it helps: the full sheet, the same ask
         Contributions.answer(share: true)
         XCTAssertEqual([today().shareAsked, today().shareYes, today().shareNo], [2, 1, 1])
 

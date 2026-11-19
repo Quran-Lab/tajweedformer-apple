@@ -1,0 +1,3024 @@
+{
+  "about": "One shared session in the lossless form of SHARING_40.md 19.4 (Ogg FLAC) as every SDK must write it. Input: test_signal(rate * seconds, rate, seed) of tools/sharing40.py (integer only; pcm_sha256 is SHA-256 of it as 16-bit little endian), serial and vendor fixed. Feed the samples to the SDK's encoder and muxer (a test seam for the serial and the vendor) and compare every segment file byte for byte; the concatenation decodes to the input exactly.",
+  "input": {
+    "rate": 16000,
+    "seconds": 75,
+    "seed": 1,
+    "serial": 1364324780,
+    "vendor": "QuranLab SDK 4.0.0 vector",
+    "samples": 1200000,
+    "pcm_sha256": "f396c5bd90552ba61486eb24588732cadffae0e7d2ef886ddc8c061ced38fa41",
+    "block": 4096,
+    "max_partition_order": 4,
+    "plan_seconds": [
+      10,
+      20,
+      40,
+      60
+    ],
+    "frames_per_segment": [
+      40,
+      79,
+      157,
+      235
+    ]
+  },
+  "frames": {
+    "total": 293,
+    "kinds": {
+      "constant": 37,
+      "fixed0": 91,
+      "fixed1": 37,
+      "fixed2": 37,
+      "fixed3": 36,
+      "fixed4": 36,
+      "verbatim": 19
+    }
+  },
+  "final_granule": 1200000,
+  "whole_sha256": "0b6f022222f7cc1dbfb9183583d5773cc164226bf680660a2200973adb6904f8",
+  "segments": [
+    {
+      "n": 1,
+      "file": "seg-00001.oga",
+      "bytes": 86907,
+      "sha256": "316f8af332f627125d4590e746cb12adb8e40dba984f4f9b654c3288bb1f2dc4",
+      "pages": [
+        {
+          "seq": 0,
+          "granule": 0,
+          "flags": 2,
+          "kind": "mapping",
+          "samples": 0,
+          "crc": 103212797,
+          "offset": 0,
+          "length": 79
+        },
+        {
+          "seq": 1,
+          "granule": 0,
+          "flags": 0,
+          "kind": "comment",
+          "samples": 0,
+          "crc": 477398358,
+          "offset": 79,
+          "length": 65
+        },
+        {
+          "seq": 2,
+          "granule": 4096,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 517619501,
+          "offset": 144,
+          "length": 39
+        },
+        {
+          "seq": 3,
+          "granule": 8192,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 4247041315,
+          "offset": 183,
+          "length": 8261
+        },
+        {
+          "seq": 4,
+          "granule": 12288,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 832189827,
+          "offset": 8444,
+          "length": 3900
+        },
+        {
+          "seq": 5,
+          "granule": 16384,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 554229000,
+          "offset": 12344,
+          "length": 2872
+        },
+        {
+          "seq": 6,
+          "granule": 20480,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 477856118,
+          "offset": 15216,
+          "length": 2931
+        },
+        {
+          "seq": 7,
+          "granule": 24576,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 1168078311,
+          "offset": 18147,
+          "length": 939
+        },
+        {
+          "seq": 8,
+          "granule": 28672,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1996094533,
+          "offset": 19086,
+          "length": 1982
+        },
+        {
+          "seq": 9,
+          "granule": 32768,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 913154192,
+          "offset": 21068,
+          "length": 610
+        },
+        {
+          "seq": 10,
+          "granule": 36864,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1580263586,
+          "offset": 21678,
+          "length": 2936
+        },
+        {
+          "seq": 11,
+          "granule": 40960,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 3465730347,
+          "offset": 24614,
+          "length": 930
+        },
+        {
+          "seq": 12,
+          "granule": 45056,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1538068949,
+          "offset": 25544,
+          "length": 1979
+        },
+        {
+          "seq": 13,
+          "granule": 49152,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2833943944,
+          "offset": 27523,
+          "length": 1319
+        },
+        {
+          "seq": 14,
+          "granule": 53248,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1459122847,
+          "offset": 28842,
+          "length": 1321
+        },
+        {
+          "seq": 15,
+          "granule": 57344,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1284898083,
+          "offset": 30163,
+          "length": 1324
+        },
+        {
+          "seq": 16,
+          "granule": 61440,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2496955622,
+          "offset": 31487,
+          "length": 1312
+        },
+        {
+          "seq": 17,
+          "granule": 65536,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 2501382529,
+          "offset": 32799,
+          "length": 39
+        },
+        {
+          "seq": 18,
+          "granule": 69632,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 2066504845,
+          "offset": 32838,
+          "length": 39
+        },
+        {
+          "seq": 19,
+          "granule": 73728,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 4124501233,
+          "offset": 32877,
+          "length": 8261
+        },
+        {
+          "seq": 20,
+          "granule": 77824,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3509614401,
+          "offset": 41138,
+          "length": 3888
+        },
+        {
+          "seq": 21,
+          "granule": 81920,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1527138528,
+          "offset": 45026,
+          "length": 2802
+        },
+        {
+          "seq": 22,
+          "granule": 86016,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1231726505,
+          "offset": 47828,
+          "length": 2923
+        },
+        {
+          "seq": 23,
+          "granule": 90112,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 3822329229,
+          "offset": 50751,
+          "length": 937
+        },
+        {
+          "seq": 24,
+          "granule": 94208,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 3718547679,
+          "offset": 51688,
+          "length": 1974
+        },
+        {
+          "seq": 25,
+          "granule": 98304,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 2361769611,
+          "offset": 53662,
+          "length": 610
+        },
+        {
+          "seq": 26,
+          "granule": 102400,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2453985921,
+          "offset": 54272,
+          "length": 2927
+        },
+        {
+          "seq": 27,
+          "granule": 106496,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 1501979115,
+          "offset": 57199,
+          "length": 937
+        },
+        {
+          "seq": 28,
+          "granule": 110592,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1733794861,
+          "offset": 58136,
+          "length": 1981
+        },
+        {
+          "seq": 29,
+          "granule": 114688,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3185594763,
+          "offset": 60117,
+          "length": 1315
+        },
+        {
+          "seq": 30,
+          "granule": 118784,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1241530320,
+          "offset": 61432,
+          "length": 1317
+        },
+        {
+          "seq": 31,
+          "granule": 122880,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1563967025,
+          "offset": 62749,
+          "length": 1321
+        },
+        {
+          "seq": 32,
+          "granule": 126976,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1769471010,
+          "offset": 64070,
+          "length": 1322
+        },
+        {
+          "seq": 33,
+          "granule": 131072,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 1859319193,
+          "offset": 65392,
+          "length": 39
+        },
+        {
+          "seq": 34,
+          "granule": 135168,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 1101522713,
+          "offset": 65431,
+          "length": 39
+        },
+        {
+          "seq": 35,
+          "granule": 139264,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 1829668249,
+          "offset": 65470,
+          "length": 8261
+        },
+        {
+          "seq": 36,
+          "granule": 143360,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 493586646,
+          "offset": 73731,
+          "length": 3893
+        },
+        {
+          "seq": 37,
+          "granule": 147456,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3905686943,
+          "offset": 77624,
+          "length": 2823
+        },
+        {
+          "seq": 38,
+          "granule": 151552,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1416778197,
+          "offset": 80447,
+          "length": 2933
+        },
+        {
+          "seq": 39,
+          "granule": 155648,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 898913545,
+          "offset": 83380,
+          "length": 937
+        },
+        {
+          "seq": 40,
+          "granule": 159744,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 775215322,
+          "offset": 84317,
+          "length": 1980
+        },
+        {
+          "seq": 41,
+          "granule": 163840,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3547176549,
+          "offset": 86297,
+          "length": 610
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "file": "seg-00002.oga",
+      "bytes": 162527,
+      "sha256": "3e5fff97200ee671c7a005f8748c8cf39d22b582f3829bd9465623475186bf17",
+      "pages": [
+        {
+          "seq": 42,
+          "granule": 167936,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2099842425,
+          "offset": 0,
+          "length": 2922
+        },
+        {
+          "seq": 43,
+          "granule": 172032,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 363430494,
+          "offset": 2922,
+          "length": 943
+        },
+        {
+          "seq": 44,
+          "granule": 176128,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 10686364,
+          "offset": 3865,
+          "length": 1983
+        },
+        {
+          "seq": 45,
+          "granule": 180224,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1560477491,
+          "offset": 5848,
+          "length": 1323
+        },
+        {
+          "seq": 46,
+          "granule": 184320,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2743124974,
+          "offset": 7171,
+          "length": 1325
+        },
+        {
+          "seq": 47,
+          "granule": 188416,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2202841264,
+          "offset": 8496,
+          "length": 1316
+        },
+        {
+          "seq": 48,
+          "granule": 192512,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 336356023,
+          "offset": 9812,
+          "length": 1316
+        },
+        {
+          "seq": 49,
+          "granule": 196608,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3395668405,
+          "offset": 11128,
+          "length": 39
+        },
+        {
+          "seq": 50,
+          "granule": 200704,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 609322169,
+          "offset": 11167,
+          "length": 39
+        },
+        {
+          "seq": 51,
+          "granule": 204800,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 4165865927,
+          "offset": 11206,
+          "length": 8261
+        },
+        {
+          "seq": 52,
+          "granule": 208896,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2162055484,
+          "offset": 19467,
+          "length": 3889
+        },
+        {
+          "seq": 53,
+          "granule": 212992,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1906641766,
+          "offset": 23356,
+          "length": 2800
+        },
+        {
+          "seq": 54,
+          "granule": 217088,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2599053771,
+          "offset": 26156,
+          "length": 2921
+        },
+        {
+          "seq": 55,
+          "granule": 221184,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 2655747629,
+          "offset": 29077,
+          "length": 940
+        },
+        {
+          "seq": 56,
+          "granule": 225280,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2745165346,
+          "offset": 30017,
+          "length": 1980
+        },
+        {
+          "seq": 57,
+          "granule": 229376,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1774551166,
+          "offset": 31997,
+          "length": 610
+        },
+        {
+          "seq": 58,
+          "granule": 233472,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 446240773,
+          "offset": 32607,
+          "length": 2926
+        },
+        {
+          "seq": 59,
+          "granule": 237568,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 736619069,
+          "offset": 35533,
+          "length": 942
+        },
+        {
+          "seq": 60,
+          "granule": 241664,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 3596033699,
+          "offset": 36475,
+          "length": 1979
+        },
+        {
+          "seq": 61,
+          "granule": 245760,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 330424968,
+          "offset": 38454,
+          "length": 1310
+        },
+        {
+          "seq": 62,
+          "granule": 249856,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1515227631,
+          "offset": 39764,
+          "length": 1322
+        },
+        {
+          "seq": 63,
+          "granule": 253952,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1880821124,
+          "offset": 41086,
+          "length": 1327
+        },
+        {
+          "seq": 64,
+          "granule": 258048,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 878253742,
+          "offset": 42413,
+          "length": 1319
+        },
+        {
+          "seq": 65,
+          "granule": 262144,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 152518506,
+          "offset": 43732,
+          "length": 39
+        },
+        {
+          "seq": 66,
+          "granule": 266240,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3332050418,
+          "offset": 43771,
+          "length": 39
+        },
+        {
+          "seq": 67,
+          "granule": 270336,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 3221361557,
+          "offset": 43810,
+          "length": 8261
+        },
+        {
+          "seq": 68,
+          "granule": 274432,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 798994854,
+          "offset": 52071,
+          "length": 3892
+        },
+        {
+          "seq": 69,
+          "granule": 278528,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1061219709,
+          "offset": 55963,
+          "length": 2807
+        },
+        {
+          "seq": 70,
+          "granule": 282624,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2153652273,
+          "offset": 58770,
+          "length": 2935
+        },
+        {
+          "seq": 71,
+          "granule": 286720,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 3657149852,
+          "offset": 61705,
+          "length": 938
+        },
+        {
+          "seq": 72,
+          "granule": 290816,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 3537826367,
+          "offset": 62643,
+          "length": 1983
+        },
+        {
+          "seq": 73,
+          "granule": 294912,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 2194264233,
+          "offset": 64626,
+          "length": 610
+        },
+        {
+          "seq": 74,
+          "granule": 299008,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2526285968,
+          "offset": 65236,
+          "length": 2941
+        },
+        {
+          "seq": 75,
+          "granule": 303104,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 794075783,
+          "offset": 68177,
+          "length": 934
+        },
+        {
+          "seq": 76,
+          "granule": 307200,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 103164574,
+          "offset": 69111,
+          "length": 1982
+        },
+        {
+          "seq": 77,
+          "granule": 311296,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 436626072,
+          "offset": 71093,
+          "length": 1321
+        },
+        {
+          "seq": 78,
+          "granule": 315392,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 8638235,
+          "offset": 72414,
+          "length": 1324
+        },
+        {
+          "seq": 79,
+          "granule": 319488,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1756411006,
+          "offset": 73738,
+          "length": 1316
+        },
+        {
+          "seq": 80,
+          "granule": 323584,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1608241612,
+          "offset": 75054,
+          "length": 1324
+        },
+        {
+          "seq": 81,
+          "granule": 327680,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 1297687390,
+          "offset": 76378,
+          "length": 39
+        },
+        {
+          "seq": 82,
+          "granule": 331776,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 2741857874,
+          "offset": 76417,
+          "length": 39
+        },
+        {
+          "seq": 83,
+          "granule": 335872,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 1341677412,
+          "offset": 76456,
+          "length": 8261
+        },
+        {
+          "seq": 84,
+          "granule": 339968,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4279767034,
+          "offset": 84717,
+          "length": 3887
+        },
+        {
+          "seq": 85,
+          "granule": 344064,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3487030770,
+          "offset": 88604,
+          "length": 2832
+        },
+        {
+          "seq": 86,
+          "granule": 348160,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1743492388,
+          "offset": 91436,
+          "length": 2925
+        },
+        {
+          "seq": 87,
+          "granule": 352256,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 3026866106,
+          "offset": 94361,
+          "length": 941
+        },
+        {
+          "seq": 88,
+          "granule": 356352,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2536153995,
+          "offset": 95302,
+          "length": 1977
+        },
+        {
+          "seq": 89,
+          "granule": 360448,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 945934002,
+          "offset": 97279,
+          "length": 610
+        },
+        {
+          "seq": 90,
+          "granule": 364544,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1715054695,
+          "offset": 97889,
+          "length": 2937
+        },
+        {
+          "seq": 91,
+          "granule": 368640,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 4259210552,
+          "offset": 100826,
+          "length": 942
+        },
+        {
+          "seq": 92,
+          "granule": 372736,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2880632300,
+          "offset": 101768,
+          "length": 1981
+        },
+        {
+          "seq": 93,
+          "granule": 376832,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3528161366,
+          "offset": 103749,
+          "length": 1328
+        },
+        {
+          "seq": 94,
+          "granule": 380928,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3367367282,
+          "offset": 105077,
+          "length": 1315
+        },
+        {
+          "seq": 95,
+          "granule": 385024,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4099663877,
+          "offset": 106392,
+          "length": 1322
+        },
+        {
+          "seq": 96,
+          "granule": 389120,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 853111124,
+          "offset": 107714,
+          "length": 1309
+        },
+        {
+          "seq": 97,
+          "granule": 393216,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3063138118,
+          "offset": 109023,
+          "length": 39
+        },
+        {
+          "seq": 98,
+          "granule": 397312,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 2582042054,
+          "offset": 109062,
+          "length": 39
+        },
+        {
+          "seq": 99,
+          "granule": 401408,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 1553066322,
+          "offset": 109101,
+          "length": 8261
+        },
+        {
+          "seq": 100,
+          "granule": 405504,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2295545203,
+          "offset": 117362,
+          "length": 3881
+        },
+        {
+          "seq": 101,
+          "granule": 409600,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 2497794433,
+          "offset": 121243,
+          "length": 2812
+        },
+        {
+          "seq": 102,
+          "granule": 413696,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2953368486,
+          "offset": 124055,
+          "length": 2932
+        },
+        {
+          "seq": 103,
+          "granule": 417792,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 782180093,
+          "offset": 126987,
+          "length": 931
+        },
+        {
+          "seq": 104,
+          "granule": 421888,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 448280191,
+          "offset": 127918,
+          "length": 1977
+        },
+        {
+          "seq": 105,
+          "granule": 425984,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1741287004,
+          "offset": 129895,
+          "length": 610
+        },
+        {
+          "seq": 106,
+          "granule": 430080,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 3402424059,
+          "offset": 130505,
+          "length": 2931
+        },
+        {
+          "seq": 107,
+          "granule": 434176,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 1689088822,
+          "offset": 133436,
+          "length": 934
+        },
+        {
+          "seq": 108,
+          "granule": 438272,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 3422681488,
+          "offset": 134370,
+          "length": 1978
+        },
+        {
+          "seq": 109,
+          "granule": 442368,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3021448609,
+          "offset": 136348,
+          "length": 1317
+        },
+        {
+          "seq": 110,
+          "granule": 446464,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 368221358,
+          "offset": 137665,
+          "length": 1320
+        },
+        {
+          "seq": 111,
+          "granule": 450560,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3682049107,
+          "offset": 138985,
+          "length": 1319
+        },
+        {
+          "seq": 112,
+          "granule": 454656,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4168504613,
+          "offset": 140304,
+          "length": 1318
+        },
+        {
+          "seq": 113,
+          "granule": 458752,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 304413546,
+          "offset": 141622,
+          "length": 39
+        },
+        {
+          "seq": 114,
+          "granule": 462848,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 4228953702,
+          "offset": 141661,
+          "length": 39
+        },
+        {
+          "seq": 115,
+          "granule": 466944,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 2801501822,
+          "offset": 141700,
+          "length": 8261
+        },
+        {
+          "seq": 116,
+          "granule": 471040,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3790196592,
+          "offset": 149961,
+          "length": 3892
+        },
+        {
+          "seq": 117,
+          "granule": 475136,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 2829084141,
+          "offset": 153853,
+          "length": 2831
+        },
+        {
+          "seq": 118,
+          "granule": 479232,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1692121150,
+          "offset": 156684,
+          "length": 2924
+        },
+        {
+          "seq": 119,
+          "granule": 483328,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 2269346017,
+          "offset": 159608,
+          "length": 939
+        },
+        {
+          "seq": 120,
+          "granule": 487424,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2982623073,
+          "offset": 160547,
+          "length": 1980
+        }
+      ]
+    },
+    {
+      "n": 3,
+      "file": "seg-00003.oga",
+      "bytes": 320570,
+      "sha256": "683637f408af0653c74af475bd74372dacdcfbe3df9df607fc0b1a50c6dca021",
+      "pages": [
+        {
+          "seq": 121,
+          "granule": 491520,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3714183239,
+          "offset": 0,
+          "length": 610
+        },
+        {
+          "seq": 122,
+          "granule": 495616,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 528584864,
+          "offset": 610,
+          "length": 2931
+        },
+        {
+          "seq": 123,
+          "granule": 499712,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 2159182127,
+          "offset": 3541,
+          "length": 934
+        },
+        {
+          "seq": 124,
+          "granule": 503808,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 3956670030,
+          "offset": 4475,
+          "length": 1985
+        },
+        {
+          "seq": 125,
+          "granule": 507904,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3642263417,
+          "offset": 6460,
+          "length": 1327
+        },
+        {
+          "seq": 126,
+          "granule": 512000,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 795535044,
+          "offset": 7787,
+          "length": 1324
+        },
+        {
+          "seq": 127,
+          "granule": 516096,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1822180094,
+          "offset": 9111,
+          "length": 1315
+        },
+        {
+          "seq": 128,
+          "granule": 520192,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2734493227,
+          "offset": 10426,
+          "length": 1319
+        },
+        {
+          "seq": 129,
+          "granule": 524288,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 2686855227,
+          "offset": 11745,
+          "length": 39
+        },
+        {
+          "seq": 130,
+          "granule": 528384,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 23304410,
+          "offset": 11784,
+          "length": 40
+        },
+        {
+          "seq": 131,
+          "granule": 532480,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 1044484610,
+          "offset": 11824,
+          "length": 8262
+        },
+        {
+          "seq": 132,
+          "granule": 536576,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2825482510,
+          "offset": 20086,
+          "length": 3887
+        },
+        {
+          "seq": 133,
+          "granule": 540672,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3548268297,
+          "offset": 23973,
+          "length": 2826
+        },
+        {
+          "seq": 134,
+          "granule": 544768,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1656420770,
+          "offset": 26799,
+          "length": 2927
+        },
+        {
+          "seq": 135,
+          "granule": 548864,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 276539677,
+          "offset": 29726,
+          "length": 943
+        },
+        {
+          "seq": 136,
+          "granule": 552960,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1754109659,
+          "offset": 30669,
+          "length": 1983
+        },
+        {
+          "seq": 137,
+          "granule": 557056,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3831883044,
+          "offset": 32652,
+          "length": 611
+        },
+        {
+          "seq": 138,
+          "granule": 561152,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1433749048,
+          "offset": 33263,
+          "length": 2933
+        },
+        {
+          "seq": 139,
+          "granule": 565248,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 1555013339,
+          "offset": 36196,
+          "length": 933
+        },
+        {
+          "seq": 140,
+          "granule": 569344,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 890370403,
+          "offset": 37129,
+          "length": 1979
+        },
+        {
+          "seq": 141,
+          "granule": 573440,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1540226037,
+          "offset": 39108,
+          "length": 1319
+        },
+        {
+          "seq": 142,
+          "granule": 577536,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1714564387,
+          "offset": 40427,
+          "length": 1323
+        },
+        {
+          "seq": 143,
+          "granule": 581632,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1450178101,
+          "offset": 41750,
+          "length": 1319
+        },
+        {
+          "seq": 144,
+          "granule": 585728,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3841468429,
+          "offset": 43069,
+          "length": 1324
+        },
+        {
+          "seq": 145,
+          "granule": 589824,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 1020650579,
+          "offset": 44393,
+          "length": 40
+        },
+        {
+          "seq": 146,
+          "granule": 593920,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 956410220,
+          "offset": 44433,
+          "length": 40
+        },
+        {
+          "seq": 147,
+          "granule": 598016,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 344412924,
+          "offset": 44473,
+          "length": 8262
+        },
+        {
+          "seq": 148,
+          "granule": 602112,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4188328556,
+          "offset": 52735,
+          "length": 3899
+        },
+        {
+          "seq": 149,
+          "granule": 606208,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 2895618326,
+          "offset": 56634,
+          "length": 2821
+        },
+        {
+          "seq": 150,
+          "granule": 610304,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 620829688,
+          "offset": 59455,
+          "length": 2921
+        },
+        {
+          "seq": 151,
+          "granule": 614400,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 330937967,
+          "offset": 62376,
+          "length": 943
+        },
+        {
+          "seq": 152,
+          "granule": 618496,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2235494056,
+          "offset": 63319,
+          "length": 1984
+        },
+        {
+          "seq": 153,
+          "granule": 622592,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3954824719,
+          "offset": 65303,
+          "length": 611
+        },
+        {
+          "seq": 154,
+          "granule": 626688,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2013091372,
+          "offset": 65914,
+          "length": 2937
+        },
+        {
+          "seq": 155,
+          "granule": 630784,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 2303012505,
+          "offset": 68851,
+          "length": 932
+        },
+        {
+          "seq": 156,
+          "granule": 634880,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1063968603,
+          "offset": 69783,
+          "length": 1989
+        },
+        {
+          "seq": 157,
+          "granule": 638976,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 982980732,
+          "offset": 71772,
+          "length": 1324
+        },
+        {
+          "seq": 158,
+          "granule": 643072,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1787531991,
+          "offset": 73096,
+          "length": 1310
+        },
+        {
+          "seq": 159,
+          "granule": 647168,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4009292595,
+          "offset": 74406,
+          "length": 1324
+        },
+        {
+          "seq": 160,
+          "granule": 651264,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3537126914,
+          "offset": 75730,
+          "length": 1328
+        },
+        {
+          "seq": 161,
+          "granule": 655360,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 564393585,
+          "offset": 77058,
+          "length": 40
+        },
+        {
+          "seq": 162,
+          "granule": 659456,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3845579970,
+          "offset": 77098,
+          "length": 40
+        },
+        {
+          "seq": 163,
+          "granule": 663552,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 3548526301,
+          "offset": 77138,
+          "length": 8262
+        },
+        {
+          "seq": 164,
+          "granule": 667648,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2471835169,
+          "offset": 85400,
+          "length": 3899
+        },
+        {
+          "seq": 165,
+          "granule": 671744,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1798323871,
+          "offset": 89299,
+          "length": 2834
+        },
+        {
+          "seq": 166,
+          "granule": 675840,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1280435487,
+          "offset": 92133,
+          "length": 2931
+        },
+        {
+          "seq": 167,
+          "granule": 679936,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 1016484645,
+          "offset": 95064,
+          "length": 934
+        },
+        {
+          "seq": 168,
+          "granule": 684032,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1965268310,
+          "offset": 95998,
+          "length": 1978
+        },
+        {
+          "seq": 169,
+          "granule": 688128,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1867291654,
+          "offset": 97976,
+          "length": 611
+        },
+        {
+          "seq": 170,
+          "granule": 692224,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2817726802,
+          "offset": 98587,
+          "length": 2929
+        },
+        {
+          "seq": 171,
+          "granule": 696320,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 2382212563,
+          "offset": 101516,
+          "length": 939
+        },
+        {
+          "seq": 172,
+          "granule": 700416,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2568171121,
+          "offset": 102455,
+          "length": 1982
+        },
+        {
+          "seq": 173,
+          "granule": 704512,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 955065617,
+          "offset": 104437,
+          "length": 1312
+        },
+        {
+          "seq": 174,
+          "granule": 708608,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3833374684,
+          "offset": 105749,
+          "length": 1322
+        },
+        {
+          "seq": 175,
+          "granule": 712704,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3596979642,
+          "offset": 107071,
+          "length": 1330
+        },
+        {
+          "seq": 176,
+          "granule": 716800,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2302537023,
+          "offset": 108401,
+          "length": 1320
+        },
+        {
+          "seq": 177,
+          "granule": 720896,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3632306251,
+          "offset": 109721,
+          "length": 40
+        },
+        {
+          "seq": 178,
+          "granule": 724992,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3713324404,
+          "offset": 109761,
+          "length": 40
+        },
+        {
+          "seq": 179,
+          "granule": 729088,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 603898633,
+          "offset": 109801,
+          "length": 8262
+        },
+        {
+          "seq": 180,
+          "granule": 733184,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4087035219,
+          "offset": 118063,
+          "length": 3889
+        },
+        {
+          "seq": 181,
+          "granule": 737280,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3899416735,
+          "offset": 121952,
+          "length": 2797
+        },
+        {
+          "seq": 182,
+          "granule": 741376,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 615798551,
+          "offset": 124749,
+          "length": 2932
+        },
+        {
+          "seq": 183,
+          "granule": 745472,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 3847478395,
+          "offset": 127681,
+          "length": 941
+        },
+        {
+          "seq": 184,
+          "granule": 749568,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 3563612406,
+          "offset": 128622,
+          "length": 1984
+        },
+        {
+          "seq": 185,
+          "granule": 753664,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1620094765,
+          "offset": 130606,
+          "length": 611
+        },
+        {
+          "seq": 186,
+          "granule": 757760,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 3625031444,
+          "offset": 131217,
+          "length": 2927
+        },
+        {
+          "seq": 187,
+          "granule": 761856,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 4031880123,
+          "offset": 134144,
+          "length": 940
+        },
+        {
+          "seq": 188,
+          "granule": 765952,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 4025122754,
+          "offset": 135084,
+          "length": 1983
+        },
+        {
+          "seq": 189,
+          "granule": 770048,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 984347155,
+          "offset": 137067,
+          "length": 1316
+        },
+        {
+          "seq": 190,
+          "granule": 774144,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 179983150,
+          "offset": 138383,
+          "length": 1319
+        },
+        {
+          "seq": 191,
+          "granule": 778240,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4210188750,
+          "offset": 139702,
+          "length": 1305
+        },
+        {
+          "seq": 192,
+          "granule": 782336,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1448323651,
+          "offset": 141007,
+          "length": 1321
+        },
+        {
+          "seq": 193,
+          "granule": 786432,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 2413743425,
+          "offset": 142328,
+          "length": 40
+        },
+        {
+          "seq": 194,
+          "granule": 790528,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 4206027238,
+          "offset": 142368,
+          "length": 40
+        },
+        {
+          "seq": 195,
+          "granule": 794624,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 3510297472,
+          "offset": 142408,
+          "length": 8262
+        },
+        {
+          "seq": 196,
+          "granule": 798720,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3337662115,
+          "offset": 150670,
+          "length": 3890
+        },
+        {
+          "seq": 197,
+          "granule": 802816,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3433596676,
+          "offset": 154560,
+          "length": 2818
+        },
+        {
+          "seq": 198,
+          "granule": 806912,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 3510555340,
+          "offset": 157378,
+          "length": 2933
+        },
+        {
+          "seq": 199,
+          "granule": 811008,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 749109046,
+          "offset": 160311,
+          "length": 935
+        },
+        {
+          "seq": 200,
+          "granule": 815104,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1736452214,
+          "offset": 161246,
+          "length": 1979
+        },
+        {
+          "seq": 201,
+          "granule": 819200,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1635067499,
+          "offset": 163225,
+          "length": 611
+        },
+        {
+          "seq": 202,
+          "granule": 823296,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1158624643,
+          "offset": 163836,
+          "length": 2932
+        },
+        {
+          "seq": 203,
+          "granule": 827392,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 4230864836,
+          "offset": 166768,
+          "length": 931
+        },
+        {
+          "seq": 204,
+          "granule": 831488,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 738708763,
+          "offset": 167699,
+          "length": 1980
+        },
+        {
+          "seq": 205,
+          "granule": 835584,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3217408928,
+          "offset": 169679,
+          "length": 1319
+        },
+        {
+          "seq": 206,
+          "granule": 839680,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3435666312,
+          "offset": 170998,
+          "length": 1322
+        },
+        {
+          "seq": 207,
+          "granule": 843776,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4252086651,
+          "offset": 172320,
+          "length": 1322
+        },
+        {
+          "seq": 208,
+          "granule": 847872,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3935827921,
+          "offset": 173642,
+          "length": 1312
+        },
+        {
+          "seq": 209,
+          "granule": 851968,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3338968431,
+          "offset": 174954,
+          "length": 40
+        },
+        {
+          "seq": 210,
+          "granule": 856064,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3268464720,
+          "offset": 174994,
+          "length": 40
+        },
+        {
+          "seq": 211,
+          "granule": 860160,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 1655640075,
+          "offset": 175034,
+          "length": 8262
+        },
+        {
+          "seq": 212,
+          "granule": 864256,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2182203067,
+          "offset": 183296,
+          "length": 3888
+        },
+        {
+          "seq": 213,
+          "granule": 868352,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1600174451,
+          "offset": 187184,
+          "length": 2793
+        },
+        {
+          "seq": 214,
+          "granule": 872448,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 143453092,
+          "offset": 189977,
+          "length": 2939
+        },
+        {
+          "seq": 215,
+          "granule": 876544,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 330900103,
+          "offset": 192916,
+          "length": 938
+        },
+        {
+          "seq": 216,
+          "granule": 880640,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2042099594,
+          "offset": 193854,
+          "length": 1983
+        },
+        {
+          "seq": 217,
+          "granule": 884736,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 1856574784,
+          "offset": 195837,
+          "length": 611
+        },
+        {
+          "seq": 218,
+          "granule": 888832,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2004322637,
+          "offset": 196448,
+          "length": 2935
+        },
+        {
+          "seq": 219,
+          "granule": 892928,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 1196765149,
+          "offset": 199383,
+          "length": 943
+        },
+        {
+          "seq": 220,
+          "granule": 897024,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 3855898942,
+          "offset": 200326,
+          "length": 1985
+        },
+        {
+          "seq": 221,
+          "granule": 901120,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2738617044,
+          "offset": 202311,
+          "length": 1311
+        },
+        {
+          "seq": 222,
+          "granule": 905216,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 42209183,
+          "offset": 203622,
+          "length": 1315
+        },
+        {
+          "seq": 223,
+          "granule": 909312,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1694615017,
+          "offset": 204937,
+          "length": 1320
+        },
+        {
+          "seq": 224,
+          "granule": 913408,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1053367672,
+          "offset": 206257,
+          "length": 1318
+        },
+        {
+          "seq": 225,
+          "granule": 917504,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 3664940877,
+          "offset": 207575,
+          "length": 40
+        },
+        {
+          "seq": 226,
+          "granule": 921600,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 518495742,
+          "offset": 207615,
+          "length": 40
+        },
+        {
+          "seq": 227,
+          "granule": 925696,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 710802038,
+          "offset": 207655,
+          "length": 8262
+        },
+        {
+          "seq": 228,
+          "granule": 929792,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2513160430,
+          "offset": 215917,
+          "length": 3893
+        },
+        {
+          "seq": 229,
+          "granule": 933888,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3997341407,
+          "offset": 219810,
+          "length": 2833
+        },
+        {
+          "seq": 230,
+          "granule": 937984,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2975831475,
+          "offset": 222643,
+          "length": 2926
+        },
+        {
+          "seq": 231,
+          "granule": 942080,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 3920726911,
+          "offset": 225569,
+          "length": 933
+        },
+        {
+          "seq": 232,
+          "granule": 946176,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 125410157,
+          "offset": 226502,
+          "length": 1982
+        },
+        {
+          "seq": 233,
+          "granule": 950272,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3931922249,
+          "offset": 228484,
+          "length": 611
+        },
+        {
+          "seq": 234,
+          "granule": 954368,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 739502569,
+          "offset": 229095,
+          "length": 2931
+        },
+        {
+          "seq": 235,
+          "granule": 958464,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 2553164836,
+          "offset": 232026,
+          "length": 928
+        },
+        {
+          "seq": 236,
+          "granule": 962560,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2004162370,
+          "offset": 232954,
+          "length": 1981
+        },
+        {
+          "seq": 237,
+          "granule": 966656,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2113911958,
+          "offset": 234935,
+          "length": 1312
+        },
+        {
+          "seq": 238,
+          "granule": 970752,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1813013191,
+          "offset": 236247,
+          "length": 1327
+        },
+        {
+          "seq": 239,
+          "granule": 974848,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3136036198,
+          "offset": 237574,
+          "length": 1320
+        },
+        {
+          "seq": 240,
+          "granule": 978944,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 988565323,
+          "offset": 238894,
+          "length": 1325
+        },
+        {
+          "seq": 241,
+          "granule": 983040,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 592568695,
+          "offset": 240219,
+          "length": 40
+        },
+        {
+          "seq": 242,
+          "granule": 987136,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 646294600,
+          "offset": 240259,
+          "length": 40
+        },
+        {
+          "seq": 243,
+          "granule": 991232,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 1314733060,
+          "offset": 240299,
+          "length": 8262
+        },
+        {
+          "seq": 244,
+          "granule": 995328,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3720921800,
+          "offset": 248561,
+          "length": 3871
+        },
+        {
+          "seq": 245,
+          "granule": 999424,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3778170869,
+          "offset": 252432,
+          "length": 2828
+        },
+        {
+          "seq": 246,
+          "granule": 1003520,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1099736568,
+          "offset": 255260,
+          "length": 2929
+        },
+        {
+          "seq": 247,
+          "granule": 1007616,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 4067095091,
+          "offset": 258189,
+          "length": 936
+        },
+        {
+          "seq": 248,
+          "granule": 1011712,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2289962874,
+          "offset": 259125,
+          "length": 1981
+        },
+        {
+          "seq": 249,
+          "granule": 1015808,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3850398818,
+          "offset": 261106,
+          "length": 611
+        },
+        {
+          "seq": 250,
+          "granule": 1019904,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 3658630920,
+          "offset": 261717,
+          "length": 2939
+        },
+        {
+          "seq": 251,
+          "granule": 1024000,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 1174518696,
+          "offset": 264656,
+          "length": 933
+        },
+        {
+          "seq": 252,
+          "granule": 1028096,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1860979569,
+          "offset": 265589,
+          "length": 1985
+        },
+        {
+          "seq": 253,
+          "granule": 1032192,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2861937087,
+          "offset": 267574,
+          "length": 1321
+        },
+        {
+          "seq": 254,
+          "granule": 1036288,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2077561088,
+          "offset": 268895,
+          "length": 1316
+        },
+        {
+          "seq": 255,
+          "granule": 1040384,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1466003217,
+          "offset": 270211,
+          "length": 1318
+        },
+        {
+          "seq": 256,
+          "granule": 1044480,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2728122212,
+          "offset": 271529,
+          "length": 1321
+        },
+        {
+          "seq": 257,
+          "granule": 1048576,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 264953766,
+          "offset": 272850,
+          "length": 40
+        },
+        {
+          "seq": 258,
+          "granule": 1052672,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 1786867083,
+          "offset": 272890,
+          "length": 40
+        },
+        {
+          "seq": 259,
+          "granule": 1056768,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 4277974123,
+          "offset": 272930,
+          "length": 8262
+        },
+        {
+          "seq": 260,
+          "granule": 1060864,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3194263194,
+          "offset": 281192,
+          "length": 3894
+        },
+        {
+          "seq": 261,
+          "granule": 1064960,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 2579296204,
+          "offset": 285086,
+          "length": 2838
+        },
+        {
+          "seq": 262,
+          "granule": 1069056,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 3336976132,
+          "offset": 287924,
+          "length": 2939
+        },
+        {
+          "seq": 263,
+          "granule": 1073152,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 585498686,
+          "offset": 290863,
+          "length": 940
+        },
+        {
+          "seq": 264,
+          "granule": 1077248,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1859040295,
+          "offset": 291803,
+          "length": 1981
+        },
+        {
+          "seq": 265,
+          "granule": 1081344,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 634202408,
+          "offset": 293784,
+          "length": 611
+        },
+        {
+          "seq": 266,
+          "granule": 1085440,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 2956932433,
+          "offset": 294395,
+          "length": 2931
+        },
+        {
+          "seq": 267,
+          "granule": 1089536,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 6419407,
+          "offset": 297326,
+          "length": 936
+        },
+        {
+          "seq": 268,
+          "granule": 1093632,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 1348481743,
+          "offset": 298262,
+          "length": 1977
+        },
+        {
+          "seq": 269,
+          "granule": 1097728,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2189500036,
+          "offset": 300239,
+          "length": 1319
+        },
+        {
+          "seq": 270,
+          "granule": 1101824,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4282274814,
+          "offset": 301558,
+          "length": 1330
+        },
+        {
+          "seq": 271,
+          "granule": 1105920,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 454952340,
+          "offset": 302888,
+          "length": 1321
+        },
+        {
+          "seq": 272,
+          "granule": 1110016,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 4024199279,
+          "offset": 304209,
+          "length": 1306
+        },
+        {
+          "seq": 273,
+          "granule": 1114112,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 1463226626,
+          "offset": 305515,
+          "length": 40
+        },
+        {
+          "seq": 274,
+          "granule": 1118208,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 1390631997,
+          "offset": 305555,
+          "length": 40
+        },
+        {
+          "seq": 275,
+          "granule": 1122304,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 3145709068,
+          "offset": 305595,
+          "length": 8262
+        },
+        {
+          "seq": 276,
+          "granule": 1126400,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 244074648,
+          "offset": 313857,
+          "length": 3897
+        },
+        {
+          "seq": 277,
+          "granule": 1130496,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 3712031210,
+          "offset": 317754,
+          "length": 2816
+        }
+      ]
+    },
+    {
+      "n": 4,
+      "file": "seg-00004.oga",
+      "bytes": 35516,
+      "sha256": "69bddd81b76ba8cf752debce35f9c8a312adda9e7a44bd98b41e10db7cabb2af",
+      "pages": [
+        {
+          "seq": 278,
+          "granule": 1134592,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 1872290411,
+          "offset": 0,
+          "length": 2931
+        },
+        {
+          "seq": 279,
+          "granule": 1138688,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 2848124109,
+          "offset": 2931,
+          "length": 944
+        },
+        {
+          "seq": 280,
+          "granule": 1142784,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 2681754920,
+          "offset": 3875,
+          "length": 1981
+        },
+        {
+          "seq": 281,
+          "granule": 1146880,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 705763843,
+          "offset": 5856,
+          "length": 611
+        },
+        {
+          "seq": 282,
+          "granule": 1150976,
+          "flags": 0,
+          "kind": "fixed2",
+          "samples": 4096,
+          "crc": 297800143,
+          "offset": 6467,
+          "length": 2928
+        },
+        {
+          "seq": 283,
+          "granule": 1155072,
+          "flags": 0,
+          "kind": "fixed3",
+          "samples": 4096,
+          "crc": 799487917,
+          "offset": 9395,
+          "length": 934
+        },
+        {
+          "seq": 284,
+          "granule": 1159168,
+          "flags": 0,
+          "kind": "fixed4",
+          "samples": 4096,
+          "crc": 3685462687,
+          "offset": 10329,
+          "length": 1979
+        },
+        {
+          "seq": 285,
+          "granule": 1163264,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 975265205,
+          "offset": 12308,
+          "length": 1332
+        },
+        {
+          "seq": 286,
+          "granule": 1167360,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 3827301888,
+          "offset": 13640,
+          "length": 1325
+        },
+        {
+          "seq": 287,
+          "granule": 1171456,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 1829055494,
+          "offset": 14965,
+          "length": 1317
+        },
+        {
+          "seq": 288,
+          "granule": 1175552,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2045051636,
+          "offset": 16282,
+          "length": 1303
+        },
+        {
+          "seq": 289,
+          "granule": 1179648,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 1245774624,
+          "offset": 17585,
+          "length": 40
+        },
+        {
+          "seq": 290,
+          "granule": 1183744,
+          "flags": 0,
+          "kind": "constant",
+          "samples": 4096,
+          "crc": 2396262803,
+          "offset": 17625,
+          "length": 40
+        },
+        {
+          "seq": 291,
+          "granule": 1187840,
+          "flags": 0,
+          "kind": "verbatim",
+          "samples": 4096,
+          "crc": 1035602781,
+          "offset": 17665,
+          "length": 8262
+        },
+        {
+          "seq": 292,
+          "granule": 1191936,
+          "flags": 0,
+          "kind": "fixed0",
+          "samples": 4096,
+          "crc": 2979820078,
+          "offset": 25927,
+          "length": 3891
+        },
+        {
+          "seq": 293,
+          "granule": 1196032,
+          "flags": 0,
+          "kind": "fixed1",
+          "samples": 4096,
+          "crc": 2882903969,
+          "offset": 29818,
+          "length": 2848
+        },
+        {
+          "seq": 294,
+          "granule": 1200000,
+          "flags": 4,
+          "kind": "fixed2",
+          "samples": 3968,
+          "crc": 3866440425,
+          "offset": 32666,
+          "length": 2850
+        }
+      ]
+    }
+  ]
+}

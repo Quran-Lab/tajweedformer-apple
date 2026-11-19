@@ -62,7 +62,8 @@ public final class TajweedModel: Sendable {
     public var calibration: TajweedCalibration? { TajweedCalibration(folder) }
 
     /// The expected units of each ayah, read-only data for an app's own judge; nil when this build ships none. The
-    /// table is not part of the model's download: `reference.fetch()` brings it, once.
+    /// table is not part of the model's download: `reference.fetch()` brings it, once. SDK 4.0: the table is encrypted
+    /// and only the Core reads it, at the first `units` call after the model opened (it needs the lease then).
     public var reference: TajweedReference? {
         // a Model of a Client downloads the table through it; a folder a test opened has only what is in the folder
         var download: (@Sendable (ModelFolder, ModelManifest.File) async throws -> Void)?
@@ -70,6 +71,7 @@ public final class TajweedModel: Sendable {
         let source = download
         let table: ModelReference? = state.withLock { (s: inout State) -> ModelReference? in
             if let r = s.reference { return r }
+            // the table is encrypted, and only the Core reads it
             guard let file = s.folder.referenceFile else { return nil }
             let r = ModelReference(folder: s.folder, file: file, download: source)
             s.reference = r
@@ -151,6 +153,54 @@ public final class TajweedModel: Sendable {
         return try await start(options, pushed: true)
     }
 
+    /// Warms the engine for the Session these options describe, ahead of its first take. `client.model()` warms the
+    /// default Session only; a Session with another context, other heads or another backend gets its own engine,
+    /// which is otherwise made when its first take opens, too late for that take to start on the Neural Engine.
+    /// Call this once with the options your takes use (their `context`, `heads` and `backend`; the other fields are
+    /// not read): the context's files are fetched when they are not on the device yet, the CPU engine is built, and
+    /// the call waits until the Neural Engine's build for these options is ready or will not be. It returns the
+    /// Backend the next Session with the same options starts on: the accelerator where this device has one for
+    /// them, else the CPU engine, with the stage and reason `backend` reports. Where no accelerator applies (an
+    /// older system, a CPU-only context, `backend: .cpu`) it returns at once with the CPU engine. A second call with
+    /// the same options finds the engine warm and does nothing more. A Session with other options is not covered
+    /// by it: it gets its own engine as before.
+    /// On a device that has not promoted the build yet, the wait includes the promotion (the build's download on an
+    /// unmetered network, its compilation and its test, up to ten minutes); takes can run meanwhile on the CPU
+    /// engine. While a Session is open the call throws `session_open`: it is for the time before a take.
+    @discardableResult
+    public func prepare(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedBackend {
+        let selection = try Self.selection(options.heads)
+        let context = options.context ?? Self.defaultContext(folder)
+        guard folder.manifest.contexts.contains(context) else {
+            throw .argument("context \(context) is not one of \(folder.manifest.contexts.joined(separator: ", "))")
+        }
+        enum Standing { case closed, busy, free }
+        let standing = state.withLock { (s: inout State) -> Standing in
+            if s.closed { return .closed }
+            return s.open != nil ? .busy : .free
+        }
+        switch standing {
+        case .closed: throw TajweedError(.modelMissing, ["detail": "this TajweedModel was closed"])
+        case .busy: throw TajweedError(.sessionOpen)
+        case .free: break
+        }
+        do throws(RecognizerError) {
+            let (r, _) = try await engine(context: context, backend: options.backend, selection: selection)
+            // warm already (an earlier prepare, or takes with these options): nothing more to do
+            let now = await r.backendNext
+            if now.kind == .accelerator { return now }
+            try await r.prepare()
+            _ = await r.awaitReady(timeout: Self.prepareWait)
+            return await r.backendNext
+        } catch {
+            throw TajweedError(from: error)
+        }
+    }
+
+    /// The longest `prepare(options:)` waits for the Neural Engine's build (a first promotion downloads, compiles
+    /// and tests it).
+    static let prepareWait: TimeInterval = 600
+
     /// Releases the engine. An open Session is cancelled.
     public func close() async {
         let r = state.withLock { (s: inout State) -> TajweedRecognizer? in
@@ -158,6 +208,7 @@ public final class TajweedModel: Sendable {
             return s.recognizer
         }
         await r?.cancelTake()
+        QuranLab.cloud?.analytics.closeSession()
         client?.forget(self)
     }
 
@@ -172,7 +223,7 @@ public final class TajweedModel: Sendable {
                             notice: { n in session.notice(n) })
         } catch {
             await session.cancel()
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "audio")
         }
         session.attach(LiveCapture(device))
         return session
@@ -205,6 +256,36 @@ public final class TajweedModel: Sendable {
         state.withLock { if $0.open == token { $0.open = nil } }
     }
 
+    /// The heads a Session's options name: every name a head of the model, and at least one.
+    static func selection(_ heads: [String]) throws(TajweedError) -> Set<HeadID> {
+        var selection = Set<HeadID>()
+        for name in heads {
+            guard let h = HeadID(rawValue: name) else { throw .argument("\(name) is not a head of the model") }
+            selection.insert(h)
+        }
+        guard !selection.isEmpty else { throw .argument("heads is empty: name at least one head") }
+        return selection
+    }
+
+    /// The engine for a context, backend choice and heads, with the folder it runs from: the context's files are
+    /// fetched first when they are not on the device yet (another context's files come on first use, into the same
+    /// folder).
+    private func engine(context: String, backend: TajweedSessionOptions.Backend,
+                        selection: Set<HeadID>) async throws(RecognizerError) -> (TajweedRecognizer, ModelFolder) {
+        var f = folder
+        if !f.isUsable(context: context) {
+            guard client != nil else { throw RecognizerError.modelMissing("the files of \(context) are not in the folder") }
+            f = try await ModelFolder.load(f.id, sources: [.cache, .cdn], context: context)
+            let fetched = f
+            state.withLock { (s: inout State) in
+                s.folder = fetched
+                s.recognizer = nil
+                s.reference = nil
+            }
+        }
+        return (try recognizer(f, context: context, backend: backend, selection: selection), f)
+    }
+
     /// Warms the engine for the default Session (the first take then starts at once).
     func warm() async throws(TajweedError) {
         let f = folder
@@ -215,7 +296,47 @@ public final class TajweedModel: Sendable {
             let r = try recognizer(f, context: context, backend: .auto, selection: selection)
             try await r.prepare()
         } catch {
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "model_open")
+        }
+    }
+
+    /// Prepares the Neural Engine's build for `context` (nil: the default context) now and waits for it (4.0.0, as Apple 3.1.5): the
+    /// download on an unmetered network, the compile, the test against the CPU engine, then the build loaded and warm,
+    /// so the next Session with `backend: .auto` runs on it from its first chunk. A build promoted at an earlier launch
+    /// is loaded and warmed again (no test). `again: true` first forgets this device's verdict on the build (a failure,
+    /// a demotion, a promotion) and prepares it from the start: the way to ask for it again after a failure.
+    ///
+    /// The preparation also runs by itself in the background (the first `.auto` engine of a launch starts it after the
+    /// first take or 20 s without one); a process that ends during it simply goes on with it at a later launch. Call
+    /// this when the app needs the Neural Engine at a known point, or when its takes name `backend: .cpu` (an engine
+    /// for `.cpu` alone never prepares the Neural Engine). Returns `backend` as it stands when the build is ready, the
+    /// preparation stopped (`demoted` with a reason, or `cpu` while it waits for an unmetered network, power or a
+    /// backoff), or `timeout` seconds passed; after a timeout the preparation goes on in the background. Throws
+    /// `session_open` while a Session is open. Never needed for correctness: the CPU engine serves every take.
+    public func prepareAccelerator(context: String? = nil, again: Bool = false, timeout: Double = 300) async throws(TajweedError) -> TajweedBackend {
+        guard state.withLock({ $0.open }) == nil else { throw TajweedError(.sessionOpen) }
+        var f = folder
+        let ctx = context ?? Self.defaultContext(f)
+        guard f.manifest.contexts.contains(ctx) else {
+            throw .argument("context \(ctx) is not one of \(f.manifest.contexts.joined(separator: ", "))")
+        }
+        let selection = Set(TajweedSessionOptions.defaultHeads.compactMap { HeadID(rawValue: $0) })
+        do throws(RecognizerError) {
+            if !f.isUsable(context: ctx) {
+                guard client != nil else { throw RecognizerError.modelMissing("the files of \(ctx) are not in the folder") }
+                f = try await ModelFolder.load(f.id, sources: [.cache, .cdn], context: ctx)
+                let fetched = f
+                state.withLock { (s: inout State) in
+                    s.folder = fetched
+                    s.recognizer = nil
+                    s.reference = nil
+                }
+            }
+            let r = try recognizer(f, context: ctx, backend: .auto, selection: selection)
+            try await r.prepare()
+            return await r.prepareAcceleratorNow(again: again, timeout: timeout)
+        } catch {
+            throw TajweedError(from: error, stage: "accelerator")
         }
     }
 
@@ -243,12 +364,7 @@ public final class TajweedModel: Sendable {
     /// Starts a take: checks the options, claims the Model's one open Session, fetches the context's files when they
     /// are not on disk yet, and opens the take on the engine.
     private func start(_ options: TajweedSessionOptions, pushed: Bool) async throws(TajweedError) -> TajweedSession {
-        var selection = Set<HeadID>()
-        for name in options.heads {
-            guard let h = HeadID(rawValue: name) else { throw .argument("\(name) is not a head of the model") }
-            selection.insert(h)
-        }
-        guard !selection.isEmpty else { throw .argument("heads is empty: name at least one head") }
+        let selection = try Self.selection(options.heads)
         guard (0...38).contains(options.topK) else { throw .argument("topK \(options.topK) is not 0 to 38") }
         try Self.check(endOnSilenceMs: options.endOnSilenceMs)
         let token = UUID()
@@ -274,31 +390,20 @@ public final class TajweedModel: Sendable {
 
     private func open(_ options: TajweedSessionOptions, selection: Set<HeadID>, pushed: Bool,
                       token: UUID) async throws(TajweedError) -> TajweedSession {
-        var f = folder
-        let context = options.context ?? Self.defaultContext(f)
-        guard f.manifest.contexts.contains(context) else {
-            throw .argument("context \(context) is not one of \(f.manifest.contexts.joined(separator: ", "))")
+        let known = folder
+        let context = options.context ?? Self.defaultContext(known)
+        guard known.manifest.contexts.contains(context) else {
+            throw .argument("context \(context) is not one of \(known.manifest.contexts.joined(separator: ", "))")
         }
         do throws(RecognizerError) {
-            if !f.isUsable(context: context) {
-                // another context's files come on first use, into the same folder
-                guard client != nil else { throw RecognizerError.modelMissing("the files of \(context) are not in the folder") }
-                f = try await ModelFolder.load(f.id, sources: [.cache, .cdn], context: context)
-                let fetched = f
-                state.withLock { (s: inout State) in
-                    s.folder = fetched
-                    s.recognizer = nil
-                    s.reference = nil
-                }
-            }
-            let r = try recognizer(f, context: context, backend: options.backend, selection: selection)
+            let (r, f) = try await engine(context: context, backend: options.backend, selection: selection)
             try await r.startTake()
             let backend = await r.backendNow
             let bounds = state.withLock { $0.bounds }
             return TajweedSession(recognizer: r, vocabulary: f.vocabulary, selection: selection, options: options, backend: backend,
                                   pushed: pushed, bounds: bounds, onEnd: { [weak self] in self?.release(token) })
         } catch {
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "model_open")
         }
     }
 }

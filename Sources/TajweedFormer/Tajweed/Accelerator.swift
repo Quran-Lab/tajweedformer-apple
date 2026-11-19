@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 #if canImport(UIKit) && !os(watchOS)
 import UIKit
@@ -15,8 +16,8 @@ import BackgroundTasks
 // 2. One persisted state machine per key (model revision, context, build, OS build, device model; `PromotionRecord`):
 //    download (unmetered network), compile (the first load with the Neural Engine allowed, 10 min timeout), warmup
 //    (silence and the first self-test clip, no NaN or inf), golden (every self-test clip through the accelerator and
-//    the CPU engine: the same decisions, the CPU's equal to the shipped expected file), measure (speedup, telemetry
-//    only: a slower build is promoted too), promote. The record is written after each stage; a restart resumes at the
+//    the CPU engine: the same decisions, the CPU's equal to the shipped expected file), measure (SDK 4.0: not promoted
+//    when the accelerator's median chunk is slower than the CPU engine's, `slower_than_cpu`), promote. The record is written after each stage; a restart resumes at the
 //    stage after the last one recorded; a crash sentinel around every compile, load and first inference turns a
 //    process death there into reason `crash` at the next launch.
 // 3. The golden and measure stages run only while no session runs (a session starting aborts them without a
@@ -54,7 +55,7 @@ enum AcceleratorState: Sendable, Hashable, CustomStringConvertible {
     }
 }
 
-/// What a loaded accelerator does (TajweedNeuralEngine; a fake in tests).
+/// What a loaded accelerator does (an accelerator the Core prepared; a fake in tests).
 protocol AcceleratorBackend: AnyObject {
     func reset()
     func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer]
@@ -66,15 +67,19 @@ protocol AcceleratorBackend: AnyObject {
     /// One prediction on silence that leaves no state behind (the backend is reset after it): wakes the accelerator
     /// before a take's first real chunk.
     func warmUp() throws(RecognizerError)
+    /// False once the program it runs is gone (the Core's model was closed: another context, an install): the build is
+    /// loaded again, not failed over.
+    var isUsable: Bool { get }
+    /// The program let go now (a build that is not promoted): the Core wipes it and its memory goes back.
+    func release()
 }
 
 extension AcceleratorBackend {
     var lastError: NSError? { nil }
     func warmUp() throws(RecognizerError) {}
+    var isUsable: Bool { true }
+    func release() {}
 }
-
-@available(iOS 18.0, macOS 15.0, *)
-extension TajweedNeuralEngine: AcceleratorBackend {}
 
 /// What the golden test found (the last attempt of this key that got that far).
 struct AcceleratorSelfTest: Sendable, Hashable {
@@ -117,6 +122,11 @@ struct AcceleratorIncident: Sendable, Equatable {
     var context: String
     var thermal: String?
     var lowPower: Bool?
+    /// A promotion stage the previous process did not finish (SDK 4.0): what ended it (CrashDiagnostics), and (a stop,
+    /// `crash_on_last_run`, contract 1.22.0) whether the app was in the foreground at the sentinel's last heartbeat; nil
+    /// where the platform cannot tell (macOS).
+    var crash: CrashEvidence? = nil
+    var foreground: Bool? = nil
     var code: String { "\(stage):\(cause)" }
 }
 
@@ -141,6 +151,9 @@ final class AcceleratorController: @unchecked Sendable {
         var context: String
         /// `coreml` or `coreml-compact`.
         var build: String = "coreml"
+        /// The program's digest (`programDigest`, its first 16 hex), part of the key: a build whose program changes in
+        /// any file (only model.mil, say) is a new key, tested from the start. Empty: none known.
+        var program: String = ""
         var storage: URL
         /// This process; at most one new attempt per launch for a key.
         var launch: String = AcceleratorController.thisLaunch
@@ -152,10 +165,19 @@ final class AcceleratorController: @unchecked Sendable {
         var thermal: @Sendable () -> ProcessInfo.ThermalState = { ProcessInfo.processInfo.thermalState }
         /// The deny-list rule forcing the CPU engine, with its reason; nil when none matches.
         var denied: @Sendable () -> String? = { nil }
+        /// The signed config's `flags.accel_min_speedup` (nil: none); `PromotionPolicy.minSpeedup` bounds it.
+        var minSpeedup: @Sendable () -> Double? = { nil }
         var record: @Sendable (AnalyticsEvent) -> Void = { _ in }
         var incident: @Sendable (AcceleratorIncident) -> Void = { _ in }
+        /// What ended the process that left a sentinel: MetricKit's crash diagnostic of it, waited for at most 60 s
+        /// (none for a quit), else what the sentinel's heartbeat saw.
+        var crashEvidence: @Sendable (PromotionStore.Sentinel) async -> CrashEvidence = { s in
+            await CrashDiagnostics.shared.evidence(for: s, timeout: s.quit == true ? 0 : 60)
+        }
         var cohort: @Sendable () -> TelemetryCohort
         var timeouts = Timeouts()
+        /// This SDK's version: a `slower_than_cpu` verdict of another SDK version is tried again at once.
+        var sdkVersion: String = SDKInfo.version
     }
 
     enum GoldenOutcome: Sendable {
@@ -195,11 +217,36 @@ final class AcceleratorController: @unchecked Sendable {
     private var watchers: [UUID: AsyncStream<AcceleratorState>.Continuation] = [:]
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    var key: String { Self.key(revision: env.revision, context: env.context, build: env.build, osBuild: env.osBuild, deviceModel: env.deviceModel) }
+    var key: String {
+        Self.key(revision: env.revision, context: env.context, build: env.build, osBuild: env.osBuild, deviceModel: env.deviceModel,
+                 program: env.program)
+    }
 
     static func key(revision: String, context: String, build: String, osBuild: String = DeviceInfo.osBuild,
-                    deviceModel: String = DeviceInfo.model) -> String {
-        [revision, context, build, osBuild, deviceModel].joined(separator: "|")
+                    deviceModel: String = DeviceInfo.model, program: String = "") -> String {
+        ([revision, context, build, osBuild, deviceModel] + (program.isEmpty ? [] : [program])).joined(separator: "|")
+    }
+
+    /// The whole accelerator program of a build as the Core's `qlc_accel_prepare` loads it: every file of the package
+    /// role (`coreml` or `coreml-compact`) of context `*` or `context` (the compiled package's model.mil, its weights,
+    /// its metadata, the specification `model.mlmodel` where the build ships one) and the context's keep table, each by
+    /// its signed SHA-256 from the manifest, hashed in path order. Through 4.0's first drafts only weight.bin was
+    /// hashed, so a build that changed only model.mil (the A20 stride fix: a strided slice_by_index replaced by
+    /// reshape, mul and reduce_sum) kept its promotion without a golden test. Nil when the manifest lists no program.
+    static func programDigest(files: [ModelManifest.File], context: String, compact: Bool) -> String? {
+        let role = compact ? "coreml-compact" : "coreml"
+        let program = files.filter {
+            $0.isFor(platform: DownloadProfile.platform)
+                && (($0.role == role && ($0.context == "*" || $0.context == context)) || ($0.role == "coreml-keeps" && $0.context == context))
+        }
+        guard program.contains(where: { $0.role == role }) else { return nil }
+        let lines = program.map { "\($0.localPath) \($0.localSHA256)\n" }.sorted().joined()
+        return Data(SHA256.hash(data: Data(lines.utf8))).hex
+    }
+
+    /// The key's program part: the digest's first 16 hex, or empty.
+    static func programKey(_ m: ModelManifest, context: String, compact: Bool) -> String {
+        programDigest(files: m.files, context: context, compact: compact).map { String($0.prefix(16)) } ?? ""
     }
 
     init(_ env: Environment) {
@@ -207,13 +254,18 @@ final class AcceleratorController: @unchecked Sendable {
         store = PromotionStore(dir: env.storage)
         // the first launch of 2.0.2: 2.0.1's blank and deadline demotions are cleared (once per store)
         store.migrate(now: env.clock())
-        // the process died during a compile, load or first inference: that key's attempt ends with reason crash
-        if let s = store.sentinel() {
+        CrashDiagnostics.shared.start()
+        SentinelWatch.shared.attach(store)
+        // the first launch of 3.1.5 or later: a key ended by one stop at download, compile or warm-up gets its retry back
+        let back = store.migrate315(now: env.clock())
+        if !back.isEmpty { SDKLatest.debugOnly("promotion: \(back.count) build(s) ended by one stop during preparation may be tried again") }
+        // the process stopped during a compile, load or first inference: a quit, a stop in the background, or a crash
+        // (stopFound); the report goes out once the system's crash diagnostic of that process is in (or after 60 s
+        // without one), with what it says. A stage under way in another process of the app (its sentinel's heartbeat is
+        // fresh and its process is there) is not judged: two processes of one app never poison each other's record
+        if let s = store.sentinel(), !Self.underWayElsewhere(s, now: Date()) {
             store.clearSentinel()
-            var r = store.record(s.key) ?? PromotionRecord(key: s.key)
-            let wasReady = r.status == .ready
-            recordFailure(&r, s.stage, PromotionFailure(.crash, "the app stopped during the \(s.stage.rawValue) stage"), reload: wasReady,
-                          sameKey: s.key == key)
+            stopFound(s)
         }
         let r = store.record(key)
         if let why = env.denied() {
@@ -230,6 +282,93 @@ final class AcceleratorController: @unchecked Sendable {
     deinit {
         if let activation { NotificationCenter.default.removeObserver(activation) }
     }
+
+    /// Whether this platform can tell a stop in the background from one in the foreground. iOS: yes (the app is
+    /// suspended in the background, SentinelWatch follows it). macOS: no: a Mac app is not suspended, so a stop there
+    /// takes the rule of a stop in the foreground and the report leaves `foreground` out.
+    /// (Tests set it to run either rule on the Mac.)
+    static let tellsForeground: Locked<Bool> = {
+        #if canImport(UIKit) && os(iOS)
+        return Locked(true)
+        #else
+        return Locked(false)
+        #endif
+    }()
+
+    /// What the last launch left: the process stopped at `s.stage` of the attempt of `s.key` (3.1.5 with 4.0's
+    /// evidence).
+    /// - A quit (willTerminate, or a normal exit: atexit): `interrupted`, never a crash (ACCEL_40): retried after the
+    ///   backoff, never using up the key's retry budget.
+    /// - In the background (`foreground` false; iOS only): counts nothing and the attempt goes on where it was, until
+    ///   the `backgroundStopsCountedFrom`th in a row at the same stage, which counts as a stop in the foreground
+    ///  . Reported as `crash_on_last_run` with `foreground` false.
+    /// - In the foreground, or where it is not known (macOS, a sentinel of 3.1.4): reason crash. At download, compile
+    ///   or warm-up within the retry budget, and a second at the same stage ends the key; at the golden test or the
+    ///   measurement it ends the key.
+    /// A quit or a stop in the background while a promoted build was being loaded again holds nothing against it.
+    private func stopFound(_ s: PromotionStore.Sentinel) {
+        var r = store.record(s.key) ?? PromotionRecord(key: s.key)
+        let wasReady = r.status == .ready
+        let quit = s.quit == true
+        let fg: Bool? = Self.tellsForeground.withLock { $0 } ? s.foreground : nil
+        let background = !quit && fg == false
+        if (quit || background) && wasReady { return }
+        let detail = "the app stopped during the \(s.stage.rawValue) stage"
+        let env = self.env
+        func send(_ incident: AcceleratorIncident) {
+            lastLaunchReport = Task.detached(priority: .utility) {
+                var i = incident
+                i.crash = await env.crashEvidence(s)
+                env.incident(i)
+            }
+        }
+        if quit {
+            let incident = recordFailure(&r, s.stage, PromotionFailure(.interrupted, "the app was quit during the \(s.stage.rawValue) stage"),
+                                         reload: wasReady, sameKey: s.key == key, report: false)
+            send(incident)
+            return
+        }
+        // a row of background stops that reached the bound: kept past the counted failure, so that the next stop in
+        // the same row is the second counted one at the stage
+        var countedRow: [String: Int]?
+        if background, PromotionPolicy.backgroundStopCountsNothingAtEveryStage || s.stage.isPreparation {
+            var row = r.backgroundStops ?? [:]
+            let n = (row[s.stage.rawValue] ?? 0) + 1
+            row[s.stage.rawValue] = n
+            r.backgroundStops = row
+            if n < PromotionPolicy.backgroundStopsCountedFrom {
+                // not a failure of the build: nothing counted, no wait; the attempt goes on where it was
+                store.save(r)
+                SDKLatest.debugOnly("promotion: the app stopped in the background during the \(s.stage.rawValue) stage; "
+                                    + "nothing counted (\(n) in a row), the attempt goes on")
+                let parts = s.key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+                let revision = parts.first ?? env.revision, context = parts.count > 1 ? parts[1] : env.context
+                let c = AcceleratorController.conditionsNow()
+                let named = named(revision)
+                send(AcceleratorIncident(kind: .promotionFailed, stage: s.stage.rawValue, cause: PromotionReason.crash.incidentCause,
+                                         message: detail, attempt: max(1, min(100, r.attempts)), revision: named.revision, build: named.build,
+                                         context: context, thermal: c.thermal, lowPower: c.lowPower, foreground: false))
+                return
+            }
+            SDKLatest.debugOnly("promotion: the app stopped in the background during the \(s.stage.rawValue) stage, "
+                                + "\(n) in a row: counted as a stop in the foreground")
+            countedRow = row
+        }
+        let incident = recordFailure(&r, s.stage, PromotionFailure(.crash, detail), reload: wasReady, sameKey: s.key == key,
+                                     report: false, foreground: fg)
+        if let countedRow {
+            r.backgroundStops = countedRow
+            store.save(r)
+        }
+        send(incident)
+        if r.status == .failed {
+            SDKLatest.debugOnly("promotion: the app stopped during the \(s.stage.rawValue) stage; the build is off for this device")
+        } else if let nb = r.notBefore {
+            SDKLatest.debugOnly("promotion: the app stopped during the \(s.stage.rawValue) stage; tried again after \(Self.iso(nb))")
+        }
+    }
+
+    private(set) var lastLaunchReport: Task<Void, Never>?
 
     private var activation: (any NSObjectProtocol)?
 
@@ -365,7 +504,10 @@ final class AcceleratorController: @unchecked Sendable {
         case .failed:
             return set(.disabled(rec.lastDetail ?? "failed"))
         case .retry:
-            if let nb = rec.notBefore, env.clock() < nb {
+            // a build slower than the CPU engine is tried again at once by another SDK version (an OS update or a new
+            // build is another key)
+            let newSDK = rec.lastReason == .slowerThanCPU && rec.slowerSDK != env.sdkVersion
+            if let nb = rec.notBefore, env.clock() < nb, !newSDK {
                 return set(.disabled("\(rec.lastDetail ?? "failed"); tried again after \(Self.iso(nb))"))
             }
         case .ready:
@@ -402,6 +544,7 @@ final class AcceleratorController: @unchecked Sendable {
                 do throws(PromotionFailure) { try await stages.download() } catch { return fail(&rec, .download, error) }
             case .compile:
                 store.writeSentinel(key, .compile)
+                SDKLatest.debugOnly("promotion: compile begins (the first load of the build on this device)")
                 let t0 = env.clock()
                 let r = await Self.race(env.timeouts.compile,
                                         onTimeout: PromotionFailure(.compileTimeout, "the compile took over \(Int(env.timeouts.compile)) s"),
@@ -433,11 +576,19 @@ final class AcceleratorController: @unchecked Sendable {
                     env.record(.selfTest(passed: true, cohort: env.cohort()))
                 }
             case .measure:
-                // telemetry only: the speedup never keeps a build that passed off the accelerator
-                break
+                // SDK 4.0 (as Android): promoted only when it is not slower than the CPU engine on this device, by the
+                // golden test's medians (warm chunks); the speedup is also telemetry
+                let acc = rec.acceleratorMedianMs ?? 0, cpu = rec.cpuMedianMs ?? 0
+                if acc > 0, cpu > 0, cpu / acc < PromotionPolicy.minSpeedup(env.minSpeedup()) {
+                    backend?.value.release()
+                    return slowerThanCPU(&rec, acceleratorMs: acc, cpuMs: cpu)
+                }
             case .promote:
                 rec.status = .ready
                 rec.completed = .promote
+                rec.backgroundStops = nil
+                rec.preparationStops = nil
+                SDKLatest.debugOnly("promotion: promoted; the next session uses the accelerator")
                 rec.programSHA256 = stages.fingerprint()
                 rec.attemptStarted = nil
                 rec.failures = 0
@@ -453,9 +604,15 @@ final class AcceleratorController: @unchecked Sendable {
             if stage == .warmup, let resume = afterRewarm {
                 afterRewarm = nil
                 stage = resume
+                // the warm-up again completed: its row has ended (the stage the attempt resumes keeps its own)
+                endRow(&rec, .warmup)
                 continue
             }
             rec.completed = stage
+            // a stage that finished ends a row of download stops
+            rec.downloadStops = nil
+            // the stage completed: a row of background stops at it has ended
+            rec.backgroundStops?[stage.rawValue] = nil
             store.save(rec)
             guard let n = stage.next else { return }
             stage = n
@@ -474,6 +631,15 @@ final class AcceleratorController: @unchecked Sendable {
         if let f = await warm(backend, stages) { return fail(&rec, .warmup, f, reload: true) }
         hold(backend)
         set(.ready)
+    }
+
+    /// A stage completed outside the attempt's own steps (the warm-up again before a resumed stage): the row of
+    /// background stops at it has ended. Saved only when there was one. (The reload of a promoted build needs none:
+    /// a stop in the background while it runs holds nothing against the build and starts no row, `stopFound`.)
+    private func endRow(_ rec: inout PromotionRecord, _ stage: PromotionStage) {
+        guard rec.backgroundStops?[stage.rawValue] != nil else { return }
+        rec.backgroundStops?[stage.rawValue] = nil
+        store.save(rec)
     }
 
     /// The load of a build compiled before (a sentinel around it; a load error, or a hang past the timeout).
@@ -544,8 +710,17 @@ final class AcceleratorController: @unchecked Sendable {
 
     /// Ends the attempt with a failure (or demotes a promoted key that failed to load again): the record, the retry
     /// time, the telemetry and the incident report.
-    private func recordFailure(_ rec: inout PromotionRecord, _ stage: PromotionStage, _ f: PromotionFailure, reload: Bool, sameKey: Bool) {
-        rec.failures += 1
+    /// `report`: false when the caller sends the incident itself (the previous launch's sentinel, after its evidence).
+    /// `foreground`: of a stop of the process (`crash`), as the report carries it.
+    @discardableResult
+    private func recordFailure(_ rec: inout PromotionRecord, _ stage: PromotionStage, _ f: PromotionFailure, reload: Bool, sameKey: Bool,
+                               report: Bool = true, foreground: Bool? = nil) -> AcceleratorIncident {
+        // a quit during a stage is the user's: retried after the backoff, never using up the key's retry budget; so is
+        // a download the network stopped or that had no room (3.1.5): it says nothing about the build
+        let downloadStop = stage == .download && (f.reason == .network || f.reason == .storage)
+        let notCounted = f.reason == .interrupted || downloadStop
+        if !notCounted { rec.failures += 1 }
+        if downloadStop { rec.downloadStops = (rec.downloadStops ?? 0) + 1 }
         rec.lastStage = stage
         rec.lastReason = f.reason
         rec.lastDetail = "\(stage.rawValue): \(f.detail)"
@@ -553,12 +728,25 @@ final class AcceleratorController: @unchecked Sendable {
         rec.attemptStarted = nil
         // a golden test that failed keeps what it measured, as one that passed does (`failed` then names the measures)
         if stage == .golden { rec.golden = f.divergence?.bounded }
-        if f.reason.deterministic || rec.failures > PromotionPolicy.backoff.count {
+        // a stop of the process before the model ran on the accelerator (3.1.5): the retry budget, and a second stop
+        // at the same stage ends the key
+        var ends = f.reason.deterministic
+        if f.reason == .crash, stage.isPreparation {
+            var stops = rec.preparationStops ?? [:]
+            let n = (stops[stage.rawValue] ?? 0) + 1
+            stops[stage.rawValue] = n
+            rec.preparationStops = stops
+            ends = n >= 2
+        }
+        // the attempt ended: a row of background stops has ended with it
+        rec.backgroundStops = nil
+        if ends || rec.failures > PromotionPolicy.backoff.count {
             rec.status = .failed
             rec.notBefore = nil
         } else {
             rec.status = .retry
-            rec.notBefore = env.clock().addingTimeInterval(PromotionPolicy.backoff[rec.failures - 1])
+            let n = downloadStop ? (rec.downloadStops ?? 1) : rec.failures
+            rec.notBefore = env.clock().addingTimeInterval(PromotionPolicy.backoff[min(PromotionPolicy.backoff.count - 1, max(0, n - 1))])
         }
         store.save(rec)
         let parts = rec.key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
@@ -573,11 +761,48 @@ final class AcceleratorController: @unchecked Sendable {
         env.record(.fallback(f.reason == .nonFinite ? .nonFinite : .modelLoad, cohort: env.cohort()))
         let c = AcceleratorController.conditionsNow()
         let named = named(revision)
-        env.incident(AcceleratorIncident(kind: .promotionFailed, stage: stage.rawValue, cause: f.reason.incidentCause, message: f.detail,
-                                         errorDomain: f.errorDomain, errorCode: f.errorCode, clip: f.clip, divergence: f.divergence,
-                                         attempt: max(1, min(100, rec.attempts)), revision: named.revision, build: named.build,
-                                         context: context, thermal: c.thermal, lowPower: c.lowPower))
+        let incident = AcceleratorIncident(kind: .promotionFailed, stage: stage.rawValue, cause: f.reason.incidentCause, message: f.detail,
+                                           errorDomain: f.errorDomain, errorCode: f.errorCode, clip: f.clip, divergence: f.divergence,
+                                           attempt: max(1, min(100, rec.attempts)), revision: named.revision, build: named.build,
+                                           context: context, thermal: c.thermal, lowPower: c.lowPower,
+                                           foreground: f.reason == .crash ? foreground : nil)
+        if report { env.incident(incident) }
         if sameKey { set(.disabled(rec.lastDetail ?? f.detail)) }
+        return incident
+    }
+
+    /// The golden test passed but the accelerator is slower than the CPU engine here: the CPU engine stays, the attempt
+    /// ends as `slower_than_cpu` with both medians in the telemetry, and the key is tried again after
+    /// `PromotionPolicy.slowerRetry` or an SDK update. Not a failure of the build: the retry budget is not used.
+    private func slowerThanCPU(_ rec: inout PromotionRecord, acceleratorMs: Double, cpuMs: Double) {
+        rec.status = .retry
+        rec.notBefore = env.clock().addingTimeInterval(PromotionPolicy.slowerRetry)
+        rec.lastStage = .measure
+        rec.lastReason = .slowerThanCPU
+        rec.lastDetail = String(format: "measure: the accelerator's median chunk takes %.1f ms, the CPU engine's %.1f ms", acceleratorMs, cpuMs)
+        rec.slowerSDK = env.sdkVersion
+        rec.completed = nil
+        rec.attemptStarted = nil
+        store.save(rec)
+        promotion(.slowerThanCPU(acceleratorMs: acceleratorMs, cpuMs: cpuMs, compileMs: rec.compileMs))
+        set(.disabled(rec.lastDetail ?? "slower_than_cpu"))
+    }
+
+    /// Whether a sentinel belongs to a stage under way in another process of the app now: not this process, a heartbeat
+    /// (every 2 s, SentinelWatch) in the last 10 s, and its process there (a process that died stops its heartbeat; a
+    /// pid used again later is ruled out by the heartbeat's age). Such a sentinel is judged at a later launch.
+    static func underWayElsewhere(_ s: PromotionStore.Sentinel, now: Date) -> Bool {
+        guard let pid = s.pid, pid != ProcessInfo.processInfo.processIdentifier, let beat = s.heartbeat ?? s.at,
+              now.timeIntervalSince(beat) < 10 else { return false }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    /// Forgets this device's verdict on the key and the build loaded for it in this process
+    /// (`TajweedModel.prepareAccelerator(again: true)`): the next run prepares the build from the start.
+    func forget() {
+        hold(nil)
+        store.remove(key)
+        set(.cpu)
     }
 
     private func noteDenied(_ rec: inout PromotionRecord, _ why: String) {
@@ -765,11 +990,12 @@ final class AcceleratorController: @unchecked Sendable {
         if !busy { e.warmUp() }
     }
 
-    /// Drops the held executor when a call on it hung (true then).
+    /// Drops the held executor when a call on it hung, or its program is gone with the model the Core closed (true
+    /// then).
     private func dropAbandoned() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard let e = executor, e.abandoned, !leased else { return false }
+        guard let e = executor, e.abandoned || !e.backend.isUsable, !leased else { return false }
         executor = nil
         return true
     }

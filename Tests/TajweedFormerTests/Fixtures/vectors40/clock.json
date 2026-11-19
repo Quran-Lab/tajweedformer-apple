@@ -1,0 +1,420 @@
+{
+ "section": "PROTECTED_MODEL.md 18.4.7",
+ "note": "Test keys only, made by protected40.py from fixed labels (stream(label, n): SHA-256 of the label and a 32-bit little-endian counter, concatenated). No SDK trusts them.",
+ "rule": "anchor of a lease = iat on a first lease, else max(floor now, iat); refused as expired when anchor >= exp; a lease sets floor = now = anchor, offset = anchor - wall. floor now = floor + (boot - last_boot) on the same boot, floor + boot on another. now = last_now + (boot - last_boot) on the same boot (the wall clock is not read); on another boot max(last_now + boot, wall + offset); never below the floor. floor, now, boot and boot_id are stored at each use; valid while now < exp",
+ "sequences": [
+  {
+   "name": "normal: valid within 7 days, expired after",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000050,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1790003650,
+      "boot": 4600,
+      "boot_id": "b1"
+     },
+     "now": 1790003600,
+     "floor": 1790003600,
+     "valid": true
+    },
+    {
+     "check": {
+      "wall": 1790604850,
+      "boot": 605800,
+      "boot_id": "b1"
+     },
+     "now": 1790604800,
+     "floor": 1790604800,
+     "valid": false
+    }
+   ]
+  },
+  {
+   "name": "clock moved back: the boot clock still counts",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 692200,
+      "boot_id": "b1"
+     },
+     "now": 1790691200,
+     "floor": 1790691200,
+     "valid": false
+    }
+   ]
+  },
+  {
+   "name": "clock moved back and a reboot: at least the new boot's time has passed",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 259200,
+      "boot_id": "b2"
+     },
+     "now": 1790259200,
+     "floor": 1790259200,
+     "valid": true
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 691200,
+      "boot_id": "b2"
+     },
+     "now": 1790691200,
+     "floor": 1790691200,
+     "valid": false
+    }
+   ]
+  },
+  {
+   "name": "clock moved forward on the same boot: the wall clock is not read, the lease runs its 7 days",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1792592000,
+      "boot": 1100,
+      "boot_id": "b1"
+     },
+     "now": 1790000100,
+     "floor": 1790000100,
+     "valid": true
+    },
+    {
+     "check": {
+      "wall": 1792592000,
+      "boot": 605799,
+      "boot_id": "b1"
+     },
+     "now": 1790604799,
+     "floor": 1790604799,
+     "valid": true
+    },
+    {
+     "check": {
+      "wall": 1792592000,
+      "boot": 605800,
+      "boot_id": "b1"
+     },
+     "now": 1790604800,
+     "floor": 1790604800,
+     "valid": false
+    }
+   ]
+  },
+  {
+   "name": "clock moved forward and a reboot: the lease ends early; the next lease repairs it",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1792592000,
+      "boot": 200,
+      "boot_id": "b2"
+     },
+     "now": 1792592000,
+     "floor": 1790000200,
+     "valid": false
+    },
+    {
+     "lease": {
+      "iat": 1790000400,
+      "exp": 1790605200
+     },
+     "wall": 1792592200,
+     "boot": 400,
+     "boot_id": "b2",
+     "accepted": true,
+     "anchor": 1790000400
+    },
+    {
+     "check": {
+      "wall": 1792595600,
+      "boot": 3800,
+      "boot_id": "b2"
+     },
+     "now": 1790003800,
+     "floor": 1790003800,
+     "valid": true
+    }
+   ]
+  },
+  {
+   "name": "a first lease is held to its own iat (a device clock a year behind); a newer lease re-anchors, no iat_future",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1758464000,
+     "boot": 500,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1758636800,
+      "boot": 173300,
+      "boot_id": "b1"
+     },
+     "now": 1790172800,
+     "floor": 1790172800,
+     "valid": true
+    },
+    {
+     "lease": {
+      "iat": 1790432000,
+      "exp": 1791036800
+     },
+     "wall": 1758636810,
+     "boot": 173310,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790432000
+    },
+    {
+     "check": {
+      "wall": 1758636820,
+      "boot": 173320,
+      "boot_id": "b1"
+     },
+     "now": 1790432010,
+     "floor": 1790432010,
+     "valid": true
+    },
+    {
+     "check": {
+      "wall": 1759241600,
+      "boot": 778109,
+      "boot_id": "b1"
+     },
+     "now": 1791036799,
+     "floor": 1791036799,
+     "valid": true
+    },
+    {
+     "check": {
+      "wall": 1759241600,
+      "boot": 778110,
+      "boot_id": "b1"
+     },
+     "now": 1791036800,
+     "floor": 1791036800,
+     "valid": false
+    }
+   ]
+  },
+  {
+   "name": "a wrong year on the device: the offset corrects it after a reboot",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1758464000,
+     "boot": 500,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1758723200,
+      "boot": 100,
+      "boot_id": "b2"
+     },
+     "now": 1790259200,
+     "floor": 1790000100,
+     "valid": true
+    },
+    {
+     "check": {
+      "wall": 1758723200,
+      "boot": 345700,
+      "boot_id": "b2"
+     },
+     "now": 1790604800,
+     "floor": 1790345700,
+     "valid": false
+    }
+   ]
+  },
+  {
+   "name": "a device clock a year ahead: not locked out at a reboot",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1821536000,
+     "boot": 500,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1821622400,
+      "boot": 100,
+      "boot_id": "b2"
+     },
+     "now": 1790086400,
+     "floor": 1790000100,
+     "valid": true
+    },
+    {
+     "check": {
+      "wall": 1821622400,
+      "boot": 518500,
+      "boot_id": "b2"
+     },
+     "now": 1790604800,
+     "floor": 1790518500,
+     "valid": false
+    }
+   ]
+  },
+  {
+   "name": "an older lease again never moves the clock back; past its exp it is refused",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1790000000,
+      "boot": 519400,
+      "boot_id": "b1"
+     },
+     "now": 1790518400,
+     "floor": 1790518400,
+     "valid": true
+    },
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 519410,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790518410
+    },
+    {
+     "check": {
+      "wall": 1790000000,
+      "boot": 605800,
+      "boot_id": "b1"
+     },
+     "now": 1790604800,
+     "floor": 1790604800,
+     "valid": false
+    },
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 605805,
+     "boot_id": "b1",
+     "accepted": false,
+     "anchor": null
+    },
+    {
+     "check": {
+      "wall": 1790000000,
+      "boot": 605806,
+      "boot_id": "b1"
+     },
+     "now": 1790604806,
+     "floor": 1790604806,
+     "valid": false
+    }
+   ]
+  },
+  {
+   "name": "no lease yet: never valid",
+   "steps": [
+    {
+     "check": {
+      "wall": 1790000000,
+      "boot": 100,
+      "boot_id": "b1"
+     },
+     "now": null,
+     "floor": null,
+     "valid": false
+    }
+   ]
+  }
+ ]
+}

@@ -292,6 +292,14 @@
    "none",
    "unknown"
   ],
+  "optional_fields": [
+   "downloadProtocol"
+  ],
+  "downloadProtocol": [
+   "h3",
+   "h2",
+   "http/1.1"
+  ],
   "key_reasons": [
    "invalid_key",
    "sdk_too_old",

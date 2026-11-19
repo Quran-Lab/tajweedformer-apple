@@ -50,7 +50,7 @@ enum Fixtures {
     }
 
     static func configure(storage: URL = Fixtures.storage()) {
-        QuranLab.configure(options: .init(modelSource: [], analytics: .off, storageDirectory: storage, cloud: nil))
+        QuranLab.configure(options: .init(modelSource: [], storageDirectory: storage, cloud: nil))
     }
 
     /// A format 3 manifest for a decoded folder as it is on disk, unsigned: every file tagged by its path (layout v2

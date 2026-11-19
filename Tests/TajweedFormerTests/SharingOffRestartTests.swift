@@ -275,6 +275,49 @@ final class SharingOffRestartTests: XCTestCase {
         XCTAssertEqual(short, 0, "\(short) of \(cases.count) restart cases did not pass every run:\n" + lines.joined(separator: "\n"))
     }
 
+    /// A pass of a queue that has been shut down deletes nothing and uploads nothing. The steps are those of the
+    /// test below without its wait for the pass to leave: the queue is shut down while the pass that the recording's
+    /// end asked for may still be on its way, and then the recording's files are changed by hand so that this
+    /// process's state would take it for one made under an earlier consent. A test seam widens the window: a pass
+    /// waits 3 ms before its first look at the queue. Fifty times: the recording is still there, and the old queue
+    /// sends nothing for it although the server answers again. (On the code of 3.1.3 the same loop lost the
+    /// recording 42 times of 50, and once in 300 without the seam.)
+    func testAPassOfAQueueThatWasShutDownDeletesAndUploadsNothing() async throws {
+        ContributionOutbox.passDelayForTests.withLock { $0 = 3_000_000 }
+        defer { ContributionOutbox.passDelayForTests.withLock { $0 = 0 } }
+        let fm = FileManager.default
+        var lost = 0, sent = 0
+        for i in 0..<50 {
+            let server = SharingTests.Server()
+            StubProtocol.reset(server.handler)
+            server.down.withLock { $0 = true }
+            let storage = CloudFixtures.storage()
+            let first = await launch(storage: storage)
+            Contributions.answer(share: true)
+            let id = try XCTUnwrap(try record(), "iteration \(i)")
+            let queue = first.outbox
+            let waiting = await until(15) { await queue.items.count == 1 }
+            XCTAssertTrue(waiting, "iteration \(i)")
+            first.outbox.shutdown()
+            let mark = StubProtocol.seen.count
+            let folder = first.outbox.root.appendingPathComponent(id)
+            try? fm.removeItem(at: folder.appendingPathComponent("stamp.json"))
+            let state = storage.appendingPathComponent("cloud/sharing-state.json")
+            var saved = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: state)) as? [String: Any])
+            saved["consentCount"] = nil
+            saved["deleting"] = nil
+            try JSONSerialization.data(withJSONObject: saved).write(to: state)
+            server.down.withLock { $0 = false }
+            // time for a pass that was on its way to act: its 3 ms, and its look at the queue
+            try await Task.sleep(nanoseconds: 30_000_000)
+            if !fm.fileExists(atPath: folder.path) { lost += 1 }
+            sent += Self.later(than: mark, for: [id]).count
+            QuranLab.configure(key: nil, options: .init(cloud: nil), cloud: nil)
+        }
+        XCTAssertEqual(lost, 0, "a queue that was shut down removed the recording in \(lost) of 50 runs")
+        XCTAssertEqual(sent, 0, "a queue that was shut down sent \(sent) requests for the recording")
+    }
+
     /// A queue of an SDK before 3.0.1 (no stamp on a recording, no count in the saved answer) is uploaded as before
     /// while sharing stays on: it reads 0 and 0.
     func testAQueueOfAnEarlierSDKGoesOnWhileSharingStaysOn() async throws {

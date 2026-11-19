@@ -159,7 +159,7 @@ final class ShareRecorderTests: XCTestCase {
 
         /// Time passes until nothing waits; every recording must have ended.
         func settle(file: StaticString = #filePath, line: UInt = #line) {
-            at(now + 60_000)
+            at(now + Int64(TakeJoin.maxWindowMs) + 1)
             recorder.checkWindow()
             XCTAssertNil(recorder.current, "no recording left open", file: file, line: line)
             XCTAssertTrue(all.allSatisfy { $0.completed != nil }, "every recording ended", file: file, line: line)
@@ -171,10 +171,28 @@ final class ShareRecorderTests: XCTestCase {
     /// The shared vector: every case, once with the window's timer running and once without it (the clock decides).
     func testTheSharedTakesJoinVector() throws {
         let v = try SharingBitrateTests.vector("takes_join.json")
+        XCTAssertEqual(try XCTUnwrap(v["cases"] as? [[String: Any]]).count, 10)
+        try replayTakesJoin(v)
+    }
+
+    /// SDK 4.0: the 4.0 vector, every case of the shared one with the same expectation, then
+    /// windows up to 60000 (`Fixtures/vectors40/takes_join_40.json`).
+    func testTheTakesJoinVector40() throws {
+        let dir = try XCTUnwrap(Bundle.module.url(forResource: "vectors40", withExtension: nil, subdirectory: "Fixtures"))
+        let data = try Data(contentsOf: dir.appendingPathComponent("takes_join_40.json"))
+        let v = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(v["max_window_ms"] as? Int, TakeJoin.maxWindowMs)
+        let cases = try XCTUnwrap(v["cases"] as? [[String: Any]])
+        XCTAssertEqual(cases.count, 18)
+        let shared = try XCTUnwrap(try SharingBitrateTests.vector("takes_join.json")["cases"] as? [[String: Any]])
+        XCTAssertEqual(cases.prefix(shared.count).map { $0["name"] as? String }, shared.map { $0["name"] as? String })
+        try replayTakesJoin(v)
+    }
+
+    private func replayTakesJoin(_ v: [String: Any]) throws {
         XCTAssertEqual(v["default_window_ms"] as? Int, TakeJoin.defaultWindowMs)
         XCTAssertEqual((v["cap_ms"] as? NSNumber)?.int64Value, TakeJoin.capMs)
         let cases = try XCTUnwrap(v["cases"] as? [[String: Any]])
-        XCTAssertEqual(cases.count, 10)
         var recordings = 0
         for c in cases {
             for timers in [true, false] {
@@ -218,8 +236,8 @@ final class ShareRecorderTests: XCTestCase {
         print("takes join vector: \(cases.count) cases, \(recordings) recordings, with and without the window's timer")
     }
 
-    /// `flags.share_join_ms`: a whole number 0 to 10000, anything else the default.
-    func testTheWindowIsAWholeNumberFrom0To10000() throws {
+    /// `flags.share_join_ms`: a whole number 0 to 60000 (SDK 4.0; 3.x: 10000), anything else the default.
+    func testTheWindowIsAWholeNumberFrom0To60000() throws {
         func window(_ json: String) throws -> Int {
             try JSONDecoder().decode(RemoteConfig.Flags.self, from: Data(json.utf8)).share_join_ms
         }
@@ -230,7 +248,10 @@ final class ShareRecorderTests: XCTestCase {
         XCTAssertEqual(try window("{\"share_join_ms\":1}"), 1)
         XCTAssertEqual(try window("{\"share_join_ms\":8000}"), 8000)
         XCTAssertEqual(try window("{\"share_join_ms\":10000}"), 10_000)
-        XCTAssertEqual(try window("{\"share_join_ms\":10001}"), 3000)
+        XCTAssertEqual(try window("{\"share_join_ms\":10001}"), 10_001)
+        XCTAssertEqual(try window("{\"share_join_ms\":15000}"), 15_000)
+        XCTAssertEqual(try window("{\"share_join_ms\":60000}"), 60_000)
+        XCTAssertEqual(try window("{\"share_join_ms\":60001}"), 3000)
         XCTAssertEqual(try window("{\"share_join_ms\":-100}"), 3000)
         XCTAssertEqual(try window("{\"share_join_ms\":2.5}"), 3000)
         XCTAssertEqual(try window("{\"share_join_ms\":\"8000\"}"), 3000)
@@ -249,10 +270,11 @@ final class ShareRecorderTests: XCTestCase {
         XCTAssertFalse(flags.issues)
     }
 
-    /// The gap is rounded to the nearest 100 ms, half up, within 0 to 10000; `start_ms` is floored.
+    /// The gap is rounded to the nearest 100 ms, half up, within 0 to 60000; `start_ms` is floored.
     func testGapsRoundToHundredsAndStartsFloor() {
         let gaps: [(Int64, Int)] = [(0, 0), (49, 0), (50, 100), (149, 100), (150, 200), (1200, 1200), (2999, 3000), (9949, 9900),
-                                    (9950, 10_000), (10_000, 10_000), (99_999, 10_000), (-1, 0), (-5_000, 0)]
+                                    (9950, 10_000), (10_000, 10_000), (12_000, 12_000), (14_950, 15_000), (59_949, 59_900),
+                                    (59_950, 60_000), (60_000, 60_000), (99_999, 60_000), (-1, 0), (-5_000, 0)]
         for (gap, want) in gaps { XCTAssertEqual(TakeJoin.gapMs(gap), want, "gap \(gap)") }
         XCTAssertEqual(TakeJoin.ms(12_345, rate: 16_000), 771)
         XCTAssertEqual(TakeJoin.ms(12_345 + 999, rate: 16_000), 834)

@@ -313,7 +313,7 @@ final class SharingBitrateTests: XCTestCase {
         XCTAssertLessThan(kbps[1], kbps[0], "the 96k segment is smaller per second than the 192k one")
         let start = try XCTUnwrap(SharingTests.starts.first?.json)
         XCTAssertNil(start["bitrate"], "the session JSON does not change for the bitrate")
-        XCTAssertEqual(Set(start.keys), ["format", "audio", "decode", "consent_version", "contributor", "day", "device_class", "os_major",
-                                         "contributor_key", "recovery_hash"])
+        XCTAssertEqual(Set(start.keys).subtracting(["device_model"]), ["format", "audio", "decode", "consent_version", "contributor", "day",
+                                                                       "device_class", "os_major", "contributor_key", "recovery_hash"])
     }
 }

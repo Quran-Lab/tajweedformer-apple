@@ -1,5 +1,5 @@
 import Foundation
-import TajweedFormerCore
+import QuranLabCore
 
 /// Any head with a distribution, ranked per frame to any depth (zf_tajweed.h top-K): the token heads (log_probs,
 /// inter1, inter4, id, timing: 38 entries, k 1 to 38, 38 being the whole ranked list) and the class heads (gem 2,
@@ -47,7 +47,8 @@ struct TajweedRanking: Sendable, Hashable {
         guard (1...head.width).contains(k) else { throw .invalidArgument("k \(k) is outside 1...\(head.width) for \(head.rawValue)") }
     }
 
-    /// The model-free ranking of `values` ([frames, head.width] row major, from any backend): `zf_tajweed_topk`.
+    /// The model-free ranking of `values` ([frames, head.width] row major, from any backend): the 3.x engine's
+    /// top-K, which the Core exports (`qlc_topk`, R8).
     static func rank(_ values: [Float], head: HeadID, k: Int, names: [String]) throws(RecognizerError) -> TajweedRanking {
         try check(head, k: k)
         let cols = head.width
@@ -59,32 +60,12 @@ struct TajweedRanking: Sendable, Hashable {
             ids.withUnsafeMutableBufferPointer { i in
                 out.withUnsafeMutableBufferPointer { o in
                     margins.withUnsafeMutableBufferPointer { m in
-                        zf_tajweed_topk(v.baseAddress, Int32(frames), Int32(cols), Int32(k), i.baseAddress, o.baseAddress, m.baseAddress)
+                        qlc_topk(v.baseAddress, Int32(frames), Int32(cols), Int32(k), i.baseAddress, o.baseAddress, m.baseAddress)
                     }
                 }
             }
         }
-        guard n == frames else { throw .engineFailed(code: -1, message: "zf_tajweed_topk(\(head.rawValue), k \(k)) failed") }
-        return TajweedRanking(head: head, k: k, frames: frames, ids: ids, values: out, margins: margins, names: names)
-    }
-}
-
-extension TajweedExactEngine {
-    /// The stream's ranking of a head it keeps, over the take so far (`zf_tajweed_stream_topk`); nil when the stream
-    /// does not keep that head.
-    func ranking(_ head: HeadID, k: Int, frames: Int, names: [String]) throws(RecognizerError) -> TajweedRanking? {
-        try TajweedRanking.check(head, k: k)
-        guard heads & head.engineBit != 0, frames > 0 else { return nil }
-        var ids = [Int32](repeating: 0, count: frames * k)
-        var out = [Float](repeating: 0, count: frames * k), margins = [Float](repeating: 0, count: frames * k)
-        let n = ids.withUnsafeMutableBufferPointer { i in
-            out.withUnsafeMutableBufferPointer { o in
-                margins.withUnsafeMutableBufferPointer { m in
-                    zf_tajweed_stream_topk(stream, head.engineBit, Int32(k), i.baseAddress, o.baseAddress, m.baseAddress, Int32(frames))
-                }
-            }
-        }
-        guard n == frames else { return nil }
+        guard n == frames else { throw .engineFailed(code: -1, message: "qlc_topk(\(head.rawValue), k \(k)) failed") }
         return TajweedRanking(head: head, k: k, frames: frames, ids: ids, values: out, margins: margins, names: names)
     }
 }

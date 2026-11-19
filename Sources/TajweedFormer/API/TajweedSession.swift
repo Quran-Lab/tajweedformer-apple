@@ -115,6 +115,8 @@ public final class TajweedSession: Sendable {
                                shared: shared, onEnd: onEnd)
         self.core = core
         pump = Task { for await i in inputs { await core.handle(i) } }
+        // SDK 4.0 (20.5 `take_start`): a take opens; an ask that waits for its moment goes, a card on screen goes
+        Contributions.takeStarted()
     }
 
     /// Audio in: mono samples in -1...1 at the Session's `sampleRate`. Only on a Session made with
@@ -156,14 +158,28 @@ public final class TajweedSession: Sendable {
     /// The Backend in force for this take.
     public var backend: TajweedBackend { shared.backend }
 
-    /// Where the learner recited in this take, for the app's analytics on sdk.quranlab.ai: counted into the ayahs
-    /// per surah, never sent with a recording. One report per take: before the take ends a later call replaces an
-    /// earlier one and the report is counted when the take ends with its Heads; after such a take has ended the first
-    /// call is counted at once. A take that was cancelled or failed counts none.
-    public func reportRecited(surah: Int, ayahFrom: Int, ayahTo: Int) throws(TajweedError) {
-        let range = try Self.recited(surah: surah, ayahFrom: ayahFrom, ayahTo: ayahTo)
+    /// Where the learner recited in this take, and optionally whether the app's own judge found it correct, for the
+    /// app's statistics on sdk.quranlab.ai. The SDK counts the ayat of each take by itself; where it could not tell,
+    /// it uses this report for that take, and a take is never counted twice. `outcome` applies to
+    /// every ayah of the range that `perAyah` does not name; neither given, the take is reported as recited and judged
+    /// nothing (17.9). These numbers are the app's own judgement: the SDK does not judge a recitation.
+    ///
+    /// One report per take: a later call replaces an earlier one; it is used when the take ends with its Heads, or
+    /// at once when that take has already ended. A take that was cancelled or failed counts none. Anything outside
+    /// the rules (a surah or ayah out of range, a `perAyah` ayah outside the range, mistakes outside 1 to 1000, more
+    /// than 8 rules, a rule id that is not `^[a-z][a-z0-9_]{0,23}$`) is `invalid_argument` and nothing is sent.
+    public func reportRecited(surah: Int, ayahFrom: Int, ayahTo: Int, outcome: TajweedRecitedOutcome? = nil,
+                              perAyah: [Int: TajweedRecitedOutcome] = [:]) throws(TajweedError) {
+        var range = try Self.recited(surah: surah, ayahFrom: ayahFrom, ayahTo: ayahTo)
+        if let outcome { try outcome.check("outcome") }
+        for (ayah, o) in perAyah {
+            guard (ayahFrom...ayahTo).contains(ayah) else { throw .argument("perAyah names ayah \(ayah), outside \(ayahFrom) to \(ayahTo)") }
+            try o.check("perAyah[\(ayah)]")
+        }
+        range.outcome = outcome
+        range.perAyah = perAyah
         if let r = shared.report(range) {
-            QuranLab.reportRecited(surah: r.surah, ayahFrom: r.ayahFrom, ayahTo: r.ayahTo)
+            QuranLab.countRecited(take: nil, measured: shared.measured, report: r, late: true)
         }
     }
 
@@ -213,6 +229,27 @@ public final class TajweedSession: Sendable {
     var hasEnded: Bool { shared.ended }
 }
 
+/// The app's own judgement of an ayah or a range: correct, or incorrect with how many mistakes and
+/// which rules. The SDK only counts it; it never judges a recitation.
+public enum TajweedRecitedOutcome: Sendable, Hashable, Codable {
+    case correct
+    /// `mistakes` 1 to 1000 (nil adds none); `rules` at most 8 ids `^[a-z][a-z0-9_]{0,23}$`, the calibration's ids
+    /// where they apply (`madd`, `qalqalah`). Each rule of an incorrect ayah adds 1 to the day's checks and flags of
+    /// that rule: use this or `analytics.reportChecks` for a rule, not both.
+    case incorrect(mistakes: Int? = nil, rules: [String] = [])
+
+    var isCorrect: Bool { self == .correct }
+
+    func check(_ name: String) throws(TajweedError) {
+        guard case .incorrect(let mistakes, let rules) = self else { return }
+        if let m = mistakes, !(1...1000).contains(m) { throw .argument("\(name): mistakes \(m) is not 1 to 1000") }
+        guard rules.count <= 8 else { throw .argument("\(name): \(rules.count) rules; at most 8") }
+        for r in rules where !AnalyticsStore.ruleKey(r) {
+            throw .argument("\(name): rule \(r.prefix(40)) is not lower-case letters, digits and underscores (1 to 24, a letter first)")
+        }
+    }
+}
+
 /// What feeds a `listen` Session and has to stop with it.
 protocol SessionSource: AnyObject, Sendable {
     func stop()
@@ -231,10 +268,20 @@ enum QuranIndex {
 /// The few values of a take that are read outside its actor: whether it ended, its Backend, its source, the
 /// recited range.
 final class SessionShared: @unchecked Sendable {
-    struct Recited: Sendable, Equatable {
+    struct Recited: Sendable, Equatable, Codable {
         let surah: Int
         let ayahFrom: Int
         let ayahTo: Int
+        var outcome: TajweedRecitedOutcome?
+        var perAyah: [Int: TajweedRecitedOutcome] = [:]
+
+        init(surah: Int, ayahFrom: Int, ayahTo: Int, outcome: TajweedRecitedOutcome? = nil, perAyah: [Int: TajweedRecitedOutcome] = [:]) {
+            self.surah = surah
+            self.ayahFrom = ayahFrom
+            self.ayahTo = ayahTo
+            self.outcome = outcome
+            self.perAyah = perAyah
+        }
     }
 
     private let lock = NSLock()
@@ -250,6 +297,12 @@ final class SessionShared: @unchecked Sendable {
     /// Whether the take ended with its Heads (nil while it is open), and whether its report was counted.
     private var endedCounting: Bool?
     private var counted = false
+    /// The range the SDK measured for this take (17.1), once it ended; nil when it measured none.
+    private var _measured: CoreRecited?
+
+    var measured: CoreRecited? { lock.lock(); defer { lock.unlock() }; return _measured }
+
+    func setMeasured(_ r: CoreRecited?) { lock.lock(); _measured = r; lock.unlock() }
 
     init(backend: TajweedBackend, takeSeconds: Double = TakeBounds.standard.takeSeconds) {
         _backend = backend
@@ -397,7 +450,7 @@ actor SessionCore {
         do throws(RecognizerError) {
             step = try await recognizer.step(samples, sampleRate: rate, topK: topK)
         } catch {
-            await fail(TajweedError(from: error))
+            await fail(TajweedError(from: error, stage: "session"))
             return
         }
         guard isOpen else { return }
@@ -474,12 +527,13 @@ actor SessionCore {
             let audio = await recognizer.lastTakeHadAudio
             guard case .closing = phase else { return }
             _ = emit(step, final: true)
-            ended(step.take, reason: reason, heard: !(step.decoded.last?.tokens.isEmpty ?? true), hadAudio: audio)
+            await ended(step.take, reason: reason, hadAudio: audio)
         } catch {
             guard case .closing = phase else { return }
-            let e = TajweedError(from: error)
+            let e = TajweedError(from: error, stage: "session")
             phase = .failed(e)
             _ = shared.takeEnded(counts: false)
+            Contributions.takeEnded(.error, speechMs: speechMs)
             eventOut.yield(.ended(.error(e)))
             finishStreams()
         }
@@ -490,18 +544,44 @@ actor SessionCore {
         phase = .closing
         let take = await recognizer.finish(atChunk: index)
         guard case .closing = phase else { return }
-        ended(take, reason: .silence, heard: true)
+        await ended(take, reason: .silence)
+    }
+
+    /// The take's speech for the ask to share (20.2 `speech_ms`): its speech frames (`SpeechTracker.speechFrames`, the
+    /// counter of the telemetry) of `SpeechTracker.frameMs`.
+    private var speechMs: Int {
+        activity.reduce(0) { $0 + SpeechTracker.speechFrames($1) } * SpeechTracker.frameMs
+    }
+
+    /// How a take ended, for the ask to share (20.2 `end`): the app's finish (no reason), silence, the limit and the
+    /// end of the source are normal; the background, a hidden page and an interruption are interrupted; an error is
+    /// an error.
+    static func shareEnd(_ reason: TajweedEvent.EndReason?) -> ShareAsk.End {
+        switch reason {
+        case nil, .silence?, .limit?, .sourceEnd?: return .normal
+        case .background?, .hidden?, .interrupted?: return .interrupted
+        case .error(_)?: return .error
+        }
     }
 
     /// A take that ended with its Heads: the app's recited range is counted (not for a take without audio, which
-    /// records nothing), and it is a moment the SDK may ask about sharing (only after a take in which the model heard
-    /// something).
-    private func ended(_ take: HeadsBuffer, reason: TajweedEvent.EndReason?, heard: Bool, hadAudio: Bool = true) {
+    /// records nothing), and its end goes to the ask to share with how it ended and its speech (SDK 4.0, 20.5
+    /// `take_end`: a completed session counts, and at a good moment an ask may be due).
+    private func ended(_ take: HeadsBuffer, reason: TajweedEvent.EndReason?, hadAudio: Bool = true) async {
         phase = .ended(TajweedHeads(take, vocabulary: vocabulary, selection: selection, topK: topK, isFinal: true))
         if let reason { eventOut.yield(.ended(reason)) }
+        // 17.1: one source per take. The detector's range when it counted one (an app report then adds only its
+        // outcomes); else the app's report; else nothing.
+        let detected = await recognizer.recitedOutcome()
+        shared.setMeasured(detected.range)
         let recited = shared.takeEnded(counts: true)
-        if hadAudio, let r = recited { QuranLab.reportRecited(surah: r.surah, ayahFrom: r.ayahFrom, ayahTo: r.ayahTo) }
-        if heard { Contributions.sessionCompleted(feedback: true) }
+        if hadAudio {
+            QuranLab.countRecited(take: detected.take, measured: detected.range, report: recited, late: false)
+        } else if let take = detected.take {
+            // a take without audio records nothing (3.1.1): its journal entry goes
+            QuranLab.cloud?.analytics.recitedDropped(take)
+        }
+        Contributions.takeEnded(Self.shareEnd(reason), speechMs: speechMs)
         finishStreams()
     }
 
@@ -510,6 +590,7 @@ actor SessionCore {
         phase = .failed(e)
         _ = shared.takeEnded(counts: false)
         await recognizer.cancelTake()
+        Contributions.takeEnded(.error, speechMs: speechMs)
         eventOut.yield(.ended(.error(e)))
         finishStreams()
     }
@@ -522,6 +603,7 @@ actor SessionCore {
         phase = .cancelled
         _ = shared.takeEnded(counts: false)
         await recognizer.cancelTake()
+        Contributions.takeEnded(.cancelled, speechMs: speechMs)
         finishStreams()
     }
 

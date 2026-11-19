@@ -1,6 +1,9 @@
 work/
 build/
-TajweedFormerCore.xcframework.zip
+QuranLabCore.xcframework.zip
+# the Core's symbol files are private: never in this repository (scripts/build_core_xcframework.py --private)
+*.dSYM/
+*.dSYM
 .build/
 TestAudio/
 *.zfw

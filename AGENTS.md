@@ -30,12 +30,12 @@ Everything an assistant needs to integrate this SDK correctly: use only the name
 </td>
 <td valign="top">
 
-**Nothing to host**<br>The SDK downloads the right model for each device (56.5 MB to start) from our CDN in six regions, verifies it and keeps it up to date.
+**Nothing to host**<br>The SDK downloads the right model for each device (55.5 MB to start) from our CDN in six regions, verifies it and keeps it up to date.
 
 </td>
 <td valign="top">
 
-**Data for your own judge**<br>The SDK scores nothing. The model's thresholds come with it as read-only data, so your app can judge a recitation its own way. The expected units of each ayah do not: with this release and the model build served now, `model.reference` is nil.
+**Data for your own judge**<br>The SDK scores nothing. The model's thresholds come with it as read-only data, and the expected units of each ayah where the served build carries them, so your app can judge a recitation its own way.
 
 </td>
 </tr>
@@ -46,7 +46,7 @@ Everything an assistant needs to integrate this SDK correctly: use only the name
 - **Made for the Quran.** Trained on Quranic recitation, with its own sound units and heads for what tajweed is about.
 - **Feedback in the moment.** Output streams while the learner recites, so your app can respond on the word itself, not after the take.
 - **One engine on every platform.** The same engine runs the [iOS and macOS](https://github.com/Quran-Lab/tajweedformer-apple), [Android](https://github.com/Quran-Lab/tajweedformer-android), [web](https://github.com/Quran-Lab/tajweedformer-web) and [Windows and Linux](https://github.com/Quran-Lab/tajweedformer-c) SDKs, all set from one portal.
-- **Free, and it stays free.** Quran Lab is a non-profit waqf: the SDKs and models are never sold. The licence, NPL-1.2, asks three things: no paywall on model features, no results presented as rulings, and show the notice.
+- **Free, and it stays free.** Quran Lab is a non-profit waqf: the SDKs and models are never sold. The licence, NPL-1.2, and Quran Lab's access terms ask two things: no paywall on model features, and no output presented as an authoritative religious ruling. A line telling learners that automatic feedback can be wrong is encouraged, not required.
 
 ## Built for AI developers
 
@@ -54,41 +54,48 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
 
 ## At a glance
 
-- **What it is:** the Swift package `TajweedFormer` for the Quran Lab TajweedFormer V4 model
-  (`Quran-Lab/tajweedformer-v4`, folder `sdk/v4.0`): audio in, the model's output out (every head of the network per
-  chunk, and what it heard with confidence and timing). SDK 3.0.0 is inference only: it scores nothing and holds
-  no tajweed settings (SDK 2.x did; see [docs/migrating-to-3.md](docs/migrating-to-3.md)). It hosts only V4.
-- **Platforms:** iOS 15 and macOS 12 on Apple silicon. The Neural Engine backend needs iOS 18 or macOS 15; on older
-  systems the exact CPU engine runs.
-- **Status:** released; this is version 3.1.4. CI builds every push for iOS and macOS and runs the tests on macOS.
-  The whole path through the public API (the key and the signed config, the download, the verified model, the
-  promotion pipeline, takes on the CPU engine and on the Neural Engine) has run on an Apple silicon Mac against
-  Quran Lab's servers with `scripts/prove-on-mac.sh` (version 3.0.0); that proof has not been run on an iPhone.
+- **What it is:** the Swift package `TajweedFormer` for the Quran Lab TajweedFormer models: audio in, the model's
+  output out (every head of the network per chunk, and what it heard with confidence and timing). Inference only:
+  it scores nothing (see [docs/migrating-to-3.md](docs/migrating-to-3.md)).
+- **SDK 4.0: the protected model.** The engine, the model's formats and its keys are in Quran Lab's closed Core
+  (`QuranLabCore.xcframework`); this repository is the public wrapper. The model is downloaded encrypted, installed
+  by the Core to an encrypted form bound to this install, and opened only by the Core, in memory, with a lease
+  from Quran Lab's server. No plaintext model file is ever written, and no call of the SDK returns a model file, a
+  path to one, weights or keys.
+- **Coming from 3.x:** [docs/migrating-to-4.md](docs/migrating-to-4.md) says what changes. SDK 3.x stops receiving
+  the V4 model on 15 January 2027, 00:00 UTC, and model versions from V4.1 on are published only encrypted, for SDK 4.0.
+- **Platforms:** iOS 15 and macOS 12 on Apple silicon (arm64 devices, the arm64 Simulator, arm64 Macs).
+- **Status:** 4.0.0 is in development and not released. It is compiled and its tests run on a Mac with Xcode
+  (docs/mac-checklist-4.0.md). It carries every fix of 3.1.5, the download work
+  included.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 3.1.4. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.0. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "3.1.4"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.0"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
 ```
 
+SwiftPM fetches the Quran Lab Core (`QuranLabCore.xcframework`) with the package, from `cdn.quranlab.ai`, and checks it
+against the checksum in `Package.swift`. Then add the App Attest capability ("Before you start").
+
 ## Before you start
 
 | | |
 | - | - |
-| **Key** | An iOS or macOS key from [sdk.quranlab.ai](https://sdk.quranlab.ai), for your app's bundle id. |
-| **Devices** | iOS 15 and macOS 12 or later, on Apple silicon only: the binary has arm64 slices for devices, the arm64 simulator and arm64 Macs. Intel Macs and the x86_64 simulator are not supported. Xcode 16 or later (Swift tools 6.0). |
+| **Key** | An iOS or macOS key from [sdk.quranlab.ai](https://sdk.quranlab.ai), for your app's bundle id. On the Simulator, a development key: Quran Lab leases the Core's Simulator build to development keys only. |
+| **Devices** | iOS 15 and macOS 12 or later, on Apple silicon only: arm64 devices, the arm64 Simulator and arm64 Macs. Intel Macs and the x86_64 Simulator are not supported. Xcode 16 or later (Swift tools 6.0). |
 | **Permissions** | `NSMicrophoneUsageDescription` in Info.plist: without it the system ends the app at the first use of the microphone. A sandboxed or hardened Mac app also needs the `com.apple.security.device.audio-input` entitlement. |
-| **Capabilities** | None for recognition. If your app offers recording sharing, add the App Attest capability: uploads need an attested install. Without it the SDK still runs, unattested. |
-| **Download** | The first launch downloads the model: 56.5 MB, once (73.5 MB on disk), on any network. On iOS 18 and macOS 15 the Neural Engine's build follows in the background on Wi-Fi: 76.1 MB more. |
-| **Network** | No request of the SDK follows a redirect: an answer that is one is a failed request, never followed. |
-| **Model** | A model comes only from Quran Lab's server, through the Client: `try await client.model()`, or `client.prefetch()` ahead of use; the Client opens only a model it downloaded itself on this device, and an app that updates from an SDK before 3.1.0 downloads the model once more. When Quran Lab refuses the key or the app (a revoked key, a paused or blocked app), the SDK stops running the model and removes the downloaded model from the device. Once the key is accepted again the model is downloaded again. What the system cached by itself stays: the compiled form that Core ML keeps for the Neural Engine of a package the SDK loaded. |
-| **Keychain** | The SDK keeps one key per install in the Keychain (this device only) and marks with it the model it downloaded. A Mac app without a provisioning profile (an unsigned or ad hoc signed binary, a command line tool) is refused by that keychain: there the key lives in the Mac's login keychain, in an item named for the app's bundle id, and can travel to another Mac with the keychain. |
+| **Capabilities** | App Attest (Signing & Capabilities). With it, an install is hardware-verified: it gets the Neural Engine and sharing uploads. Without it the SDK still runs, on the CPU engine only. |
+| **Download** | Making the Client downloads nothing. The first `client.model()` or `client.prefetch()` downloads the model, encrypted: 55.5 MB, once (68.4 MB on disk), and needs a connection. On iOS 18 and macOS 15, for an attested install, the Neural Engine's build follows in the background: 76.1 MB more. |
+| **Offline** | The model opens under a lease Quran Lab signs for this install, renewed in the background whenever the device is online: learners keep working offline for days at a time (the exact time is set by Quran Lab and may change). When the lease has ended and Quran Lab cannot be reached, the model keeps opening for up to 24 hours more; a refusal ends that at once. A Model that is open keeps running. |
+| **Model** | The model runs only inside the Quran Lab Core: its files are encrypted from Quran Lab's server to the device, and no plain model file is ever written. Do not change the Core's framework beyond Xcode's own signing: a changed Core gets no lease. When Quran Lab refuses the key or the app, the model's files are removed. |
+| **Analytics** | Anonymous counts and durations (never audio, text, names or device identifiers) and reports of the failures your learners hit are always sent; you find them at sdk.quranlab.ai under your app, Problems included. |
 | **Takes** | A Model has one open Session (one take) at a time; the next take is a new Session. A take holds at most 20 minutes of audio. |
 
 ## Quick start
@@ -180,129 +187,124 @@ Two files of the model are data for an app's own judge. The SDK hands them over 
 - **`model.reference`** is the table of expected units for every ayah (the tokens a correct recitation writes, and
   where each word starts). It is not part of the model's download: `try await model.reference?.fetch()` brings it
   once, verified against the signed manifest, and `units(surah:ayah:)` reads it. A build without the
-  table gives nil. The SDK never aligns it with a take.
+  table gives nil. The SDK never aligns it with a take. SDK 4.0: the table is encrypted and only the Core reads it,
+  at the first `units(surah:ayah:)` after the model opened; that call needs the lease, as opening the model does
+  (`needs_connection` otherwise, and the next call tries again).
 
 `model.tokens` is the vocabulary (38 tokens: names, ids, the blank and the word bar), and `model.sampleClips` are
 short recitations of the model's self-test set, to run the whole path without a microphone.
 
-## What a device downloads
+## The protected model
 
-The model folder is signed (manifest format 3, Ed25519) and every file is tagged with the platforms, context and role
-that decide which device downloads it. Large files travel gzip and are kept decoded. Downloads use HTTP Range into a
-`.part` file and resume after the app is killed; each file is checked by size and SHA-256 before and after it is
-inflated, and a mismatch deletes both.
+What SDK 4.0 does, in the order a first `client.model()` does it (quranlab-contract `sdk_4.0.0/PROTECTED_MODEL.md`,
+section 18). Making the Client downloads nothing: the model downloads only when the app calls `client.model()` or
+`client.prefetch()`. A later start of the Client checks only for an update of a build it installed on this device.
 
-A model has a version (`model.version`, `"4.0.0"`) and a folder is one build of it (`model.build`, the first 40 hex
-digits of the SHA-256 of its manifest). Quran Lab's signed config names the version and the build for each app;
-`client.model(version:)` asks for a version. The SDK refuses a manifest whose signature does not verify
-(`signature_invalid`), that has no version or needs a newer SDK (`model_incompatible`), or that is not the build the
-config named (`checksum_mismatch`). When Quran Lab has no build for this SDK version yet, `client.model()` throws
-`model_unavailable`; a first run without a network throws `needs_connection`.
+1. **The install's key.** A P-256 key made in the Secure Enclave (a software key in this device's Keychain on a Mac
+   without one and on the Simulator, reported as such). It never leaves the key store: the Core gets one lease's
+   shared secret and signatures, never the key.
+2. **The certificate.** `POST /v1/attest` with the key, its signature over the challenge (`install_sig`) and App
+   Attest where the device has it. Quran Lab answers with an install certificate.
+   Every new certificate comes with a new key.
+3. **The lease.** The signed manifest of the build the config names, then `POST /v1/model-key` with the
+   certificate and the Core's proof. The lease is wrapped for this install's key and for this Core release. Learners
+   keep working offline for days at a time; the exact time is set by Quran Lab and may change. While the device is
+   online the lease is renewed in the background about once a day, at a time spread per install. A valid lease never
+   waits for a renewal. An install attested with App Attest is hardware-verified, the class that may use the Neural
+   Engine.
+4. **The download.** Ciphertext only (the build's CDN form), resumable, every file checked against the signed
+   manifest. The Core installs each file to this install's device form (the plaintext's SHA-256 is checked inside
+   the Core), and the downloaded copy is deleted.
+5. **The model opens** in the Core's memory from the device form and the lease. Offline with a valid lease it opens;
+   after the lease's end `client.model()` throws `needs_connection` and nothing is decrypted. A model already open
+   keeps running until it is closed. A device clock that is wrong or moved never locks a learner out.
 
-| iPhone or Mac, default context | What is downloaded |
-|-|-|
-| first install, any iPhone or Mac | the CPU files of the context only |
-| later, iOS 18 / macOS 15, in the background | on an unmetered network: one fp16 CoreML package (`coreml`) for every context, as a delta against the CPU weights already on the device: 76.1 MB (the whole program, 119.5 MB, when the delta cannot be used), with the context's keep table and the self-test set, 77.2 MB in all |
-| only for a Session with `backend: .coremlCompact` | the compact CoreML package (`coreml-compact`, int8) the same way: a delta of 1.7 MB (the whole program, 53.9 MB, when the delta cannot be used), 2.8 MB in all |
-| another context later | its own small files, at the first Session that names it |
-| the reference table | only when the app calls `model.reference?.fetch()` |
+On a network that fails, the bytes that arrived stay on the device (ciphertext, the CDN form), and the SDK takes a
+file up again by itself: at most five times per file in one call, after 1, 2, 4, 8 and 16 seconds, when there was
+no answer, the connection ended, the server failed, no byte came for 30 seconds (a slow connection that keeps
+delivering is never cut), or the answer said success and was not the file. An attempt that brings no new byte counts
+like any other. A refusal and a redirect are never asked again. Then `client.model()` or `client.prefetch()` throws,
+and the next call goes on from what is on the device. An answer is the file only as a 206 for the range asked for of
+a file of the manifest's size, or as a whole file of that size; anything else is a failed attempt and costs no stored
+byte. A partial file is continued only as the file it was started as (the server's ETag is sent back with the range,
+and a file that changed comes whole and takes the partial file's place once all of it has arrived). An update, the
+Neural Engine's build and `prefetch(unmeteredOnly: true)` wait for an unmetered network for as long as they run; a
+first install goes on any network. Cancelling a call ends that call's wait: the download goes on while another call
+waits for it or a `prefetch` asked for it.
 
+On iOS a download that is under way when the learner leaves the app gets the time the system gives a task under
+way (about half a minute), and when the app has entered the background what is left of it goes on in a background
+session, range by range, while the app is suspended; when the app is back the ranges that arrived are joined and
+the download goes on in the app. The ranges are of the CDN form from the model folder the lease named, so nothing a
+background session keeps is plaintext. A background transfer's request is kept by the system in its own store until
+the transfer ends: it carries the install's token, which is not renewed while the app is away (the app fetches a
+range itself when the server refused it for its token), and the developer key unless Quran Lab's signed config says
+that a background transfer sends the token alone. On that path alone the system follows a redirect without asking
+the SDK: the SDK then refuses the bytes and reports the host it ended on.
+
+A model has a version (`model.version`) and a folder is one build of it (`model.build`, diagnostics only). The SDK
+refuses a manifest whose signature does not verify (`signature_invalid`), that needs a newer SDK or is not an
+encrypted build (`model_incompatible`), or that is not the build the config named (`checksum_mismatch`).
 `client.prefetch(unmeteredOnly:onProgress:)` downloads ahead of use, resumable, with the bytes done and the total.
 With `unmeteredOnly: true` it downloads on Wi-Fi or Ethernet and does nothing on cellular, a personal hotspot, a
-network in Low Data Mode or no network (call it again later). Where the system does not say what the connection is
-(`diagnose().connection` is `unknown`) the option cannot be honoured, and it downloads.
-`client.storage` says what is on disk (bytes per model build, and of the sharing queue), and
-`client.removeModels()` removes the model files, never the learner's sharing choice or the upload queue.
+network in Low Data Mode or no network (call it again later); its requests also tell the system so, and the system
+holds to it for the whole download. A download that `prefetch` started goes on when the call is cancelled.
+`client.storage` says what is on disk; `client.removeModels()` removes the model files.
 
-A model comes from Quran Lab's server, through the Client: `client.model()` and `client.prefetch()` are the calls
-that bring one to a device, and no call opens a model folder the app supplies. The Client opens only a build it
-downloaded itself on this device. A model folder in its storage that it did not download (put there in advance, or
-copied from another device) is not opened: it is deleted, and the build is downloaded.
-After that download a learner without a connection keeps working. Every request for a model file carries the
-developer key and the install's token. An install that updates from 3.0 downloads its model once more at the first
-launch after the update (`needs_connection` when that launch has no network).
+When Quran Lab refuses the key or the app on the lease route, the refusal is signed: the Core clears its lease and
+removes the model's files only when the signature verifies with a key compiled into it and the refusal names this
+request. A stop that is not signed is not acted on there.
 
-## Backends and the CPU fallback
+**The honest limit.** A model that runs on a device can be taken by someone who controls that device and has the
+skill and the time. What 4.0 achieves: a key, an AI agent, a copied folder or a script gets ciphertext only, and
+taking the model needs an expert, weeks, and a new effort for every release.
 
-- **Neural Engine** (iOS 18, macOS 15): one multifunction CoreML package; each context's two functions are loaded
-  with `MLModelConfiguration.functionName` (`front_<ctx>`, `back_<ctx>`). Features come from the engine's exact fbank.
-- **Exact CPU engine**: [tajweedformer-engine](https://github.com/Quran-Lab/tajweedformer-engine), pinned as `engine/`. The
-  same bits on every device, for every head of every chunk.
+## Backends
 
-The default context is `c16_l64` (320 ms chunks); Quran Lab's signed config can name another for an app
-(`inference.context`), and `TajweedSessionOptions.context` wins over both. `c8_l64` (160 ms chunks) has no CoreML
-package: it always runs on the exact CPU engine.
+Every take runs on the Core's exact CPU engine: the same bits on every device, for every head of every chunk. The
+default context is `c16_l64` (320 ms chunks); Quran Lab's signed config can name another for an app
+(`inference.context`), and `TajweedSessionOptions.context` wins over both.
 
-### CPU first, then the accelerator
-
-The Neural Engine's build is the fp16 CoreML build (`coreml`). The compact build (`coreml-compact`: int8 weights, a
-download of 1.7 MB where the fp16 build's is 76.1 MB, for devices short of storage) is fetched and tried only when a
-Session names it, `TajweedSessionOptions(backend: .coremlCompact)`; a device does not try it on its own. Both go
-through the same pipeline, and a folder may hold both. One limit in 3.0.0: a Model warms the default Session when it
-is opened, and that Session's pipeline starts by itself after 20 seconds without a take, so an app that names
-`.coremlCompact` and whose first take starts later than that also downloads the fp16 build (on Wi-Fi or Ethernet).
-
-With `backend: .auto` (the default, no code needed):
-
-1. **First run.** The first install downloads only the CPU set. The first take runs on the exact CPU engine and
-   nothing is queued in front of it: the Neural Engine's work starts after the first take ends, or after 20 seconds
-   with no take. On every later launch the CPU engine serves until the Neural Engine is loaded and warm again; a
-   take never waits for it.
-2. **In the background,** one pipeline per model build, context, OS build and device model, with its state kept on
-   disk after each stage (an app killed in the middle resumes at the next launch where it stopped): download (the
-   CoreML build, its keep table and the self-test set, on Wi-Fi or Ethernet only, resumable, every file verified),
-   compile (the first load with the Neural Engine allowed, 10 minutes at most), warm-up (silence and a self-test
-   clip; no NaN or inf), golden test, measure, promote. It runs only while the device is in good shape (not in Low
-   Power Mode, battery at least 20 % or charging, thermal state nominal or fair) and waits otherwise.
-3. **The golden test** runs every clip of the model's self-test set through the Neural Engine and through the CPU
-   engine, with the same streaming code a take uses, and compares the raw outputs: per CTC head the greedy tokens
-   (edit distance) and the distance of the log-probabilities (mean and 99th percentile), and the mean difference of
-   the attribute heads' probabilities. A build passes within the tolerance the signed manifest gives it
-   (`golden_raw_tolerance`); without one it must give the CPU engine's tokens exactly. The CPU engine's own tokens
-   must equal the shipped expected file. It runs only while no take runs.
-4. **The swap** happens only when a take starts, and only to a build that is loaded and warm: the app sees the same
-   API and faster chunks; `session.backend` says which engine runs, `model.backend` which the next take will use
-   and where the promotion stands (`stage`: `cpu`, `downloading`, `compiling`, `testing`, `promoted`, `demoted`,
-   with a `reason` when it failed).
-5. **Failing safe.** Any failure keeps the CPU engine and records the stage and the reason. A failure is retried
-   for the same model build and OS build after 1 hour, 6 hours and 24 hours, then not again; a golden-test mismatch,
-   a NaN or a crash is never retried for them (a new build or an OS update tries again). The signed config's
-   deny-list (`denylist` and `accel_deny` rules) keeps the Neural Engine off.
-6. **During a take**, every Neural Engine chunk is checked: an exception, a NaN or infinite value, a value outside
-   the heads' range, or a chunk that misses its deadline. The take then switches to the CPU engine at that chunk:
-   its recent audio is replayed through it, and the take continues with no error. When the CPU's replay changes
-   chunks the app already has, the event `backendChanged(backend:fromChunk:)` says from which index on, and those
-   chunks come again on `chunks` with the same `index`: replace what you have for them.
-   - **Silence is not a fault.** The model writes nothing during a long madd or a held vowel, so a few chunks with no
-     token in audio with sound are only a suspicion: the SDK replays that audio (the last 30 seconds at most) through
-     the CPU engine in the background, and switches only when the CPU engine writes tokens there.
-   - **A cold start is not a fault.** The Neural Engine is warmed up when a take starts and when the app becomes
-     active; the first chunk after that has a longer deadline.
-7. **Telemetry and incidents.** Per backend, model version, build and context: the attempts, promotions, the stage
-   and reason of each failure, the compile time and the speedup, the switches inside takes with their cause. Every
-   failure and switch is also an issue report (`promotion_failed`, `accelerator_failover`) with the stage, the cause,
-   the device model, OS build and chip, and for a failed golden test what was measured against which tolerance. No
-   audio, text or identifier.
+The Neural Engine: in SDK 4.0 only the Core may hand an accelerator program to Core ML (from memory where the OS
+allows, else through a short-lived file in the app's container that is removed after the load), and only with a
+lease that allows accelerator programs. The SDK downloads the accelerator build only when the lease allows it, then
+promotes it as before: compiled by the Core, warmed, checked against the CPU engine on the self-test clips, used from
+the next session. It needs iOS 18 or macOS 15, and the SDK never attempts it on the Simulator. Core ML keeps its own
+compiled form for the Neural Engine in the app's `Library/Caches`.
 
 ## Quran Lab platform
 
 `TajweedClient(key:)` links the app to [sdk.quranlab.ai](https://sdk.quranlab.ai): registration (once per UTC day per
-install), the signed config (refreshed within a minute of a change), issue reports (kind and code only), and
-telemetry. What the SDK sends, when, and what an app can change is in
+install), the signed config (refreshed within a minute of a change), issue reports (kind and code only), error
+reports (where a failure was and why, one per UTC day and kind of failure, never a message or an identifier), and
+telemetry. It downloads no model: that waits for the app's `client.model()` or `client.prefetch()`. What the SDK
+sends, when, and what an app can change is in
 [docs/platform-client.md](docs/platform-client.md), the same page in every TajweedFormer SDK.
 
 Telemetry is on by default and anonymous by construction: sums and histograms per UTC day (per model version, build,
 context and backend: takes, minutes of audio, speech and silence, tokens per head, compute time, latency and
 real-time factor; downloads; launches; promotions), never audio, recognised text or any identifier. It goes as
-deltas during the day, each with a random `report_id` so a retry is counted once. Two calls add what only the app
-knows, for its own page on sdk.quranlab.ai:
+deltas during the day, each with a random `report_id` so a retry is counted once.
 
-- `try session.reportRecited(surah:ayahFrom:ayahTo:)`: where the learner recited in this take (one report per take).
+The SDK keeps anonymous daily totals for your statistics at sdk.quranlab.ai: sessions and takes, seconds of audio and
+of recitation, the ayat recited per surah and per juz, the hour of the day in the learner's own time, how long takes
+and sessions are, how many installs were active and came back, and how the model ran on the device. It works out which
+ayat a take recited by itself; `reportRecited` is used only where it could not tell. Nothing is kept per learner: no
+audio, no text, no ayah numbers, no identifier, no location beyond the country the request came from. The device keeps
+its own list of the days it was used, to work out those totals, and that list never leaves the device.
+
+Two calls add what only the app knows, for its own page on sdk.quranlab.ai:
+
+- The SDK counts the ayat of each take by itself; where it could not tell, it uses what the app reported for that
+  take, and a take is never counted twice. `try session.reportRecited(surah:ayahFrom:ayahTo:outcome:perAyah:)`: where
+  the learner recited in this take and, optionally, whether your own judge found it correct (`.correct`, or
+  `.incorrect(mistakes:rules:)`). These numbers are your app's judgement: the SDK does not judge a recitation.
 - `try client.analytics.reportChecks(rule:checked:flagged:)`: how often the app's own judge checked a rule and how
   often it flagged it (at most 32 rules a day).
 
-`TajweedClientOptions(analytics: .off)` turns telemetry off in code; Quran Lab's config can turn it off for every
-install of an app.
+Anonymous analytics are always on in SDK 4.0: daily counts and durations only, never audio, text, names or device
+identifiers. An app cannot turn them off; Quran Lab's signed config (`flags.analytics`) is the only off switch, for
+every install of an app.
 
 When Quran Lab refuses the key or the app (a revoked key, a paused or blocked app), the SDK stops running the model
 and removes the downloaded model from the device. Once the key is accepted again the model is downloaded again.
@@ -321,13 +323,20 @@ and a `docs` link.
 
 ## Sharing recitations
 
-Quran Lab decides per app whether the SDK offers sharing (the signed config); the developer switches nothing on.
-Set `TajweedClientOptions(audience: .children)` for a children's app. Offered is never consent: nothing is recorded
-for sharing or sent before the learner taps "Share". The SDK asks at the right moment: never on first launch; after
-a finished take in which the model heard something; after "Not now" again at least 7 takes later, until the sheet was
-shown three times on the install in all, then never. `client.sharing.ask()` asks now (it counts as one of the
-three). A yes ends asking for good: the learner keeps the consent version they agreed to across copy decks, your
-wording and SDK upgrades, and every shared recording carries that version.
+Every learner is asked, and the choice is theirs. The SDK asks every learner, in every app, with the same sheet and
+under the same rules; the learner can say "Not now", turn sharing off, or delete what they shared at any time. No app
+is exempt, and the developer switches nothing on or off. Quran Lab's signed config keeps an incident switch
+(`flags.contributions`) that stops all asking and sharing; until the SDK holds a signed config, and while that switch
+is off, nothing is asked. Being asked is never consent: nothing is recorded for sharing or sent before the learner
+taps "Share". The SDK asks at the right moment: the full sheet first, never
+in the first 24 hours after the install or before the 3rd completed take, and only at the end of a good take (it
+ended normally, and the learner recited at least a minute since the app opened), a few seconds after it with no new
+take. After "Not now" a small card at the bottom of the screen asks again once both 14 days and 7 completed takes
+have passed, then 30 days and 10; "See how it helps" on it opens the full sheet. Never two asks in one day, three
+asks on the install in all, then never. `client.sharing.ask()` shows the ask at a point of your flow when it is due by
+these rules (after a completed take, not during one), and returns false otherwise. A yes ends asking for good: the
+learner keeps the consent version they agreed to across copy decks, your wording and SDK upgrades, and every shared
+recording carries that version.
 
 - The sheet: add `.quranLabSharing(client)` to a SwiftUI view near the root, or present
   `SharingConsentViewController` (UIKit) or `SharingConsentViewControllerMac` (AppKit). On iOS an app that does
@@ -364,7 +373,7 @@ with a P-256 key made on the device (in the Secure Enclave where there is one): 
 learner's recordings.
 
 Takes in a row are one recording: a recording stays open after a take for a few seconds (3 s; Quran Lab's config can
-set it from 0, never, to 10 s), and a take that starts in that time continues the same stream. A recording never
+set it from 0, never, to 60 s), and a take that starts in that time continues the same stream. A recording never
 holds more than 20 minutes of audio: at that point it closes, and a take that is still running goes on in a new one.
 
 `client.sharing.feed(_:sampleRate:)` is for apps that capture audio themselves outside takes (before the first,
@@ -375,6 +384,14 @@ the take's end; what is fed later waits for the next take. Without a yes, during
 dropped at once and nothing of it stays in memory. The model never sees the feed. An app that uses `listen()` has no
 audio outside takes and need not call it.
 
+Use sharing in one process. The storage folder belongs to the app, and by default every process of the app uses
+the same one (on iOS an app and its extension have separate folders unless you pass both the same one; on a Mac
+every process with the app's bundle identifier uses the same folder). The SDK keeps the learner's sharing answer
+in memory in each process and writes it as a whole, so two processes that each make a Client on the same folder
+do not see each other's changes: sharing turned off in one does not stop the other, and the other's next write
+puts the earlier answer back. Make the Client in one process of your app. If a second process needs the model,
+give it its own `storage` folder (`TajweedClientOptions(storage:)`).
+
 ## Platform notes
 
 - **Microphone.** `listen()` uses the SDK's `Microphone` (AVAudioEngine). The app needs
@@ -382,16 +399,14 @@ audio outside takes and need not call it.
   `com.apple.security.device.audio-input` entitlement. A refusal is the error `microphone_denied`. Nothing is
   captured before `listen()` or after the take ends; when the app leaves the foreground the take ends with
   `ended(.background)`.
-- **Privacy manifest.** The package and the engine's xcframework each carry a `PrivacyInfo.xcprivacy`; the SDK
-  collects nothing linked to a person and uses no tracking.
-- **App Attest.** Recognition needs no capability. Uploads of shared recordings need an attested install: add the
-  App Attest capability if your app offers sharing. Without it the SDK still runs, unattested.
-- **The install key.** The SDK keeps one key per install in the Keychain (this device only, readable after first
-  unlock) and marks with it the model builds it downloaded; when the Keychain does not answer, `client.model()`
-  throws `storage_failed` and the next call tries again. On a Mac, an app without a provisioning profile (an
-  unsigned or ad hoc signed binary, a command line tool) is refused by that keychain, and there the key lives in
-  the Mac's login keychain, in an item named for the app's bundle id, which can travel to another Mac with the
-  keychain.
+- **Privacy manifest.** The package and the Core's xcframework each carry a `PrivacyInfo.xcprivacy`; the SDK
+  collects nothing linked to a person and uses no tracking. It declares the boot clock (the lease's clock).
+- **App Attest.** Recognition needs no capability. Uploads of shared recordings need an attested install, and every
+  app's learners are asked to share: add the App Attest capability. Without it the SDK still runs, unattested.
+- **The install key.** The protected model's key is in the Secure Enclave (this device only, after first unlock);
+  on a Mac without a Secure Enclave and on the Simulator it is a software key in this device's Keychain, and a
+  process the Keychain refuses (a command line tool, an unsigned test run) keeps it in a file of the SDK's folder.
+  The Core's saved state is sealed under another Keychain key of this device.
 - **Apple silicon only.** arm64 devices, the arm64 simulator and arm64 Macs; iOS 15 and macOS 12 or later; Xcode 16
   (Swift tools 6.0).
 - **One Client per process.** A second `TajweedClient` while the first is not closed throws `client_exists`.
@@ -399,56 +414,29 @@ audio outside takes and need not call it.
 ## Build and test
 
 ```sh
-git clone --recurse-submodules https://github.com/Quran-Lab/tajweedformer-apple
-cd tajweedformer-apple
-scripts/build_xcframework.sh     # TajweedFormerCore.xcframework from the pinned engine
+python3 scripts/build_core_xcframework.py --core <quranlab-core checkout> --test-release --private <folder outside the repo>
 swift test
 ```
 
-CI (`.github/workflows/ci.yml`) builds the xcframework from the pinned engine, runs `swift test` on macOS with the V4
-test assets (the engine's conformance through the SDK's stream API, the shared 3.0 vectors, the format 3
-folder, the CoreML packages on the runner's CPU), the sharing tests under the thread sanitizer, and builds the package
-for iOS, the iOS Simulator and macOS, and builds the example program. `scripts/make_test_folder_v4.py` writes the small
-synthetic folder the format 3 tests use; `scripts/make_api_doc.py` writes [docs/api.md](docs/api.md) from the sources.
+`scripts/build_core_xcframework.py` builds the Core for iOS, the iOS Simulator and macOS and joins the slices into
+`QuranLabCore.xcframework`: only the functions of `qlcore.h` are exported, and each slice's dSYM goes to the private
+folder (kept per release, never shipped). `--test-release` builds the Core's test release, whose keys are the
+contract's public test keys: the tests drive it with the contract's vectors. A release build names the release
+folder instead (`--gen`). The steps on a Mac are in docs/mac-checklist-4.0.md.
 
-`scripts/prove-on-mac.sh <key> [<clips folder>]` is the proof on a Mac with a real key, against Quran Lab's servers:
-it checks the Mac first (macOS 15, Xcode 16, Apple silicon, disk space, power, the network), then takes the whole path
-through the public API (the Client and the signed config, the download with its progress, the verified model, every
-sample clip in every context on the CPU engine and on the Neural Engine, the promotion pipeline for the fp16 CoreML
-build with the golden stage's measures, `diagnose()`) and prints a one-screen summary. A build the golden stage does
-not pass (measures outside the tolerance its signed manifest gives it, or tokens that differ from the CPU engine's
-when the manifest gives it none) stays on the CPU engine, which is the pipeline's answer and no failure of the run.
-The summary ends with the measures and a tolerance made from them, a proposal for Quran Lab's model side. `--compact`
-takes the compact CoreML build through the pipeline as well. Nothing it prints names the key, the install or the app; the run
-registers as "SDK proof (Mac)". `--check` only checks the Mac; `--help` says what the run sends. CI rehearses the
-script over the test suite's stub server (`--rehearse`).
+The 3.x tests that ran the plaintext engine on a decoded folder are in `Tests/Retired-3.x` until they are ported
+to encrypted test builds; they are not compiled.
 
 | Path | Contents |
 |-|-|
-| `Sources/TajweedFormer/Model` | the manifest, the download profile, the installer, gzip, the store |
+| `Sources/TajweedFormer/Protected` | the Core's platform table, the install key, the certificate, the lease, install and open |
+| `Sources/TajweedFormer/Model` | the manifest, the download profile, the installer, the store |
 | `Sources/TajweedFormer/API` | the public types: Client, Model, Session, Heads, Backend and their data |
-| `Sources/TajweedFormer/Tajweed` | the recognizer, both backends, the promotion and its golden test, the decoded layer |
+| `Sources/TajweedFormer/Tajweed` | the recognizer, the decoded layer |
 | `Sources/TajweedFormer/Cloud` | token and App Attest, config, registration, telemetry, issues, updates, the sharing outbox |
 | `Sources/TajweedFormer/Sharing` | the consent state and views, the copy decks, the device key, the Ogg Opus writer |
-| `engine/` | tajweedformer-engine, pinned |
 
 libopus 1.6.1 is BSD-3-Clause; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-## Download size
-
-The SDK downloads only the Apple profile of the model folder (`sdk/v4.0`, manifest format 3), gzip on the
-wire, resumable, every file checked against the signed manifest. The CPU set comes first, so the first session
-starts as soon as possible; the Neural Engine's build follows in the background. Sizes are those of model
-revision v4.0-2026-11-10, default context `c16_l64`:
-
-| When | What is downloaded | Size |
-| - | - | - |
-| First launch, every iPhone and Mac | tokens, calibration, expected table, the shared weights and front end, the c16_l64 graph and its frames | **56.5 MB** (73.5 MB on disk) |
-| Later, iOS 18 and macOS 15, on Wi-Fi | the fp16 CoreML build for every context, as a delta against the CPU weights already on the device | +76.1 MB (the whole package, +119.9 MB, only if the delta cannot be applied) |
-| Only for a Session with `backend: .coremlCompact` | the int8 CoreML build (`coreml-compact`) instead, for low-storage devices | +1.7 MB as a delta (+54.4 MB whole) |
-| Another context later (CPU) | that context's graph and frames | +0.65 to 0.86 MB each |
-
-iOS 15 to 17 and macOS 12 to 14 run the CPU engine only and download the first row only.
 
 ## Problems and wishes
 

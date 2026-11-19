@@ -17,6 +17,15 @@ import UIKit
 // first attempt). Deterministic failures (golden_mismatch, cpu_mismatch, non_finite, crash) are never retried for the
 // key. Speed is never a failure: a build that downloads, compiles and passes the golden test is promoted.
 //
+// Since 3.1.5 a stop of the process (a crash, or the app closed or stopped) is told by where and when it happened:
+// in the foreground at download, compile or warm-up, before the model ran on the accelerator, it takes the retry
+// budget and a second one at the same stage ends the key; at the golden test or the measurement it ends the key at
+// once. A stop while the app was in the background counts nothing at any stage, until the third in a row at the same
+// stage, which counts as a stop in the foreground. Until 3.1.4 every stop ended the key for good. SDK 4.0: a quit (the
+// app terminated normally, or a normal exit of the process: atexit) is `interrupted`, never a crash; it is retried
+// after the backoff and never uses up the retry budget. Only iOS tells the background from the foreground; on a Mac
+// every stop that is not a quit takes the foreground rule.
+//
 // Since 2.0.2 a promoted build is demoted by the cause of a session's failure (Failover.swift): deadline misses in 3
 // sessions within 24 h, or a single confirmed blank disagreement with the CPU engine, are transient (a 6 h backoff,
 // the build stays verified, never off for good); NaN, inf, a head out of range and a repeated confirmed disagreement
@@ -40,6 +49,8 @@ enum PromotionStage: String, Sendable, Codable, CaseIterable, Comparable {
     case promote
 
     var order: Int { Self.allCases.firstIndex(of: self)! }
+    /// Download, compile and warm-up: the stages before the model has run on the accelerator.
+    var isPreparation: Bool { self <= .warmup }
     static func < (a: PromotionStage, b: PromotionStage) -> Bool { a.order < b.order }
     /// The stage after this one, nil after `promote`.
     var next: PromotionStage? { order + 1 < Self.allCases.count ? Self.allCases[order + 1] : nil }
@@ -56,9 +67,19 @@ enum PromotionReason: String, Sendable, Codable, CaseIterable {
     case goldenMismatch = "golden_mismatch"
     case cpuMismatch = "cpu_mismatch"
     case failover, denylist, other
+    // SDK 4.0: appended after the 14 of 3.x, in the
+    // contract's order (Android's `firmware` and `dispatch` sit between them and never occur on Apple)
+    /// The golden test passed, but the accelerator's median chunk time was slower than the CPU engine's on this device
+    /// (`PromotionPolicy.minSpeedup`): the CPU engine stays. Transient: tried again after an SDK or OS update, a new
+    /// build key, or `PromotionPolicy.slowerRetry`.
+    case slowerThanCPU = "slower_than_cpu"
+    /// The app was quit normally (willTerminate) while a compile, load or first inference ran: not a crash, retried
+    /// with the backoff.
+    case interrupted
 
     /// Failures that the same model revision on the same OS build would repeat: never retried for the key.
     var deterministic: Bool { [.goldenMismatch, .cpuMismatch, .nonFinite, .crash].contains(self) }
+    // .interrupted is not: a quit is the user's, the next launch tries again after the backoff
 
     /// The cause class of an incident report (`promotion_failed`, PLATFORM_CLIENT 7.1).
     var incidentCause: String {
@@ -225,8 +246,27 @@ enum PromotionPolicy {
     static let goldenTimeout: TimeInterval = 900
     /// Waits after failed attempts 1, 2 and 3 of a key; the 4th failure ends the key's budget.
     static let backoff: [TimeInterval] = [3600, 6 * 3600, 24 * 3600]
+    /// A stop of the process in the background counts nothing at every stage, the golden test and the measurement
+    /// included (3.1.5; `foreground: false` of contract 1.22.0). False: only at download, compile and warm-up.
+    static let backgroundStopCountsNothingAtEveryStage = true
+    /// The background stop in a row at the same stage of a key that counts as a stop in the foreground, and every one
+    /// after it while the row lasts. The row ends when the stage completes, or when the attempt
+    /// ends in another way than by a stop of the row.
+    static let backgroundStopsCountedFrom = 3
     /// A failover demotes the build; it is tested again no sooner than this.
     static let failoverRetest: TimeInterval = 24 * 3600
+    /// A build slower than the CPU engine on this device (`slower_than_cpu`) is tried again after this, or sooner after
+    /// an SDK update (an OS update or a new build is a new key anyway).
+    static let slowerRetry: TimeInterval = 30 * 86_400
+
+    /// The speedup (CPU median chunk time / accelerator median) a build needs to be promoted: the signed config's
+    /// `flags.accel_min_speedup` when it is a finite number, never below 1.0 (an accelerator slower than the CPU engine
+    /// is never promoted, whatever the config says; a device lab found an NPU path that matched exactly at a tenth of
+    /// the CPU's speed).
+    static func minSpeedup(_ configured: Double?) -> Double {
+        guard let c = configured, c.isFinite else { return 1.0 }
+        return max(1.0, c)
+    }
     /// The first run of a key starts after the first session ends, or after this much time without one.
     static let idleStartDelay: TimeInterval = 20
     /// While conditions are bad (metered network for a download, Low Power Mode, battery, thermal), check again after.
@@ -324,6 +364,9 @@ struct PromotionRecord: Codable, Sendable, Equatable {
     var acceleratorMedianMs: Double?
     var acceleratorP90Ms: Double?
     var cpuMedianMs: Double?
+    /// The SDK version that found the build slower than the CPU engine (`slower_than_cpu`): another SDK tries again at
+    /// once.
+    var slowerSDK: String?
     /// The deny-list matched this key (counted once, not a failure of the budget).
     var denied = false
     /// The SHA-256 of the program the promoted build runs (its `weights/weight.bin`): a different or missing program
@@ -346,6 +389,15 @@ struct PromotionRecord: Codable, Sendable, Equatable {
     /// force when the build has one. Recorded also for a build judged on tokens alone, and for a test that failed
     /// (its `failed` then names the measures that decided it).
     var golden: Divergence?
+    /// Download stages in a row that the network stopped or that had no room (optional, so earlier records decode):
+    /// they set the backoff (1 h, 6 h, then 24 h) and never count against the retry budget (Apple 3.1.5).
+    var downloadStops: Int?
+    // 3.1.5 (optional, so earlier records decode)
+    /// Stops of the process counted at download, compile and warm-up, by stage: a second at the same stage ends the
+    /// key.
+    var preparationStops: [String: Int]?
+    /// Stops of the process in the background in a row, by stage (none counted until `backgroundStopsCountedFrom`).
+    var backgroundStops: [String: Int]?
 
     struct DeadlineMiss: Codable, Sendable, Equatable {
         var session: String
@@ -375,6 +427,18 @@ struct PromotionStore: Sendable {
     struct Sentinel: Codable, Equatable, Sendable {
         var key: String
         var stage: PromotionStage
+        // 4.0 (optional, so a 3.x sentinel decodes): what CrashDiagnostics matches and reports at the next launch
+        /// The process that wrote it, and when.
+        var pid: Int32?
+        var at: Date?
+        var osBuild: String?
+        /// The last heartbeat (every 2 s while it exists, SentinelWatch), and what it saw.
+        var heartbeat: Date?
+        var foreground: Bool?
+        var footprintMB: Int?
+        var headroomMB: Int?
+        /// The app was terminated normally while it existed (willTerminate).
+        var quit: Bool?
     }
 
     private static let lock = NSLock()
@@ -402,6 +466,15 @@ struct PromotionStore: Sendable {
         write(a)
     }
 
+    /// Forgets this device's verdict on one key (`TajweedModel.prepareAccelerator(again: true)`).
+    func remove(_ key: String) {
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        var a = read()
+        guard a.removeValue(forKey: key) != nil else { return }
+        write(a)
+    }
+
     private func write(_ a: [String: PromotionRecord]) {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var u = dir
@@ -414,13 +487,39 @@ struct PromotionStore: Sendable {
         if let d = try? enc.encode(a) { try? d.write(to: recordsURL, options: .atomic) }
     }
 
+    /// Write, change and remove of the sentinel in one order: a heartbeat never writes back a sentinel just removed.
+    private static let sentinelLock = NSLock()
+    /// The stores whose sentinel this process wrote and has not removed: the heartbeat touches the disk only for them
+    /// (most of an app's life no stage runs, and a read every 2 s would cost battery for nothing).
+    nonisolated(unsafe) private static var live: Set<String> = []
+
     /// Written before every compile, load and first inference; removed after. Found at launch: the process died there.
     func writeSentinel(_ key: String, _ stage: PromotionStage) {
+        Self.sentinelLock.lock()
+        defer { Self.sentinelLock.unlock() }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let d = try? JSONEncoder().encode(Sentinel(key: key, stage: stage)) { try? d.write(to: sentinelURL, options: .atomic) }
+        let s = Sentinel(key: key, stage: stage, pid: ProcessInfo.processInfo.processIdentifier, at: Date(), osBuild: DeviceInfo.osBuild,
+                         heartbeat: Date(), foreground: SentinelWatch.shared.foreground, footprintMB: CrashSymbols.footprintMB(),
+                         headroomMB: CrashSymbols.headroomMB())
+        if let d = try? JSONEncoder().encode(s) { try? d.write(to: sentinelURL, options: .atomic) }
+        Self.live.insert(dir.path)
     }
 
-    func clearSentinel() { try? FileManager.default.removeItem(at: sentinelURL) }
+    /// Changes this process's sentinel, when there is one (a sentinel of another process is left as it is).
+    func updateSentinel(_ change: (inout Sentinel) -> Void) {
+        Self.sentinelLock.lock()
+        defer { Self.sentinelLock.unlock() }
+        guard Self.live.contains(dir.path), var s = sentinel(), s.pid == ProcessInfo.processInfo.processIdentifier else { return }
+        change(&s)
+        if let d = try? JSONEncoder().encode(s) { try? d.write(to: sentinelURL, options: .atomic) }
+    }
+
+    func clearSentinel() {
+        Self.sentinelLock.lock()
+        defer { Self.sentinelLock.unlock() }
+        try? FileManager.default.removeItem(at: sentinelURL)
+        Self.live.remove(dir.path)
+    }
 
     // unreadable is taken as not there here (3.1.4 leaves the accelerator's files as they were): a crash of the
     // launch before is then not counted against the accelerator
@@ -465,6 +564,35 @@ struct PromotionStore: Sendable {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? Data("2.0.2\n".utf8).write(to: migratedURL, options: .atomic)
         return cleared.sorted()
+    }
+
+    // MARK: the upgrade to 3.1.5
+
+    var migrated315URL: URL { dir.appendingPathComponent("migrated-3.1.5") }
+
+    /// Once per store (a marker file written after it): a key whose only failure was a stop of the process at
+    /// download, compile or warm-up (3.1.4 and earlier ended the key for good for it) gets its retry back: it may
+    /// run at once, and the stop counts as the first at its stage (a second there ends the key). Keys ended by a stop
+    /// at the golden test, or after another failure, stay as they are. Returns the keys given back.
+    @discardableResult
+    func migrate315(now: Date) -> [String] {
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        guard !FileManager.default.fileExists(atPath: migrated315URL.path) else { return [] }
+        var all = read()
+        var back: [String] = []
+        for (k, r0) in all where r0.status == .failed && r0.lastReason == .crash && r0.failures == 1 && (r0.lastStage?.isPreparation ?? false) {
+            var r = r0
+            r.status = .retry
+            r.notBefore = nil
+            r.preparationStops = [r0.lastStage!.rawValue: 1]
+            all[k] = r
+            back.append(k)
+        }
+        if !back.isEmpty { write(all) }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? Data("3.1.5\n".utf8).write(to: migrated315URL, options: .atomic)
+        return back.sorted()
     }
 
     /// A 2.0.1 record (not promoted now) whose demotion or off-for-good came from a blank or deadline failover.
@@ -566,6 +694,9 @@ struct PromotionTelemetry: Sendable, Hashable {
         /// The blank rule fired and the CPU engine, replaying the same audio, agreed (it heard nothing either): no
         /// failover, no demotion (`blank_confirmed_ok`).
         case blankConfirmedOK
+        /// SDK 4.0: an attempt that passed the golden test ended unpromoted, the accelerator slower than the CPU engine
+        /// (`reasons.slower_than_cpu`, with both medians).
+        case slowerThanCPU(acceleratorMs: Double, cpuMs: Double, compileMs: Double?)
     }
 
     /// "ane" (as cohort backends).

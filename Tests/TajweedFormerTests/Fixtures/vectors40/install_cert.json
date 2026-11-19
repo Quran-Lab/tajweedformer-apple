@@ -1,0 +1,855 @@
+{
+ "section": "PROTECTED_MODEL.md 18.4.3, 18.4.7, 18.4.8",
+ "note": "Test keys only, made by protected40.py from fixed labels (stream(label, n): SHA-256 of the label and a 32-bit little-endian counter, concatenated). No SDK trusts them.",
+ "signer": {
+  "seed_hex": "50fb0388ef36ffc3f7f695f2c11c468e72f16bbcb66e45a21d0738badf94b5e3",
+  "public_hex": "3a83ab14c7129ea01912f2ec4db55d61570cb4ebd5be3f911f66aeb56b157059",
+  "kid_hex": "bae32b00126ed013"
+ },
+ "now": 1790000000,
+ "cases": [
+  {
+   "name": "valid",
+   "text": "quranlab-install-cert 1\napp android:org.example.recite\nplatform android\nkey apps-one\ninstall a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc\nsign 7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083\natt play\nhw 1\niat 1789913600\nexp 1792505600\nrecheck 0\nbatch -\ndigest -\n",
+   "cert": "cXVyYW5sYWItaW5zdGFsbC1jZXJ0IDEKYXBwIGFuZHJvaWQ6b3JnLmV4YW1wbGUucmVjaXRlCnBsYXRmb3JtIGFuZHJvaWQKa2V5IGFwcHMtb25lCmluc3RhbGwgYTQ0NzZkN2M3ODcyZWZlZTM0OTBlZjdlMDBkODczYzVjYzZiNTE4YTY0MDgwZDVlZDQ3MGNlZjQxOGE5YmVmYwpzaWduIDczODRjZDFlNTZhYzVlODc0ZjlhZmJmYTVkMzNlMzM4MDg2YjQ3ZDc4N2ZjMzM3YzRkNjU4NThjYjFhZGUwODMKYXR0IHBsYXkKaHcgMQppYXQgMTc4OTkxMzYwMApleHAgMTc5MjUwNTYwMApyZWNoZWNrIDAKYmF0Y2ggLQpkaWdlc3QgLQo.089zcP9d2EHjm9P9a1RzF4i2Hw0I6miCxlAe0cpOpzE22Bl0vxdMKla28mq_yRsflg_4KY-Y1GBgAII6P4MVDw",
+   "refuse": null
+  },
+  {
+   "name": "expired",
+   "text": "quranlab-install-cert 1\napp android:org.example.recite\nplatform android\nkey apps-one\ninstall a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc\nsign 7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083\natt play\nhw 1\niat 1789913600\nexp 1790000000\nrecheck 0\nbatch -\ndigest -\n",
+   "cert": "cXVyYW5sYWItaW5zdGFsbC1jZXJ0IDEKYXBwIGFuZHJvaWQ6b3JnLmV4YW1wbGUucmVjaXRlCnBsYXRmb3JtIGFuZHJvaWQKa2V5IGFwcHMtb25lCmluc3RhbGwgYTQ0NzZkN2M3ODcyZWZlZTM0OTBlZjdlMDBkODczYzVjYzZiNTE4YTY0MDgwZDVlZDQ3MGNlZjQxOGE5YmVmYwpzaWduIDczODRjZDFlNTZhYzVlODc0ZjlhZmJmYTVkMzNlMzM4MDg2YjQ3ZDc4N2ZjMzM3YzRkNjU4NThjYjFhZGUwODMKYXR0IHBsYXkKaHcgMQppYXQgMTc4OTkxMzYwMApleHAgMTc5MDAwMDAwMApyZWNoZWNrIDAKYmF0Y2ggLQpkaWdlc3QgLQo.Cbxt6neK9HSgy40qU5neILlAVO6Otl9-ZVbK1S9MGWm99l9Sx9gYBsTICmSfF3FK01LlSgIoS4FdPDHIUmu8AA",
+   "refuse": "expired"
+  },
+  {
+   "name": "recheck 1 (Android, unattested after Google's outage: 24 hours, Play re-checked at the next lease)",
+   "text": "quranlab-install-cert 1\napp android:org.example.recite\nplatform android\nkey apps-one\ninstall a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc\nsign 7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083\natt none\nhw 0\niat 1789913600\nexp 1790082800\nrecheck 1\nbatch -\ndigest -\n",
+   "cert": "cXVyYW5sYWItaW5zdGFsbC1jZXJ0IDEKYXBwIGFuZHJvaWQ6b3JnLmV4YW1wbGUucmVjaXRlCnBsYXRmb3JtIGFuZHJvaWQKa2V5IGFwcHMtb25lCmluc3RhbGwgYTQ0NzZkN2M3ODcyZWZlZTM0OTBlZjdlMDBkODczYzVjYzZiNTE4YTY0MDgwZDVlZDQ3MGNlZjQxOGE5YmVmYwpzaWduIDczODRjZDFlNTZhYzVlODc0ZjlhZmJmYTVkMzNlMzM4MDg2YjQ3ZDc4N2ZjMzM3YzRkNjU4NThjYjFhZGUwODMKYXR0IG5vbmUKaHcgMAppYXQgMTc4OTkxMzYwMApleHAgMTc5MDA4MjgwMApyZWNoZWNrIDEKYmF0Y2ggLQpkaWdlc3QgLQo.Gc2Xbft0AxS_VFdBIU7GsQKUcD42GCjiINDJkomeZshRLBx0_gY_TcrMw9mByOyUBX_-roSf_yziX4jIPNijAw",
+   "refuse": null
+  },
+  {
+   "name": "hardware Key Attestation, with the batch serials of its chain and the signing digest it named",
+   "text": "quranlab-install-cert 1\napp android:org.example.recite\nplatform android\nkey apps-one\ninstall a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc\nsign 7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083\natt keyattest\nhw 1\niat 1789913600\nexp 1792505600\nrecheck 0\nbatch 2000\ndigest 2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0\n",
+   "cert": "cXVyYW5sYWItaW5zdGFsbC1jZXJ0IDEKYXBwIGFuZHJvaWQ6b3JnLmV4YW1wbGUucmVjaXRlCnBsYXRmb3JtIGFuZHJvaWQKa2V5IGFwcHMtb25lCmluc3RhbGwgYTQ0NzZkN2M3ODcyZWZlZTM0OTBlZjdlMDBkODczYzVjYzZiNTE4YTY0MDgwZDVlZDQ3MGNlZjQxOGE5YmVmYwpzaWduIDczODRjZDFlNTZhYzVlODc0ZjlhZmJmYTVkMzNlMzM4MDg2YjQ3ZDc4N2ZjMzM3YzRkNjU4NThjYjFhZGUwODMKYXR0IGtleWF0dGVzdApodyAxCmlhdCAxNzg5OTEzNjAwCmV4cCAxNzkyNTA1NjAwCnJlY2hlY2sgMApiYXRjaCAyMDAwCmRpZ2VzdCAyZmMyYjg1MjdlNmJmNGUyMzExZjJlNjQ3NDllZDhiZjRhNmQ2MThmNjk4NmFhNDVhYjJjMDcyNThlZDI4ZGIwCg.OrPNuY0d8LxDH_lLzEWFi0zZERDIcT-cy7AtdaIm2KHlwjurN_qJDenrcI4AxSOStSWWe1X59K4wvIyTohQ_Dg",
+   "refuse": null
+  },
+  {
+   "name": "unattested (web)",
+   "text": "quranlab-install-cert 1\napp web:https://recite.example.org\nplatform web\nkey apps-one\ninstall a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc\nsign 7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083\natt none\nhw 0\niat 1789913600\nexp 1792505600\nrecheck 0\nbatch -\ndigest -\n",
+   "cert": "cXVyYW5sYWItaW5zdGFsbC1jZXJ0IDEKYXBwIHdlYjpodHRwczovL3JlY2l0ZS5leGFtcGxlLm9yZwpwbGF0Zm9ybSB3ZWIKa2V5IGFwcHMtb25lCmluc3RhbGwgYTQ0NzZkN2M3ODcyZWZlZTM0OTBlZjdlMDBkODczYzVjYzZiNTE4YTY0MDgwZDVlZDQ3MGNlZjQxOGE5YmVmYwpzaWduIDczODRjZDFlNTZhYzVlODc0ZjlhZmJmYTVkMzNlMzM4MDg2YjQ3ZDc4N2ZjMzM3YzRkNjU4NThjYjFhZGUwODMKYXR0IG5vbmUKaHcgMAppYXQgMTc4OTkxMzYwMApleHAgMTc5MjUwNTYwMApyZWNoZWNrIDAKYmF0Y2ggLQpkaWdlc3QgLQo.hEa2uhR8xGy6tMALecNIGXagVtwX0Je9_kA4FPpU_iM1JfSnK0LUA50BJ-RlOUKWC8z5vdgBCoyB2OgvmRoSBg",
+   "refuse": null
+  },
+  {
+   "name": "a changed line (att) under the original signature",
+   "text": "quranlab-install-cert 1\napp android:org.example.recite\nplatform android\nkey apps-one\ninstall a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc\nsign 7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083\natt plaz\nhw 1\niat 1789913600\nexp 1792505600\nrecheck 0\nbatch -\ndigest -\n",
+   "cert": "cXVyYW5sYWItaW5zdGFsbC1jZXJ0IDEKYXBwIGFuZHJvaWQ6b3JnLmV4YW1wbGUucmVjaXRlCnBsYXRmb3JtIGFuZHJvaWQKa2V5IGFwcHMtb25lCmluc3RhbGwgYTQ0NzZkN2M3ODcyZWZlZTM0OTBlZjdlMDBkODczYzVjYzZiNTE4YTY0MDgwZDVlZDQ3MGNlZjQxOGE5YmVmYwpzaWduIDczODRjZDFlNTZhYzVlODc0ZjlhZmJmYTVkMzNlMzM4MDg2YjQ3ZDc4N2ZjMzM3YzRkNjU4NThjYjFhZGUwODMKYXR0IHBsYXoKaHcgMQppYXQgMTc4OTkxMzYwMApleHAgMTc5MjUwNTYwMApyZWNoZWNrIDAKYmF0Y2ggLQpkaWdlc3QgLQo.089zcP9d2EHjm9P9a1RzF4i2Hw0I6miCxlAe0cpOpzE22Bl0vxdMKla28mq_yRsflg_4KY-Y1GBgAII6P4MVDw",
+   "refuse": "signature"
+  }
+ ],
+ "renewals": [
+  {
+   "name": "a lease renews a keyattest certificate: every field the same, exp included (re-signed by the current key)",
+   "now": 1790000000,
+   "before": {
+    "app": "android:org.example.recite",
+    "platform": "android",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "keyattest",
+    "hw": "1",
+    "iat": "1788272000",
+    "exp": "1790864000",
+    "recheck": "0",
+    "batch": "5eb0c0de01",
+    "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+   },
+   "event": "none",
+   "after": {
+    "app": "android:org.example.recite",
+    "platform": "android",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "keyattest",
+    "hw": "1",
+    "iat": "1788272000",
+    "exp": "1790864000",
+    "recheck": "0",
+    "batch": "5eb0c0de01",
+    "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+   }
+  },
+  {
+   "name": "a recheck certificate is renewed without a verdict: still 24 hours from its attest, never extended",
+   "now": 1790000000,
+   "before": {
+    "app": "android:org.example.recite",
+    "platform": "android",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "none",
+    "hw": "0",
+    "iat": "1789996400",
+    "exp": "1790082800",
+    "recheck": "1",
+    "batch": "-",
+    "digest": "-"
+   },
+   "event": "none",
+   "after": {
+    "app": "android:org.example.recite",
+    "platform": "android",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "none",
+    "hw": "0",
+    "iat": "1789996400",
+    "exp": "1790082800",
+    "recheck": "1",
+    "batch": "-",
+    "digest": "-"
+   }
+  },
+  {
+   "name": "a Play re-check that passes is a fresh verdict: att play, 30 days from now",
+   "now": 1790000000,
+   "before": {
+    "app": "android:org.example.recite",
+    "platform": "android",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "none",
+    "hw": "0",
+    "iat": "1789996400",
+    "exp": "1790082800",
+    "recheck": "1",
+    "batch": "-",
+    "digest": "-"
+   },
+   "event": "play_pass",
+   "after": {
+    "app": "android:org.example.recite",
+    "platform": "android",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "play",
+    "hw": "0",
+    "iat": "1790000000",
+    "exp": "1792592000",
+    "recheck": "0",
+    "batch": "-",
+    "digest": "-"
+   }
+  },
+  {
+   "name": "a web page session's Turnstile pass: att turnstile, 24 hours from now",
+   "now": 1790000000,
+   "before": {
+    "app": "web:https://recite.example.org",
+    "platform": "web",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "none",
+    "hw": "0",
+    "iat": "1789999400",
+    "exp": "1792591400",
+    "recheck": "0",
+    "batch": "-",
+    "digest": "-"
+   },
+   "event": "turnstile_pass",
+   "after": {
+    "app": "web:https://recite.example.org",
+    "platform": "web",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "turnstile",
+    "hw": "0",
+    "iat": "1790000000",
+    "exp": "1790086400",
+    "recheck": "0",
+    "batch": "-",
+    "digest": "-"
+   }
+  },
+  {
+   "name": "a Turnstile pass never outlives the certificate it came from",
+   "now": 1790000000,
+   "before": {
+    "app": "web:https://recite.example.org",
+    "platform": "web",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "none",
+    "hw": "0",
+    "iat": "1789999400",
+    "exp": "1790003600",
+    "recheck": "0",
+    "batch": "-",
+    "digest": "-"
+   },
+   "event": "turnstile_pass",
+   "after": {
+    "app": "web:https://recite.example.org",
+    "platform": "web",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "turnstile",
+    "hw": "0",
+    "iat": "1790000000",
+    "exp": "1790003600",
+    "recheck": "0",
+    "batch": "-",
+    "digest": "-"
+   }
+  },
+  {
+   "name": "a turnstile certificate is renewed without a pass: exp stays",
+   "now": 1790000000,
+   "before": {
+    "app": "web:https://recite.example.org",
+    "platform": "web",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "turnstile",
+    "hw": "0",
+    "iat": "1789999400",
+    "exp": "1790007200",
+    "recheck": "0",
+    "batch": "-",
+    "digest": "-"
+   },
+   "event": "none",
+   "after": {
+    "app": "web:https://recite.example.org",
+    "platform": "web",
+    "key": "apps-one",
+    "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+    "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+    "att": "turnstile",
+    "hw": "0",
+    "iat": "1789999400",
+    "exp": "1790007200",
+    "recheck": "0",
+    "batch": "-",
+    "digest": "-"
+   }
+  }
+ ],
+ "lease_checks": {
+  "status_list": {
+   "5EB0C0DE01": "REVOKED",
+   "005eb0c0de02": "SUSPENDED"
+  },
+  "rule": "check: lease_cert_check (refuse, or reattest: install_cert_invalid with no record); class: lease_class (7d or 24h)",
+  "cases": [
+   {
+    "name": "a keyattest certificate whose batch is fine, its digest authoritative: 7 days",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1788272000",
+     "exp": "1790864000",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "failed_record": false,
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "status_list": true,
+    "development": false,
+    "expect": null,
+    "class": "7d"
+   },
+   {
+    "name": "its batch serial is now revoked (the list's key in capitals): re-attest, no record",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1788272000",
+     "exp": "1790864000",
+     "recheck": "0",
+     "batch": "5eb0c0de01",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "failed_record": false,
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "status_list": true,
+    "development": false,
+    "expect": {
+     "reattest": "revoked"
+    },
+    "class": null
+   },
+   {
+    "name": "its batch serial is now suspended (the list's key with leading zeros): re-attest",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1788272000",
+     "exp": "1790864000",
+     "recheck": "0",
+     "batch": "5eb0c0de02",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "failed_record": false,
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "status_list": true,
+    "development": false,
+    "expect": {
+     "reattest": "suspended"
+    },
+    "class": null
+   },
+   {
+    "name": "a provisional keyattest certificate while nothing is authoritative: the 24-hour class",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1789996400",
+     "exp": "1790082800",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "failed_record": false,
+    "authoritative": [],
+    "status_list": true,
+    "development": false,
+    "expect": null,
+    "class": "24h"
+   },
+   {
+    "name": "the real digest is set (Quran Lab, an admin or Play): that certificate's next lease is 7 days",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1789996400",
+     "exp": "1790082800",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "failed_record": false,
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "status_list": true,
+    "development": false,
+    "expect": null,
+    "class": "7d"
+   },
+   {
+    "name": "a re-signed copy's certificate once the real digest is set: re-attest (and the chain then fails `digest`)",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1789996400",
+     "exp": "1790082800",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "5764d23b6b2fdce669fc21cf8ed60b054a203223218a3db55a45cae61b2d87b0"
+    },
+    "failed_record": false,
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "status_list": true,
+    "development": false,
+    "expect": {
+     "reattest": "digest"
+    },
+    "class": null
+   },
+   {
+    "name": "a keyattest certificate while the status list was never fetched: the 24-hour class",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1788272000",
+     "exp": "1790864000",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "failed_record": false,
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "status_list": false,
+    "development": false,
+    "expect": null,
+    "class": "24h"
+   },
+   {
+    "name": "a development key: the 24-hour class",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1788272000",
+     "exp": "1790864000",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "failed_record": false,
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "status_list": true,
+    "development": true,
+    "expect": null,
+    "class": "24h"
+   },
+   {
+    "name": "a play certificate: 7 days (Play named the app)",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "play",
+     "hw": "1",
+     "iat": "1789913600",
+     "exp": "1792505600",
+     "recheck": "0",
+     "batch": "-",
+     "digest": "-"
+    },
+    "failed_record": false,
+    "authoritative": [],
+    "status_list": true,
+    "development": false,
+    "expect": null,
+    "class": "7d"
+   },
+   {
+    "name": "a failed verdict recorded at a lease (install_sig proved the key): every Android lease is refused",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1788272000",
+     "exp": "1790864000",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "failed_record": true,
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "status_list": true,
+    "development": false,
+    "expect": {
+     "refuse": "recorded"
+    },
+    "class": null
+   },
+   {
+    "name": "the same for a play certificate",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "play",
+     "hw": "1",
+     "iat": "1789913600",
+     "exp": "1792505600",
+     "recheck": "0",
+     "batch": "-",
+     "digest": "-"
+    },
+    "failed_record": true,
+    "authoritative": [],
+    "status_list": true,
+    "development": false,
+    "expect": {
+     "refuse": "recorded"
+    },
+    "class": null
+   },
+   {
+    "name": "web: no Android record is read; a page session is the 24-hour class",
+    "cert": {
+     "app": "web:https://recite.example.org",
+     "platform": "web",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "none",
+     "hw": "0",
+     "iat": "1789999400",
+     "exp": "1792591400",
+     "recheck": "0",
+     "batch": "-",
+     "digest": "-"
+    },
+    "failed_record": true,
+    "authoritative": [],
+    "status_list": true,
+    "development": false,
+    "expect": null,
+    "class": "24h"
+   }
+  ]
+ },
+ "cert_cap": [
+  {
+   "name": "a 7-day lease on a certificate that ends in 2 days: the lease ends with it",
+   "lease_exp": 1790604300,
+   "refresh_after": 1790080000,
+   "cert_exp": 1790172800,
+   "exp": 1790172800,
+   "refresh_after_capped": 1790080000
+  },
+  {
+   "name": "a 24-hour lease on a recheck certificate that ends in 3 hours: both capped",
+   "lease_exp": 1790086300,
+   "refresh_after": 1790050000,
+   "cert_exp": 1790010800,
+   "exp": 1790010800,
+   "refresh_after_capped": 1790010800
+  },
+  {
+   "name": "a certificate that outlives the lease: nothing changes",
+   "lease_exp": 1790086300,
+   "refresh_after": 1790050000,
+   "cert_exp": 1791728000,
+   "exp": 1790086300,
+   "refresh_after_capped": 1790050000
+  }
+ ],
+ "lease_trust": {
+  "rule": "lease_trust_check: True when the certificate leases under the platform's trust (`capped` or `attested`)",
+  "cases": [
+   {
+    "name": "capped: a provisional keyattest certificate leases (24 hours)",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1789996400",
+     "exp": "1790082800",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "trust": "capped",
+    "authoritative": [],
+    "leases": true
+   },
+   {
+    "name": "capped: an unattested Android certificate leases",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "none",
+     "hw": "0",
+     "iat": "1789996400",
+     "exp": "1790082800",
+     "recheck": "0",
+     "batch": "-",
+     "digest": "-"
+    },
+    "trust": "capped",
+    "authoritative": [],
+    "leases": true
+   },
+   {
+    "name": "attested: a keyattest certificate naming an authoritative digest",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1788272000",
+     "exp": "1790864000",
+     "recheck": "0",
+     "batch": "5eb0c0de01",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "trust": "attested",
+    "authoritative": [
+     "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    ],
+    "leases": true
+   },
+   {
+    "name": "attested: a provisional keyattest certificate (nothing authoritative): refused",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1789996400",
+     "exp": "1790082800",
+     "recheck": "0",
+     "batch": "5eb0c0de03",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "trust": "attested",
+    "authoritative": [],
+    "leases": false
+   },
+   {
+    "name": "attested: the digests removed after the switch: the same certificate refused, uniformly",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "keyattest",
+     "hw": "1",
+     "iat": "1788272000",
+     "exp": "1790864000",
+     "recheck": "0",
+     "batch": "5eb0c0de01",
+     "digest": "2fc2b8527e6bf4e2311f2e64749ed8bf4a6d618f6986aa45ab2c07258ed28db0"
+    },
+    "trust": "attested",
+    "authoritative": [],
+    "leases": false
+   },
+   {
+    "name": "attested: a play certificate",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "play",
+     "hw": "1",
+     "iat": "1789913600",
+     "exp": "1792505600",
+     "recheck": "0",
+     "batch": "-",
+     "digest": "-"
+    },
+    "trust": "attested",
+    "authoritative": [],
+    "leases": true
+   },
+   {
+    "name": "attested: an apple certificate",
+    "cert": {
+     "app": "ios:org.example.recite",
+     "platform": "ios",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "apple",
+     "hw": "1",
+     "iat": "1789913600",
+     "exp": "1792505600",
+     "recheck": "0",
+     "batch": "-",
+     "digest": "-"
+    },
+    "trust": "attested",
+    "authoritative": [],
+    "leases": true
+   },
+   {
+    "name": "attested: Android unattested because Play was not answering (recheck 1): Google's outage never stops a lease",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "none",
+     "hw": "0",
+     "iat": "1789996400",
+     "exp": "1790082800",
+     "recheck": "1",
+     "batch": "-",
+     "digest": "-"
+    },
+    "trust": "attested",
+    "authoritative": [],
+    "leases": true
+   },
+   {
+    "name": "attested: Android unattested (recheck 0): refused",
+    "cert": {
+     "app": "android:org.example.recite",
+     "platform": "android",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "none",
+     "hw": "0",
+     "iat": "1789996400",
+     "exp": "1790082800",
+     "recheck": "0",
+     "batch": "-",
+     "digest": "-"
+    },
+    "trust": "attested",
+    "authoritative": [],
+    "leases": false
+   },
+   {
+    "name": "attested: a web page session: refused",
+    "cert": {
+     "app": "web:https://recite.example.org",
+     "platform": "web",
+     "key": "apps-one",
+     "install": "a4476d7c7872efee3490ef7e00d873c5cc6b518a64080d5ed470cef418a9befc",
+     "sign": "7384cd1e56ac5e874f9afbfa5d33e338086b47d787fc337c4d65858cb1ade083",
+     "att": "none",
+     "hw": "0",
+     "iat": "1789999400",
+     "exp": "1792591400",
+     "recheck": "0",
+     "batch": "-",
+     "digest": "-"
+    },
+    "trust": "attested",
+    "authoritative": [],
+    "leases": false
+   }
+  ]
+ },
+ "previous_keys": {
+  "rule": "an entry <64 hex>@<unix s> counts while now < until <= now + 31 days",
+  "text": "90a898192db77d6dbcb989f6adcbc2e22147a81c4469bc1893f7709da5458065@1790003600, b8e8044ee422347b353aa70cec0630da81c3957a3f7ff75653885cecf7b0db3f@1792678400, 933501aaf70afbd9e9e5eb86fca8de3f7e6a7b87e6d7946aee0a97652fb61caf@1792678401, e5d57370ce36d78d114526da218e1c9d808d083f1c2feea50a832b0e5a1dc6b9, 90a898192db77d6dbcb989f6adcbc2e22147a81c4469bc1893f7709da5458065@1790000000",
+  "now": 1790000000,
+  "accepted": [
+   "90a898192db77d6dbcb989f6adcbc2e22147a81c4469bc1893f7709da5458065",
+   "b8e8044ee422347b353aa70cec0630da81c3957a3f7ff75653885cecf7b0db3f"
+  ]
+ },
+ "attest_proof": {
+  "rule": "install_sig = ECDSA P-256 SHA-256 by install_sign_key over 'quranlab-attest 1\\n' + (challenge or '-') + '\\n' + install hash hex + '\\n' (DER or 64-byte r||s)",
+  "cases": [
+   {
+    "name": "signed by the install's signing key over its agreement key and the challenge",
+    "challenge": "c1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB",
+    "install_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8TQ_ZgvyD3Lo7VmBi_33FFtRbBVZl-Lq0xlWU0rU1bfH4Dar3RGR5rzhzQQ7lL7hozuAGN5aOENT9czZrEY3pw",
+    "install_sign_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdRnoujMoIZarh8Rn8nCR5sP9_onsHm74VhVYM3QpDANJR-TWG0ywiyHJFtrUXf0TP3HSXK7whd0OtgDpGr6vTg",
+    "install_sig_b64u": "MEYCIQD-8PPYUMKYuev6nMzaCTWLT8-mooZdmY96u510j02chwIhAMHIptDCLZa8PnAGgL97lW6z4FTCY9vAMa-Co_GS6Xsy",
+    "valid": true
+   },
+   {
+    "name": "a web page session, no challenge: '-'",
+    "challenge": null,
+    "install_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8TQ_ZgvyD3Lo7VmBi_33FFtRbBVZl-Lq0xlWU0rU1bfH4Dar3RGR5rzhzQQ7lL7hozuAGN5aOENT9czZrEY3pw",
+    "install_sign_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdRnoujMoIZarh8Rn8nCR5sP9_onsHm74VhVYM3QpDANJR-TWG0ywiyHJFtrUXf0TP3HSXK7whd0OtgDpGr6vTg",
+    "install_sig_b64u": "MEUCIHCfbiIOAwBq9MijpY2bpQ8NbaLgQGlwxQxlds-x-W44AiEA7uDsnQx1l5V42cV8O4e3igB84VxwW4lMbskKtOje-wU",
+    "valid": true
+   },
+   {
+    "name": "signed over another agreement key",
+    "challenge": "c1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB",
+    "install_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8TQ_ZgvyD3Lo7VmBi_33FFtRbBVZl-Lq0xlWU0rU1bfH4Dar3RGR5rzhzQQ7lL7hozuAGN5aOENT9czZrEY3pw",
+    "install_sign_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdRnoujMoIZarh8Rn8nCR5sP9_onsHm74VhVYM3QpDANJR-TWG0ywiyHJFtrUXf0TP3HSXK7whd0OtgDpGr6vTg",
+    "install_sig_b64u": "MEUCIGXfXHULps3-bnSnJcz-lFyL6EOvtFZXiHaQmTz8REsfAiEAnV9iEqZ-svZT6NiXJ2PLj7NhxdF_2EwlLyx_BFsygWM",
+    "valid": false
+   },
+   {
+    "name": "signed for another challenge",
+    "challenge": "c1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB",
+    "install_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8TQ_ZgvyD3Lo7VmBi_33FFtRbBVZl-Lq0xlWU0rU1bfH4Dar3RGR5rzhzQQ7lL7hozuAGN5aOENT9czZrEY3pw",
+    "install_sign_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdRnoujMoIZarh8Rn8nCR5sP9_onsHm74VhVYM3QpDANJR-TWG0ywiyHJFtrUXf0TP3HSXK7whd0OtgDpGr6vTg",
+    "install_sig_b64u": "MEQCIBfpxHN4qKSZ8y4Kf_MkTruUszLWBPZcABgVis-TFzaxAiA76nur_6fVSPtnDcfolmbKQa9xbIDlDleKwOnrKGzEaQ",
+    "valid": false
+   },
+   {
+    "name": "signed by another key than install_sign_key",
+    "challenge": "c1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB",
+    "install_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE8TQ_ZgvyD3Lo7VmBi_33FFtRbBVZl-Lq0xlWU0rU1bfH4Dar3RGR5rzhzQQ7lL7hozuAGN5aOENT9czZrEY3pw",
+    "install_sign_key_b64u": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdRnoujMoIZarh8Rn8nCR5sP9_onsHm74VhVYM3QpDANJR-TWG0ywiyHJFtrUXf0TP3HSXK7whd0OtgDpGr6vTg",
+    "install_sig_b64u": "MEYCIQCJm7YzLWmhZfWavtZwqR6nX-NqZSMboJ62V297K71vYwIhAPWMrN6iaesxo72-WS2RbyQ-AO-aodpOWuBZUdBpr0i3",
+    "valid": false
+   }
+  ]
+ },
+ "failure_records": {
+  "rule": "att_failed:<hex of SHA-256('quranlab-install-pair 1\\n' || install hash || SHA-256 of install_sign_key SPKI)>",
+  "install_hash_hex": "42385e5a82cb7e599c471e222f64bedf0c6a56a0e8cfbeb341bfe093338fb719",
+  "victim_sign_hash_hex": "e8b138a2143416639341bc77a4af7667f9da8c11f6e51a1be6e2f9d6a6eb6ec8",
+  "attacker_sign_hash_hex": "2b678380896eaf6d86ffa953b7423b2a40b737374d48e7c9c752244f83703aee",
+  "victim_pair_hex": "bbe503a3ef65599e357136cf946964451d2f60a2cacd488d953960f818d3e6a9",
+  "attacker_pair_hex": "18f2fc9ca74b781908af1835b8f2473404bdc0ced75e92d6f434e0c792937f02",
+  "scenario": "the attacker's failed lease writes att_failed:<attacker_pair_hex>; the victim's attest and leases look up att_failed:<victim_pair_hex> and find nothing"
+ }
+}

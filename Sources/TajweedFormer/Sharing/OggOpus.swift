@@ -20,8 +20,41 @@ struct OggSegment: Sendable {
     let granule: Int64
     /// It holds the end of the stream.
     let last: Bool
-    /// The bitrate (bit/s) every packet of the segment was encoded at.
+    /// The bitrate (bit/s) every packet of the segment was encoded at (0 for an Ogg FLAC segment: lossless).
     let bitrate: Int
+    /// SDK 4.0: the rate of an Ogg FLAC segment (SHARING_40.md 19.4), whose granule counts samples at that rate; nil
+    /// for Opus, whose granule counts 48 kHz samples.
+    var rate: Int? = nil
+}
+
+/// One Ogg page (RFC 3533, section 10): the packets laced whole into one page, the CRC-32 filled in. The page writer
+/// of both forms of a shared recording, Opus and FLAC (SHARING_40.md 19.4).
+enum OggPage {
+    static func make(_ packets: [Data], granule: Int64, serial: UInt32, sequence: UInt32, flags: UInt8) -> Data {
+        var segments: [UInt8] = []
+        for p in packets {
+            var n = p.count
+            while n >= 255 {
+                segments.append(255)
+                n -= 255
+            }
+            segments.append(UInt8(n))
+        }
+        precondition(segments.count <= 255, "an Ogg page holds at most 255 segments")
+        var d = Data("OggS".utf8)
+        d.append(0)
+        d.append(flags)
+        d.append(le: UInt64(bitPattern: granule))
+        d.append(le: serial)
+        d.append(le: sequence)
+        d.append(le: UInt32(0))
+        d.append(UInt8(segments.count))
+        d.append(contentsOf: segments)
+        for p in packets { d.append(p) }
+        let crc = OggOpusWriter.crc(d)
+        d.replaceSubrange(22..<26, with: withUnsafeBytes(of: crc.littleEndian) { Data($0) })
+        return d
+    }
 }
 
 /// Writes one session's audio as Ogg Opus while the session runs: mono, coded at 48 kHz with
@@ -256,28 +289,7 @@ final class OggOpusWriter {
     // MARK: Ogg
 
     private func page(_ packets: [Data], granule: Int64, flags: UInt8, audio: Bool = true) throws(RecognizerError) {
-        var segments: [UInt8] = []
-        for p in packets {
-            var n = p.count
-            while n >= 255 {
-                segments.append(255)
-                n -= 255
-            }
-            segments.append(UInt8(n))
-        }
-        precondition(segments.count <= 255, "an Ogg page holds at most 255 segments")
-        var d = Data("OggS".utf8)
-        d.append(0)
-        d.append(flags)
-        d.append(le: UInt64(bitPattern: granule))
-        d.append(le: serial)
-        d.append(le: sequence)
-        d.append(le: UInt32(0))
-        d.append(UInt8(segments.count))
-        d.append(contentsOf: segments)
-        for p in packets { d.append(p) }
-        let crc = Self.crc(d)
-        d.replaceSubrange(22..<26, with: withUnsafeBytes(of: crc.littleEndian) { Data($0) })
+        let d = OggPage.make(packets, granule: granule, serial: serial, sequence: sequence, flags: flags)
         if handle == nil {
             segment += 1
             segmentPackets = 0

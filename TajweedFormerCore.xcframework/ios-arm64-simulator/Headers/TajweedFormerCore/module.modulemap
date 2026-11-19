@@ -1,4 +1,0 @@
-module TajweedFormerCore {
-  header "../TajweedFormerCore.h"
-  export *
-}

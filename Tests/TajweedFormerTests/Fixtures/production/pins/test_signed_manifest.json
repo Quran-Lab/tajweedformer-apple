@@ -1,0 +1,163 @@
+{
+ "format": 3,
+ "model_id": "v4.0",
+ "family": "tajweedformer",
+ "revision": "p3a-test",
+ "version": "4.1.0",
+ "min_sdk_version": "4.0.0",
+ "engine_format": 3,
+ "coreml_format": 9,
+ "tokens": "tokens.txt",
+ "tokens_sha256": "66fe6eb81b15506270f9e3c6efb0724cda757cd54326f26ca4bcd6be4f3b2aa4",
+ "default_context": "c16_l64",
+ "contexts": [
+  "c16_l64"
+ ],
+ "encryption": {
+  "scheme": "qle1",
+  "key_id": "5b9600bbaec463a034cd1f1310497920",
+  "root": 1
+ },
+ "files": [
+  {
+   "path": "tokens.txt.qle",
+   "size": 1231,
+   "sha256": "0497b1b85e24565e557ceef713cc73ab68aac6a2cf59f83ccb786ead59e01e5e",
+   "platforms": "*",
+   "soc": "*",
+   "context": "*",
+   "role": "tokens",
+   "need": "required",
+   "encoding": "qle1",
+   "decoded": {
+    "path": "tokens.txt",
+    "size": 224,
+    "sha256": "66fe6eb81b15506270f9e3c6efb0724cda757cd54326f26ca4bcd6be4f3b2aa4"
+   }
+  },
+  {
+   "path": "recited/index.bin.qle",
+   "size": 1163053,
+   "sha256": "8f54e46b1df99cda836fadcdc41cc2ef68bee8c5b21a227147c23be8f0ab6e83",
+   "platforms": "*",
+   "soc": "*",
+   "context": "*",
+   "role": "recited",
+   "need": "optional",
+   "encoding": "qle1",
+   "decoded": {
+    "path": "recited/index.bin",
+    "size": 1331352,
+    "sha256": "ebead341e519ce926249016ac00bbf03a94fcaf18941283aa471fed31bec698d"
+   }
+  },
+  {
+   "path": "expected_tj3.zfx.qle",
+   "size": 1002805,
+   "sha256": "37869303485f539810c8b8e0f671af3b5754a078c878a76456e2712bb95a5819",
+   "platforms": "*",
+   "soc": "*",
+   "context": "*",
+   "role": "reference",
+   "need": "optional",
+   "encoding": "qle1",
+   "decoded": {
+    "path": "expected_tj3.zfx",
+    "size": 5489848,
+    "sha256": "14050d7dc19f7b8e19dbc4108139c04fdb9a990a2d2dae94776026c672374f09"
+   }
+  },
+  {
+   "path": "calibration.json",
+   "size": 45992,
+   "sha256": "7b8c1acae05d72978046a502df959de113854c0270ad24a5c15a3d176bd6a103",
+   "platforms": "*",
+   "soc": "*",
+   "context": "*",
+   "role": "calibration",
+   "need": "required",
+   "encoding": "identity"
+  },
+  {
+   "path": "layout.bin.qle",
+   "size": 78369,
+   "sha256": "4347f290da499389169947951853280dd84970662aae69a6366385c88e2bbf39",
+   "platforms": "*",
+   "soc": "*",
+   "context": "*",
+   "role": "layout",
+   "need": "required",
+   "encoding": "qle1",
+   "decoded": {
+    "path": "layout.bin",
+    "size": 98520,
+    "sha256": "3acd909e6038dd1b61a21a5ad86139c17a79720a348131a92d7cd37cc02e0cd2"
+   }
+  },
+  {
+   "path": "c16_l64/layers.zfw.qle",
+   "size": 53855596,
+   "sha256": "b88bdf8b928afab6ebe81a9161cdbb9eb9ae1dbab310c0e96d5113c4ce64aad5",
+   "platforms": "*",
+   "soc": "*",
+   "context": "c16_l64",
+   "role": "weights",
+   "need": "required",
+   "encoding": "qle1",
+   "decoded": {
+    "path": "c16_l64/layers.zfw",
+    "size": 66220288,
+    "sha256": "0d024ac8a451bab219db3d2d0949e95f8c370a6645c2f434a7b6a8bc83d0b3fe"
+   }
+  },
+  {
+   "path": "c16_l64/frontend.zfw.qle",
+   "size": 1034992,
+   "sha256": "7b99f383aeede853df36d15cc58daf68ae602e4b341596991542bed2a9f7d5db",
+   "platforms": "*",
+   "soc": "*",
+   "context": "c16_l64",
+   "role": "frontend",
+   "need": "required",
+   "encoding": "qle1",
+   "decoded": {
+    "path": "c16_l64/frontend.zfw",
+    "size": 1194308,
+    "sha256": "9dbb3ec728f5b5205233bbc349fe8ca55ec03d4e144cb18c2c8b69246e2c5f06"
+   }
+  },
+  {
+   "path": "c16_l64/model_engine2.onnx.zfg.qle",
+   "size": 6868,
+   "sha256": "e8b19d7f95a49453ca1f8f7d4572ebcbb4fa8ce3dc7bee3191e3cf89962e4a9c",
+   "platforms": "*",
+   "soc": "*",
+   "context": "c16_l64",
+   "role": "graph",
+   "need": "required",
+   "encoding": "qle1",
+   "decoded": {
+    "path": "c16_l64/model_engine2.onnx.zfg",
+    "size": 25561,
+    "sha256": "5a1817ccb378b7df92667b539df3c9ec26f4809c4146ef5cf84e8447a37343df"
+   }
+  },
+  {
+   "path": "c16_l64/model_engine2.onnx.zfg.bin.qle",
+   "size": 537799,
+   "sha256": "38eb98a06d4a4f4e9b3fb65437b6bd41a0d8ebc07ecafbf7fbca61065cbd7f1a",
+   "platforms": "*",
+   "soc": "*",
+   "context": "c16_l64",
+   "role": "graph-data",
+   "need": "required",
+   "encoding": "qle1",
+   "decoded": {
+    "path": "c16_l64/model_engine2.onnx.zfg.bin",
+    "size": 734992,
+    "sha256": "b4ad1fb8b6af79cc7b97678e2943fea6c07c0c83f9d3506413b79a1bd7d930b4"
+   }
+  }
+ ],
+ "signature": "+73GigrvGNTXYtfHE/16FatlBBd4cOs4hN/hCc3RktvsEC7voccoeUo3Lhtn6lKLkGGNXahB7My6fER1LZkYCg=="
+}

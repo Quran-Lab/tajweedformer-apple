@@ -1,0 +1,825 @@
+{
+ "challenge": "c1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB",
+ "key": "apps-one",
+ "sequences": [
+  {
+   "name": "7 days, then Quran Lab down: grace for 24 hours from exp, then needs_connection",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c31010000009d80533d8bbe4074049f98542d437391803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004775ff69581c3636e415fe7db5fc5f76bc33bab2de18927d255592467d42e1207ecc1c43978816b4557c5bed988636376f7d22e1af163e45dd5ed6007d7ba285940002359ce2d882a1bf29d59c48179374bf022af147937e81efb82bfb43d448d178bc257eacfbaa3d5e171802d3a03e1ca329a500cd3d60e741cc22fdfd7cd99ad9ebae32b00126ed013c4d700676e2219a6973920bf9730b9e2965e45f40acca7d8c2dafe80e15bde2b517ed1be1d538023b78c1923b998bc70a9bf7448645b2590ab59b5d4ddc9b807"
+    },
+    {
+     "check": {
+      "wall": 1790259200,
+      "boot": 260200,
+      "boot_id": "b1"
+     },
+     "now": 1790259200,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604799,
+      "boot": 605799,
+      "boot_id": "b1"
+     },
+     "now": 1790604799,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "check": {
+      "wall": 1790604800,
+      "boot": 605800,
+      "boot_id": "b1"
+     },
+     "now": 1790604800,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790691199,
+      "boot": 692199,
+      "boot_id": "b1"
+     },
+     "now": 1790691199,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790691200,
+      "boot": 692200,
+      "boot_id": "b1"
+     },
+     "now": 1790691200,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "24 hours: grace ends 48 hours after iat",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790086400
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c3101000000210e7e5078d13ac528c0fab9fbe9f6c7803bb16a00000000008db26a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004247fe7151dd14fe01640fa1dd20f4ea0d8e574b4e56a3232c62d3370f5894d2ec239bbc9c02f997f0cb8272d7a07c689fa95f253467a07b9b129e02286c2f5ca40000a5296a6169068a120dc9b738786950d79b5fc1160e06f1f8e0e757a7497012213a6478c87fe3571ffc727482023b6bfa431c2e1f032cfbc74c697cf0f1a7de9bae32b00126ed013e6f0aca6210df0a43deb238357d373c92f225719ce94dc22c7eda67b9e84b1d7528d5630142fcc34bb17c450fdb4e9c7ad1ca63d299dfdd1884b0d217a075f0e"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790086399,
+      "boot": 87399,
+      "boot_id": "b1"
+     },
+     "now": 1790086399,
+     "until": 1790172800,
+     "state": "valid"
+    },
+    {
+     "check": {
+      "wall": 1790086400,
+      "boot": 87400,
+      "boot_id": "b1"
+     },
+     "now": 1790086400,
+     "until": 1790172800,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790172799,
+      "boot": 173799,
+      "boot_id": "b1"
+     },
+     "now": 1790172799,
+     "until": 1790172800,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790172800,
+      "boot": 173800,
+      "boot_id": "b1"
+     },
+     "now": 1790172800,
+     "until": 1790172800,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "no attempt since the lease: expired is needs_connection; the first unreachable attempt opens the grace",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c31010000006ce716bb78c72a35be4c094e1fe9bfe7803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d6331014100049a57b784b8e3281e4e0a9c0234f1289d59f2bec6a62032f66f6daf59d8178972f3d9e04ed5a4cd684a3aaca8e8fb72fcf365bb9a820854466d171b0943a5d5454000beacb98e7a7a31b713d2228fcb96c04d8408f3687626c68d733c4d45ee8f4e2fcabaacc3ffc4772c12b6fc5be0472a80cea300680bc108fdf5d15895b6dc28d6bae32b00126ed013b577fd8d9cc227ffe63c9780c2be96e8b95efc5379bbf2edf2556a129570c8f1b385bd842ddbc99eb72aab228711c3385afb8744f3fbaf27bbdd19fc28c32e03"
+    },
+    {
+     "check": {
+      "wall": 1790608400,
+      "boot": 609400,
+      "boot_id": "b1"
+     },
+     "now": 1790608400,
+     "until": 1790691200,
+     "state": "needs_connection"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790608401,
+      "boot": 609401,
+      "boot_id": "b1"
+     },
+     "now": 1790608401,
+     "until": 1790691200,
+     "state": "grace"
+    }
+   ]
+  },
+  {
+   "name": "a refusal ends the grace at once, and for the rest of this lease",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c3101000000393b219d622c5c8ca883205b133b02b9803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004b82b92cfefa3bed20eaecf8b242830d13b621c049e9c8979f7a34c891c8b068b6dcd23c865b40e70c789ee24673e67f64d7eb75284c697250c535057e00bdaf64000143cd846d21346308467bc35a0a58c4899e6ebb9ac4b9776c92aca6bfead9fca7071608b62e9ef53a29658828f028f66783f9025e3be76fd1917bbbef3cc7580bae32b00126ed013ff40b7ecad3561a4bd2f7466cdbd22a99e03d334eeb2d0e69625416d4c9e910f634676cc0aae991e43eaa887dceb10a52388bf33596537e1aaf488c2a162440e"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604900,
+      "boot": 605900,
+      "boot_id": "b1"
+     },
+     "now": 1790604900,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "attempt": "refused",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604901,
+      "boot": 605901,
+      "boot_id": "b1"
+     },
+     "now": 1790604901,
+     "until": 1790691200,
+     "state": "needs_connection"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604902,
+      "boot": 605902,
+      "boot_id": "b1"
+     },
+     "now": 1790604902,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a refusal before exp: the lease holds to exp (it is not a stop), no grace after it",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c3101000000e28753247b55614ac2430f239cb0ea83803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d6331014100047cf0d18087ef6fedd1d05fe76d75d89e1ef27c95977fe4eab67635f7b80c278c44b54d2c77b643d48b7de6a02ecb7368fbd03080f06a7a15be7be9225237cc9940003e749d481d6c7bd626b1bdee9ca0f20048564525ca15606adbbda8c99063f141bed4b1653c788cf17347ac4b45cfd51be5fe2831ad78ba6d23d47b27b32bfc7abae32b00126ed013c4b27a0476295f890d2ba5fb9c7091bf1022b2eec0313f181afa061c154e0def7e40ad891394b5dc02be28dafb688429bfe2c9572102c0af7927747d573a1100"
+    },
+    {
+     "check": {
+      "wall": 1790086400,
+      "boot": 87400,
+      "boot_id": "b1"
+     },
+     "now": 1790086400,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "attempt": "refused",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790172800,
+      "boot": 173800,
+      "boot_id": "b1"
+     },
+     "now": 1790172800,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604799,
+      "boot": 605799,
+      "boot_id": "b1"
+     },
+     "now": 1790604799,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "check": {
+      "wall": 1790604800,
+      "boot": 605800,
+      "boot_id": "b1"
+     },
+     "now": 1790604800,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "the grace never stacks: attempts in it never move its end",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c3101000000c3cd40e0b2e231803e8d4016021445c0803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d63310141000429b1f9aa6d8cec590f10f28d98acc1c16ec7105688dbf41db9782f8e70ab3054b82f563636a0f293a67b1c1b9bafa4017f811dba15191f1a8a0f65987df636b7400056cd2a603aca0de1ec8305b884640e770e4430ee463fe237d6e93a494718ed986bfa66396ddbe5909a35286d12672b7dd51ad7b62d0d00518326c8837026362ebae32b00126ed01320b7bd611bb956205aa9c0f06f0df567192c3268c37984a646421e19ee752e87ad95d62bdb33bae315f31dcc2d0187779f01151d9d7757d17c63188095729a0d"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790684800,
+      "boot": 685800,
+      "boot_id": "b1"
+     },
+     "now": 1790684800,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790691199,
+      "boot": 692199,
+      "boot_id": "b1"
+     },
+     "now": 1790691199,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790691200,
+      "boot": 692200,
+      "boot_id": "b1"
+     },
+     "now": 1790691200,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "an attempt after the grace ended opens nothing",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c31010000008af46481c20ba244fd2399331c3e8930803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004bea7dc03e1bb4b4a5f7443441c6729dd35cc160859c13341c00164d245baae18061082f2f30d614511aca299dbfa19e839e117aa7a5aeeca1bd9f6c984defaba400080fc68aeb5eaf046c8bbb69092bcc174f7b87aefe29cab1c61c3248e605cb0a83b3c6dc364f8e2c3146bb96f5a35e815bd80eb4a5cd46e63a0e1ab50864a4515bae32b00126ed013e7693de1f20c899f815bb6d61f8ae539b2189bfac7fbe454a51cf8e15437bfacf0aabcb5fad82f12cf4e4be11587b7db2928a6c105a9f33c94f1b0e844a4ee0d"
+    },
+    {
+     "check": {
+      "wall": 1790691205,
+      "boot": 692205,
+      "boot_id": "b1"
+     },
+     "now": 1790691205,
+     "until": 1790691200,
+     "state": "needs_connection"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790691206,
+      "boot": 692206,
+      "boot_id": "b1"
+     },
+     "now": 1790691206,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a new lease clears the attempts: its own grace needs an attempt after it",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c3101000000f0636b66b59e1e33d46bd41b4c5aae6c803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004fee143b0bef957432034dd9a9ff5f65532bd9dddc7c7dda09263dab2c4c9f8c3023dead2624c46a0fa2347f65bb47a5c3a4efdefaab8c708aa400272b2738afe400095fc80a9a6d29fb49754be68d73a78f88ae9b5a70ea4350a5a47705e2e6affec8ff7c71ce2e8fcac6d1d1694f24b74906d2b16988f81e650881238cefa98f8f7bae32b00126ed0139e381514cb87faf6380a005cd02ca2afc321c1a0254670140dec8cfb6673fdfb5c5c0f47f8e8f1755860c00ef30b3f020b2bba4833c524db8461d5c9b6559405"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790608400,
+      "boot": 609400,
+      "boot_id": "b1"
+     },
+     "now": 1790608400,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "lease": {
+      "iat": 1790608400,
+      "exp": 1791213200
+     },
+     "wall": 1790608400,
+     "boot": 609400,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790608400,
+     "lease_hex": "514c4c3101000000676b64ab25d8d7b067f89296ba43e5c41084ba6a0000000090bec36a00000000d02cbb6a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004e1fa933177a16eb73c7e234360c052da4c75627e51742ebfee1c04f9eb504866693536f5b44894d739ecc6ce2ef83063101adfe1496c119cac1b53550f945e3b4000f7228bebad526839009aae992496ebd352736bc0890b4dc906a6b6bb9d4a0c5de1b2cb74822f234d0a1cdbdb79c5626ebe4d84f279121b5e0b4a20e202147767bae32b00126ed013ef7469e6ed61c2cc59c295ac1b58b538a2a332cfae784fe5b41a937b2f44d5bb2f8aa94da01c7e93c3c08b10dca8be48754cfa2192707866d4ffce7106b2fe08"
+    },
+    {
+     "check": {
+      "wall": 1790612000,
+      "boot": 613000,
+      "boot_id": "b1"
+     },
+     "now": 1790612000,
+     "until": 1791299600,
+     "state": "valid"
+    },
+    {
+     "check": {
+      "wall": 1791213210,
+      "boot": 1214210,
+      "boot_id": "b1"
+     },
+     "now": 1791213210,
+     "until": 1791299600,
+     "state": "needs_connection"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1791213220,
+      "boot": 1214220,
+      "boot_id": "b1"
+     },
+     "now": 1791213220,
+     "until": 1791299600,
+     "state": "grace"
+    }
+   ]
+  },
+  {
+   "name": "a new lease after a refusal: the refusal is cleared with the old lease",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c310100000030048e9c23d25b282e08701e4fe463ff803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004bc4e62958cdf85c6341a473578e70c856d12d68e23e08ddb718d4887bfbf65e16f754de261e8d38385775a16f8987d79179fac3efb30322199b0ed981c24500a40007b1a508109247270cfbc01f290a4ebfebd4b71ef492739364374265c0aa34967934841c10c27e9e69ac1ce0291efd7e1e5cab3df57ba08f9fec72b1fcd9a3343bae32b00126ed013cc6ca14516252b78344e72da36d5e1ea6ba36e89fe935d2ed4b29b64b231d26eb0e04430d0a854faa0ccbc8874207aab4e41db06640ea3641ff08c15ee2f9a0b"
+    },
+    {
+     "attempt": "refused",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604810,
+      "boot": 605810,
+      "boot_id": "b1"
+     },
+     "now": 1790604810,
+     "until": 1790691200,
+     "state": "needs_connection"
+    },
+    {
+     "lease": {
+      "iat": 1790604820,
+      "exp": 1791209620
+     },
+     "wall": 1790604820,
+     "boot": 605820,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790604820,
+     "lease_hex": "514c4c31010000003fdc8d5edf25996acbc6e6c198407b411476ba6a0000000094b0c36a00000000d41ebb6a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004a14f563b868ef38a5e1b32ec59a8d0bf4b3f08d9ac44bbfad51e8f026e2957796983c0e5b5f89830d66f9ac68e78f6d8ce08ee8ca496baafde5779b2225eb7a740008b958ef03a97b4b92392937e7e2aab7672064a8f21f567ba9b4d0a947571815e08a19744577118187df8bbb32f96ac253021cde686dcc137d0aa1d5c0b05072abae32b00126ed01300f1790e504a575c2c707aff7498ea876a3acbfcb8c6ba1bfe16000aa0115099a8a65a0e6b99f5615d997016b1a8391208bd08b1fb66f2da9bedbb33023ce40a"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1791209620,
+      "boot": 1210620,
+      "boot_id": "b1"
+     },
+     "now": 1791209620,
+     "until": 1791296020,
+     "state": "grace"
+    }
+   ]
+  },
+  {
+   "name": "a verified stop: no lease, no grace",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c310100000002dc91566ba21555433af0938d960d28803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d6331014100047f2d85b9688d4d6f17b03fa4c6d4f2424ea3de64f903661bc6b4d37a82f1fa4180dbee24a25b0ed196543609833d6b7c0fca7b6706fcbbea35b2e2ae0d98b20140009c2b3c65ebbec5c7ac446c2b9491c3ebeba8b2daa3730ecfbcbd57a8aacfcf0207e10bf8ed74ac6a9ecf3e78593877502bfaa0803aa3927b4a28dde3c7d5455cbae32b00126ed0137eb2d21266c5ce524f5c72837bc1a0ad49f26b87799abd4aa051bb8f00eaadf37bc003c985c58bd4d5be84a1a0c8a80f7dae8fd31c2cded4dc0b4ff9bd5eec08"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604810,
+      "boot": 605810,
+      "boot_id": "b1"
+     },
+     "now": 1790604810,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "stop": true,
+     "refusal": {
+      "error": "invalid_key",
+      "message": "missing or invalid developer key",
+      "reason": "key_revoked",
+      "signed": "cXVyYW5sYWItcmVmdXNhbCAxCmFwcHMtb25lCmtleV9yZXZva2VkCmM1ZGMyODM0MDhmNWU2NWRiODM3ZjFjOWIwODM0NTRhZGY0MWNiOGRmYzNkOWY2MGY1ZGM4YWFjZTgyMGY3MWMKYzEuMTc5MDAwMDMwMC5BQUFBQUFBQUFBQUFBQUFBQUFBQUFBLkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIKMTc5MDYwNDgxMAo.Rk_l6rlK7jxt25S8NEou5jAGWdOLBfRsn8wmGxrvPKhV5rCAew3DX4Lr82afA91gCtKzHgFLmBQ4CJ4C9AwwAQ"
+     }
+    },
+    {
+     "check": {
+      "wall": 1790604811,
+      "boot": 605811,
+      "boot_id": "b1"
+     },
+     "now": null,
+     "until": null,
+     "state": "stopped"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "stopped"
+    },
+    {
+     "check": {
+      "wall": 1790604812,
+      "boot": 605812,
+      "boot_id": "b1"
+     },
+     "now": null,
+     "until": null,
+     "state": "stopped"
+    }
+   ]
+  },
+  {
+   "name": "no lease yet: an attempt changes nothing",
+   "steps": [
+    {
+     "attempt": "unreachable",
+     "result": "needs_connection"
+    },
+    {
+     "check": {
+      "wall": 1790000000,
+      "boot": 100,
+      "boot_id": "b1"
+     },
+     "now": null,
+     "until": null,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a restart keeps the attempts with the lease",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c3101000000afe46275b6c00fd4da392ee245b58992803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004d10c0547e4db8d876d7879f450f50cb6f1f11abf2684cf762163a36284c48bd8fb4f7f87948113658616caf722f2366c0d9584574cb7ce67bdae3e20667897c640008fc3d96099428e720c65769745c43f02c7623d88d7ec45190d6a7af9ce38babb747f5bc22bdc3bced7d71e28752afc5794be2ab4cbde92f56307de492c866986bae32b00126ed013abe629659fd1ac2a7c643625dda427be225c4196baf90276dd27e896510f65a4f6f7e68ba543a6ab41cdb81c2deecf23bd908c5bceb344fd37cc2ec45f998b08"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "restart": true
+    },
+    {
+     "check": {
+      "wall": 1790604810,
+      "boot": 605810,
+      "boot_id": "b1"
+     },
+     "now": 1790604810,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "restart": true
+    },
+    {
+     "attempt": "refused",
+     "result": "ok"
+    },
+    {
+     "restart": true
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604811,
+      "boot": 605811,
+      "boot_id": "b1"
+     },
+     "now": 1790604811,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "the clock moved back during the grace: the boot clock still ends it",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c3101000000cc687a512e150bd8a1167676db46a389803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d6331014100045be26883ae6ce8d48473a3a44bfe123b5f7a8badf4d7aeada661349c71129148b4fd5170635d2a3b9b93325beebe86306aef53b36b3c1fd2e5959038bd28338d4000a5f9a5718876a9b5c7000634eae46bcac9b8d6220b67a7528e92edd87238b2c43009a25dc79d1e6bf4a43695fa24f5c5328d2b46f8b81ce8df3da1b95fb52b2bbae32b00126ed013735b355a6704360f620e4daeceac5b49c4199c42a6290f87ff5d85d430d6d491d449c4366155dbabbbc6b5e8673dbd658f1b8bf5ca08bf71098a75408df1730d"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 605810,
+      "boot_id": "b1"
+     },
+     "now": 1790604810,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 692200,
+      "boot_id": "b1"
+     },
+     "now": 1790691200,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a reboot in the grace: the corrected wall clock counts the time the device was off",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c3101000000dcbb69f4ff31ca8d404f292cce2a8c54803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d6331014100046f937a499b1d37b855827ca432e4d643916d245661b40f3cb4e0f809e6f687196619bb043be4a3f69695e3e2b4d5142a5c846eda087e8101cd7fe45bc84e9d744000bf818be80c164d7b7fa7befd97f74656d68de7655240cf7fd1cda6e037b4cb4a91b4e0278de9fff4d030edb55890f22fbacefb853eb808ee5c3d62e092919c40bae32b00126ed013bf3213e025da3f0560bd6b3561ad27f70d1dc9bea1295ff43659284ca778c35960ed9a68e601330849ca28b94519b03ba62ee5a25f68b776c98be42ccf62c705"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790608400,
+      "boot": 100,
+      "boot_id": "b2"
+     },
+     "now": 1790608400,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790691100,
+      "boot": 200,
+      "boot_id": "b3"
+     },
+     "now": 1790691100,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790691200,
+      "boot": 300,
+      "boot_id": "b4"
+     },
+     "now": 1790691400,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a reboot with the clock moved back: at least the new boot's own time has passed",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000,
+     "lease_hex": "514c4c310100000000a84943241a8455fbd0645d94f8983c803bb16a000000000076ba6a0000000040e4b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d6331014100044b8c2cc527887ad8b42353e884c936524a72fc6fc8c13842e59f97085f9bef4fbca7b8c77c7e21def37e70e3f33accfd3e90a89f2bb1502df884a780c1c983e24000be358f7ee8874ba9653742d47f660a17dfb34ec2ca077a2d09456be8e20529d5fd68e9486bc60059970a424be33ef0afd6f4a3a9c16f35190f3ce572823b0d8cbae32b00126ed013ba41a137ae372a3e6157d8bd577665908bc46841b2b870e7ac1083f3630beaa349256c430c718edfd99326c590bb9fb012df87f487bab5114ebdf2670de7b107"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 604850,
+      "boot_id": "b2"
+     },
+     "now": 1790604850,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 691199,
+      "boot_id": "b2"
+     },
+     "now": 1790691199,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 691200,
+      "boot_id": "b2"
+     },
+     "now": 1790691200,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  }
+ ]
+}

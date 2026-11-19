@@ -5,7 +5,9 @@ import XCTest
 
 /// The copy deck SDK 3.1.2 bundles (SPEC 11.8): deck `2026-11-13.1`, consent version `share-2026-11-09`. Every
 /// string is that of deck `2026-11-09.1`: the sentence that deck `2026-11-12.1` (SDK 3.1.0 and 3.1.1) added to
-/// `sheet.who` and to `what.detail` is not in it. Here: the bundled decks are the published ones byte for byte;
+/// `sheet.who` and to `what.detail` is not in it. SDK 4.0 bundles deck `2026-11-19.1`: those strings and the re-ask
+/// card's three (SHARE_ASK_40 20.7, from 2026-11-15.1), without the four `sheet.guardian` strings (one sheet for every
+/// app, contract section 26), the same consent version. Here: the bundled decks are the published ones byte for byte;
 /// the sheet shows `sheet.who` and "What is shared" whole in each of the eight languages; and no text the sheet is
 /// built from, or that an app is handed to show, holds the sentence that deck 2026-11-12.1 added, in any of them.
 /// That sentence is not written in this repository: the test knows its length and its SHA-256 per language
@@ -18,16 +20,17 @@ final class SharingDeckTests: XCTestCase {
         QuranLab.configure(key: nil, options: .init(cloud: nil), cloud: nil)
     }
 
-    /// The SHA-256 of each published deck (the contract's `sharing_copy/READY`, deck 2026-11-13.1).
+    /// The SHA-256 of each published deck (the contract's `sharing_copy/READY`, deck 2026-11-19.1: the strings of
+    /// 2026-11-15.1 without the four `sheet.guardian` strings, contract sdk-4.0.0-protected dac6627, unchanged at 3c62bf3).
     static let published: [String: String] = [
-        "en": "3bac94a18f4691e7fb51021e9aa4f241d409a6dc4f8f89ec22a82761ebd75051",
-        "ar": "03fc6aa2eed9134b5b5780ba2abcc5590c043024d0c6daf829c876742519f599",
-        "id": "f0621036f69d8f3754a0dfffea58b6c99e13a22c8356ba4cece0b20c3ba9abd0",
-        "ms": "2c15cf8515885ef1bebe59117c61926dfd93ce406100fe2434e4b10d6c8e3e9d",
-        "tr": "227783a34b2fdf6870ebd5d32eafb9e3ebcf496bed44797de87b571744200099",
-        "fr": "9895b3eaf3e67afa250629b9ea3d93613d0298168d068fb6aba2e00450dda7ca",
-        "ur": "755e2b9873180336b7e06bb44c0a9910441d8ee59dced42142c8f420ae77875a",
-        "bn": "e6b0a844386437838adcd0c3693ae39f93d40e5c3dba3b614c7f71574028a6b6",
+        "en": "4011ed13cb1683348cc2d26c8b5a6adf96ebeb4bc5143cb77eb72104d5992d21",
+        "ar": "1159dff6482b974798d46686855c0ff0b90293f4ee7bc9890b17c76596cfc474",
+        "id": "ddd02973988f286e007a9fc5e0a979b16766c43cb6d276a64ea7b59c7f17483f",
+        "ms": "502835016af3430f898b669cb986ac87cbec4aa89fc10849ea33fe1226d93bcb",
+        "tr": "faabab1693a40f2f9c12a94808e0d7840e66094c3cf32db1bf1695fee48008f0",
+        "fr": "03b2026cef95cc4707a841d53e08596fa18af343c9e33ee57feffd373b8411f7",
+        "ur": "9dec0fd78c867a08aac9a641849ab628b441f2dae88102392b1855f9931aee05",
+        "bn": "ef6ebcac7798a5e3f2c6c6bc930518e1d7290b2a29821dc83865e7c3249ef949",
     ]
 
     /// The folder of the bundled decks, as the SDK reads it.
@@ -60,11 +63,77 @@ final class SharingDeckTests: XCTestCase {
             let data = try Data(contentsOf: dir.appendingPathComponent("\(lang).json"))
             XCTAssertEqual(Manifest30VectorTests.sha256(data), Self.published[lang], "\(lang).json")
             let deck = try XCTUnwrap(SharingCopy.bundled(lang), lang)
-            XCTAssertEqual(deck.version, "2026-11-13.1", lang)
+            XCTAssertEqual(deck.version, "2026-11-19.1", lang)
             XCTAssertEqual(deck.consentVersion, "share-2026-11-09", lang)
             XCTAssertEqual(deck.baseConsentVersion, "share-2026-11-09", lang)
+            XCTAssertEqual(deck.keys.filter { $0.hasPrefix("sheet.guardian") }, [], "\(lang): no sheet.guardian key (26.1 item 5)")
         }
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted(), SharingCopy.bundledLanguages.map { $0 + ".json" }.sorted())
+    }
+
+    /// Every bundled deck has the re-ask card's three lines (SHARE_ASK_40 20.7, deck 2026-11-15.1), so the SDK shows
+    /// the card itself and never the 3.x re-ask sheet in its place: `card.line` is the deck's `reask` without its
+    /// question, its "Not now" is the sheet's word for word, its button is no longer than the sheet's share button,
+    /// no dash, and none of the three is blank or a disclosure line an app may not reword.
+    func testEveryDeckHasTheCardsLines() throws {
+        let en = try XCTUnwrap(SharingCopy.bundled("en"))
+        XCTAssertEqual(en.string("card.line"), "Your recitation today could help another learner tomorrow.")
+        XCTAssertEqual(en.string("card.open"), "See how it helps")
+        XCTAssertEqual(en.string("card.not_now"), "Not now")
+        for lang in SharingCopy.bundledLanguages {
+            let deck = try XCTUnwrap(SharingCopy.bundled(lang), lang)
+            for k in ["card.line", "card.open", "card.not_now"] {
+                let s = deck.string(k)
+                XCTAssertFalse(s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "\(lang) \(k): in the deck")
+                XCTAssertFalse(s.contains("\u{2014}") || s.contains("\u{2013}"), "\(lang) \(k): no em or en dash")
+                XCTAssertTrue(SharingCopy.allKeys.contains(k), "\(k): a deck key an app may give its own words for")
+            }
+            XCTAssertEqual(deck.string("card.not_now"), deck.string("sheet.not_now"), "\(lang): the card's Not now is the sheet's")
+            XCTAssertLessThanOrEqual(deck.string("card.open").unicodeScalars.count, deck.string("sheet.share").unicodeScalars.count, lang)
+            // the reviewed re-ask's first sentence, byte for byte; what follows it is the question (? or the Arabic
+            // question mark U+061F)
+            let reask = deck.string("reask"), line = deck.string("card.line")
+            XCTAssertTrue(reask.hasPrefix(line + " "), "\(lang): card.line is reask without its question")
+            let question = reask.dropFirst(line.count + 1)
+            XCTAssertTrue(question.hasSuffix("?") || question.hasSuffix("\u{061F}"), "\(lang): what reask adds is a question")
+        }
+    }
+
+    /// The card's lines of each language are the contract's reviewed translations of deck 2026-11-15.1
+    /// (`sharing_copy/translations/card_2026-11-15.json`, copied into Fixtures/sharing_copy), the English the source.
+    func testTheCardsLinesAreTheReviewedTranslations() throws {
+        let dir = try XCTUnwrap(Bundle.module.url(forResource: "sharing_copy", withExtension: nil, subdirectory: "Fixtures"))
+        let file = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent("card_2026-11-15.json")))
+            as? [String: Any])
+        let source = try XCTUnwrap(file["source"] as? [String: String])
+        let languages = try XCTUnwrap(file["languages"] as? [String: Any])
+        XCTAssertEqual(Set(languages.keys).union(["en"]), Set(SharingCopy.bundledLanguages))
+        for lang in SharingCopy.bundledLanguages {
+            let deck = try XCTUnwrap(SharingCopy.bundled(lang), lang)
+            let reviewed: [String: Any] = try lang == "en" ? source as [String: Any] : XCTUnwrap(languages[lang] as? [String: Any], lang)
+            XCTAssertEqual(deck.string("card.line"), reviewed["card.line"] as? String, "\(lang): card.line")
+            XCTAssertEqual(deck.string("card.open"), reviewed["card.open"] as? String, "\(lang): card.open")
+            if lang != "en" { XCTAssertEqual(reviewed["line_is_reask_first_sentence"] as? Bool, true, lang) }
+        }
+        XCTAssertEqual(source["card.not_now"], "Not now")
+    }
+
+    /// The card's lines are deck strings like any other (20.7): an app may give its own words for one, which then
+    /// enter its custom consent text and version as every overridden key does; it cannot blank one, so the card
+    /// always has its three lines. The deck's own consent version is unchanged by the card.
+    func testAnAppsOwnWordsForTheCard() throws {
+        configure("en")
+        XCTAssertEqual(Contributions.consentVersionInForce, "share-2026-11-09")
+        try Contributions.setWording(["card.open": "Learn more"])
+        XCTAssertEqual(Contributions.copy.string("card.open"), "Learn more")
+        XCTAssertTrue(Contributions.consentVersionInForce.hasPrefix("custom-"))
+        XCTAssertEqual(Contributions.consentText, "quranlab.consent-text/1\nbase share-2026-11-09\ncard.open\tLearn more\n")
+        for blank in ["", "   "] {
+            XCTAssertThrowsError(try Contributions.setWording(["card.line": blank]), "a blank card line is refused")
+        }
+        XCTAssertEqual(Contributions.wording, ["card.open": "Learn more"], "a refused wording changes nothing")
+        try Contributions.setWording(nil)
+        XCTAssertEqual(Contributions.consentVersionInForce, "share-2026-11-09")
     }
 
     /// The sheet in each of the eight languages shows the deck's `sheet.who` whole, word for word, and "What is

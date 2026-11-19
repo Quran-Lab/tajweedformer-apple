@@ -2,7 +2,7 @@ import Foundation
 
 /// The SDK's own version, sent in registration, events and issue reports.
 enum SDKInfo {
-    static let version = "3.1.4"
+    static let version = "4.0.0"
     /// Where the SDK runs: the one sentence every `runtime_unsupported` error ends its fix with. It says what the
     /// README's "Before you start" says.
     static let minimum = "iOS 15 or macOS 12 or later, on Apple silicon (an arm64 device, the arm64 simulator or an arm64 Mac)"
@@ -118,6 +118,73 @@ enum DeviceContext {
         let v = osVersion
         return v.patchVersion > 0 ? "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
             : "\(v.majorVersion).\(v.minorVersion)"
+    }
+}
+
+/// The device's model code, sent with each shared recording as `device_model` (SDK 4.0, SHARING_40.md 19.2) beside
+/// `device_class`: the hardware identifier (`sysctl hw.machine` on iOS and iPadOS, the environment's
+/// `SIMULATOR_MODEL_IDENTIFIER` on a simulator, `sysctl hw.model` on a Mac, where `hw.machine` is `arm64`). A model, not
+/// an identifier of the device: every phone of that model says the same.
+enum DeviceModel {
+    /// This device's, normalised; nil when the system gives none (the field is then left out).
+    static let current: String? = normalize([raw])
+
+    /// What the system says, before normalising.
+    static var raw: String? {
+        #if targetEnvironment(simulator)
+        return ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"]
+        #elseif os(macOS)
+        return sysctl("hw.model")
+        #else
+        return sysctl("hw.machine")
+        #endif
+    }
+
+    /// A string sysctl value; nil when there is none.
+    static func sysctl(_ name: String) -> String? {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buf = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &buf, &size, nil, 0) == 0 else { return nil }
+        return String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    /// Every SDK's rule (19.2, `tools/sharing40.py` `device_model`): each part trimmed, the non-empty parts joined
+    /// with one space, every code point outside `A-Z a-z 0-9`, space and `_ . , + ( ) / -` made one `_`, every run of
+    /// spaces made one, the characters before the first letter or digit dropped, cut to 64 characters, trailing
+    /// spaces dropped; nil when nothing is left. The result always matches the server's pattern
+    /// `^[A-Za-z0-9][A-Za-z0-9 _.,+()/-]{0,63}$`.
+    static func normalize(_ parts: [String?]) -> String? {
+        // Python's str.strip() whitespace: Foundation's, and the four separators U+001C to U+001F
+        var space = CharacterSet.whitespacesAndNewlines
+        space.insert(charactersIn: "\u{1C}\u{1D}\u{1E}\u{1F}")
+        let joined = parts.compactMap { (p: String?) -> String? in p?.trimmingCharacters(in: space) }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        let blank: Unicode.Scalar = " "
+        let other: Unicode.Scalar = "_"
+        var scalars: [Unicode.Scalar] = []
+        for u in joined.unicodeScalars {
+            let c = allowed(u) ? u : other
+            // a run of spaces is one
+            if c == blank, let last = scalars.last, last == blank { continue }
+            scalars.append(c)
+        }
+        guard let first = scalars.firstIndex(where: { (u: Unicode.Scalar) -> Bool in alphanumeric(u) }) else { return nil }
+        var kept = Array(scalars[first...].prefix(64))
+        while let last = kept.last, last == blank { kept.removeLast() }
+        var out = ""
+        out.unicodeScalars.append(contentsOf: kept)
+        return out.isEmpty ? nil : out
+    }
+
+    /// `A-Z`, `a-z`, `0-9`.
+    private static func alphanumeric(_ u: Unicode.Scalar) -> Bool {
+        let v = u.value
+        return (0x41...0x5A).contains(v) || (0x61...0x7A).contains(v) || (0x30...0x39).contains(v)
+    }
+
+    private static func allowed(_ u: Unicode.Scalar) -> Bool {
+        alphanumeric(u) || " _.,+()/-".unicodeScalars.contains(u)
     }
 }
 

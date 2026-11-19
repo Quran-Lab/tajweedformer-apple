@@ -25,11 +25,14 @@ final class PrivacyManifestTests: XCTestCase {
         XCTAssertEqual(m["NSPrivacyTracking"] as? Bool, false)
         XCTAssertEqual((m["NSPrivacyTrackingDomains"] as? [String])?.count, 0)
         // disk space before a model download, file metadata of the model files in the app's container
-        XCTAssertEqual(reasons(m), ["NSPrivacyAccessedAPICategoryDiskSpace": ["E174.1"], "NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"]])
+        // SDK 4.0: the boot clock (mach_continuous_time, the boot's id) times the protected model's lease (18.4.7)
+        XCTAssertEqual(reasons(m), ["NSPrivacyAccessedAPICategoryDiskSpace": ["E174.1"], "NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"],
+                                    "NSPrivacyAccessedAPICategorySystemBootTime": ["35F9.1"]])
         let collected = (m["NSPrivacyCollectedDataTypes"] as? [[String: Any]]) ?? []
         let types = Set(collected.compactMap { $0["NSPrivacyCollectedDataType"] as? String })
         XCTAssertEqual(types, ["NSPrivacyCollectedDataTypeProductInteraction", "NSPrivacyCollectedDataTypePerformanceData",
-                               "NSPrivacyCollectedDataTypeOtherDiagnosticData", "NSPrivacyCollectedDataTypeAudioData"])
+                               "NSPrivacyCollectedDataTypeOtherDiagnosticData", "NSPrivacyCollectedDataTypeAudioData",
+                               "NSPrivacyCollectedDataTypeCrashData"])
         for c in collected {
             XCTAssertEqual(c["NSPrivacyCollectedDataTypeLinked"] as? Bool, false)
             XCTAssertEqual(c["NSPrivacyCollectedDataTypeTracking"] as? Bool, false)
@@ -37,10 +40,26 @@ final class PrivacyManifestTests: XCTestCase {
         }
     }
 
-    func testTheXcframeworksManifest() throws {
+    /// The Core's xcframework the package builds with: beside Package.swift where the binary target is a path, else
+    /// where SwiftPM put the one it fetched by URL and checked (`.build/artifacts`, as in a released package).
+    static func coreXcframework() throws -> URL {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fm = FileManager.default
+        let local = root.appendingPathComponent("QuranLabCore.xcframework")
+        if fm.fileExists(atPath: local.path) { return local }
+        let artifacts = root.appendingPathComponent(".build/artifacts")
+        if let e = fm.enumerator(at: artifacts, includingPropertiesForKeys: nil) {
+            for case let url as URL in e where url.lastPathComponent == "QuranLabCore.xcframework" { return url }
+        }
+        throw XCTSkip("no QuranLabCore.xcframework beside Package.swift or in .build/artifacts")
+    }
+
+    func testTheXcframeworksManifest() throws {
+        let xcframework = try Self.coreXcframework()
         for slice in ["ios-arm64", "ios-arm64-simulator", "macos-arm64"] {
-            let url = root.appendingPathComponent("TajweedFormerCore.xcframework/\(slice)/PrivacyInfo.xcprivacy")
+            // SDK 4.0: the Core's framework bundle carries it (scripts/build_core_xcframework.py)
+            let inside = slice.hasPrefix("macos") ? "QuranLabCore.framework/Versions/A/Resources" : "QuranLabCore.framework"
+            let url = xcframework.appendingPathComponent("\(slice)/\(inside)/PrivacyInfo.xcprivacy")
             let m = try manifest(url)
             XCTAssertEqual(m["NSPrivacyTracking"] as? Bool, false, slice)
             XCTAssertEqual(reasons(m), ["NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"]], slice)

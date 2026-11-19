@@ -1,0 +1,416 @@
+{
+ "section": "PROTECTED_MODEL.md 18.6.7, 18.4.5 and 18.5.2 (quranlab-core docs/spec-fixes/16, after 14)",
+ "rule": "The SDK hands a lease answer's piece to the Core right after qlc_lease_accept of that answer, always. The Core keeps it pending (in its saved state too) and puts it in force at the next model open after the hand-over; that open first makes the piece then in force the last good one if the server accepted a lease asked under it. A piece is the last good one only when (a) the server accepted a lease whose request was asked under it and (b) a model opened after that acceptance. A refusal while the piece in force is not the last good one sends the next ask back to the last good piece (none: piece 0) and voids an earlier acceptance under it; a pending piece waits on. A piece that does not verify changes nothing. A 429 or 503 (busy) reaches no Core call: nothing changes. The piece in force, a refused one, the last good one, the pending one and the acceptance are kept in the saved state; after a restart any model open is after the hand-over and after the acceptance.",
+ "reference": "protected40.py PieceOrder (quranlab-core tools/piece_rule.py)",
+ "pieces": "tools/make_test_pieces.py: piece7, piece8, piece9 (ids 7, 8, 9), piece_bad_sig (piece 7, one signature byte changed)",
+ "steps_are": "Steps, in the order a wrapper makes the calls: {\"op\": \"ask\", \"want\": id} the piece qlc_lease_ask is made under; \"accept\" qlc_lease_accept of the last ask's answer, always followed by \"piece\" (the answer's piece handed over: \"name\" piece7, piece8, piece9 or piece_bad_sig); \"refuse\" qlc_refusal_accept of a refusal (not a stop); \"busy\" a 429 or 503 (no call); \"open\" a model opens; \"open_fails\" a model open that fails; \"close\" it closes; \"restart\" the process ends and a new one starts from the state the last saved.",
+ "sequences": [
+  {
+   "name": "opens between leases (an app that opens its model at each launch, then refreshes the lease)",
+   "asks": [
+    0,
+    7,
+    8,
+    7,
+    8,
+    8,
+    8,
+    9,
+    9,
+    8,
+    9,
+    9,
+    8
+   ],
+   "steps": [
+    {
+     "op": "ask",
+     "want": 0
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece7"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece8"
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    },
+    {
+     "op": "refuse"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece8"
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece_bad_sig"
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    },
+    {
+     "op": "refuse"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece9"
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 9
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece9"
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open_fails"
+    },
+    {
+     "op": "ask",
+     "want": 9
+    },
+    {
+     "op": "refuse"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece9"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 9
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece9"
+    },
+    {
+     "op": "ask",
+     "want": 9
+    },
+    {
+     "op": "refuse"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    }
+   ]
+  },
+  {
+   "name": "no opens between leases (one launch, several refreshes)",
+   "asks": [
+    0,
+    0,
+    0,
+    7,
+    7,
+    0,
+    8
+   ],
+   "steps": [
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 0
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece7"
+    },
+    {
+     "op": "ask",
+     "want": 0
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece7"
+    },
+    {
+     "op": "ask",
+     "want": 0
+    },
+    {
+     "op": "refuse"
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece8"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "refuse"
+    },
+    {
+     "op": "ask",
+     "want": 0
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    }
+   ]
+  },
+  {
+   "name": "a restart in the middle (the pending piece, the acceptance and a refusal in the saved state)",
+   "asks": [
+    0,
+    0,
+    7,
+    8,
+    7,
+    7
+   ],
+   "steps": [
+    {
+     "op": "ask",
+     "want": 0
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece7"
+    },
+    {
+     "op": "restart"
+    },
+    {
+     "op": "ask",
+     "want": 0
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece8"
+    },
+    {
+     "op": "restart"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    },
+    {
+     "op": "refuse"
+    },
+    {
+     "op": "restart"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    }
+   ]
+  },
+  {
+   "name": "busy (429, 503): no Core call, the piece in force unchanged",
+   "asks": [
+    0,
+    7,
+    7,
+    7,
+    8,
+    7
+   ],
+   "steps": [
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 0
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece7"
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "busy"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "busy"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    },
+    {
+     "op": "accept"
+    },
+    {
+     "op": "piece",
+     "name": "piece8"
+    },
+    {
+     "op": "close"
+    },
+    {
+     "op": "open"
+    },
+    {
+     "op": "ask",
+     "want": 8
+    },
+    {
+     "op": "refuse"
+    },
+    {
+     "op": "ask",
+     "want": 7
+    }
+   ]
+  }
+ ]
+}

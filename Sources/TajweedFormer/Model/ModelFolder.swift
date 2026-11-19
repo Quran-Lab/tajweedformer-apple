@@ -1,9 +1,10 @@
 import Foundation
 
-/// A verified TajweedFormer V4 model folder (`sdk/v4.0`, manifest format 3, folder layout v2): the tj3 tokens, the CPU
-/// engine's files, calibration.json when the build ships it (data only), and, on iOS 18 / macOS 15, the CoreML
-/// package. Every file on disk was checked against the signed manifest (size and SHA-256 of the decoded file) when the
-/// folder was opened; a file the manifest does not list is never opened. A folder is one build of a model version.
+/// A verified TajweedFormer model folder of SDK 4.0 (`sdk/v4.0`, manifest format 3 with `encryption`): the signed
+/// manifest, the device forms the Core wrote at install (ciphertext under a key of this install's lease), and the few
+/// plain files the manifest keeps plain (calibration.json, the self-test clips), each checked against the manifest
+/// when the folder was opened. The SDK never reads a model file: only the Core opens the device forms, from a lease.
+/// The vocabulary is the SDK's own copy of the build's tokens.txt, chosen by the signed `tokens_sha256`.
 struct ModelFolder: Sendable {
     /// One CoreML build of a context: the package (multifunction: functions `front_<ctx>` / `back_<ctx>`; a
     /// single-context package: `front` / `back`) and the context's keep table.
@@ -151,6 +152,11 @@ struct ModelFolder: Sendable {
         var appleProblem: String?
         let fm = FileManager.default
         for f in m.files {
+            if f.isEncrypted {
+                // the device form, by its size; its records' tags are checked by the Core at every open
+                if ModelInstaller.present(f, in: directory) { verified.insert(f.localPath) }
+                continue
+            }
             let url = directory.appendingPathComponent(f.localPath)
             guard fm.fileExists(atPath: url.path) else { continue }
             let (size, sha) = try ModelManifest.digest(url)
@@ -163,14 +169,11 @@ struct ModelFolder: Sendable {
             }
         }
         guard verified.contains(m.tokens) else { throw .modelMissing("\(m.tokens) is not in \(directory.lastPathComponent)") }
-        // nothing unlisted may sit in a CoreML package, where CoreML would read it
-        let listed = Set(m.files.map(\.localPath))
-        for pkg in packages(m.files.filter { DownloadProfile.packageRoles.contains($0.role) }) where fm.fileExists(atPath: directory.appendingPathComponent(pkg).path) {
-            for p in try filesUnder(directory, pkg) where !listed.contains(p) {
-                appleProblem = appleProblem ?? "\(p) is in the CoreML package but not in the manifest"
-            }
-        }
-        let vocab = try Vocabulary(tokensFile: directory.appendingPathComponent(m.tokens))
+        // SDK 4.0: accelerator programs are opened by the Core only (18.5.6), from their device forms; Core ML never reads
+        // the folder, so nothing in it is refused for not being listed. Tried before (a397d40 to 9d16fe0): every folder
+        // was given the problem "accelerator programs are opened by the Core", which made `coreML` nil for every build,
+        // so the promotion's download stage refused every build (`verify`) and no Apple device was ever promoted.
+        let vocab = try Vocabularies.vocabulary(sha256: m.tokensSHA256)
         guard vocab.count == 38, vocab.blank == 0 else {
             throw .manifestInvalid("tokens.txt has \(vocab.count) tokens, blank \(vocab.blank); V4 is tj3, 38, blank 0")
         }
@@ -180,6 +183,33 @@ struct ModelFolder: Sendable {
             throw .modelMissing("no context of \(m.modelID) has all its CPU files in \(directory.lastPathComponent)")
         }
         return model
+    }
+
+    /// The same folder with its accelerator files checked again from disk, as `open` checks them (an encrypted file by
+    /// its device form's size, any other by size and SHA-256); the CPU files keep the verdict of `open`. The
+    /// promotion's download stage judges the build by this, never by the problem `open` found before the download
+    /// (SDK 3.1.5: to 3.1.4 an interrupted download's problem refused the download that had just set it right).
+    func rechecked() throws(RecognizerError) -> ModelFolder {
+        let fm = FileManager.default
+        var verified = verifiedFiles
+        var problem: String?
+        for f in manifest.files where DownloadProfile.appleRoles.contains(f.role) {
+            verified.remove(f.localPath)
+            if f.isEncrypted {
+                if ModelInstaller.present(f, in: directory) { verified.insert(f.localPath) }
+                continue
+            }
+            let url = directory.appendingPathComponent(f.localPath)
+            guard fm.fileExists(atPath: url.path) else { continue }
+            let (size, sha) = try ModelManifest.digest(url)
+            if size == f.localSize && sha == f.localSHA256 {
+                verified.insert(f.localPath)
+            } else {
+                problem = problem ?? "\(f.localPath) does not match the manifest"
+            }
+        }
+        return ModelFolder(id: id, directory: directory, manifest: manifest, vocabulary: vocabulary, verifiedFiles: verified,
+                           coreMLProblem: problem)
     }
 
     /// Every regular file under `directory/sub`, as paths relative to `directory`, sorted.

@@ -94,6 +94,8 @@ struct SessionTelemetry: Sendable, Hashable {
     /// The decoded layer's tokens: each one's margin and confidence (histograms only).
     var margins: [Double] = []
     var confidences: [Double] = []
+    /// SDK 4.0 (17.8 `hour_speech_s`): the take's speech in milliseconds by the learner's local hour at each chunk.
+    var hourSpeechMs: [Int: Int] = [:]
 
     /// What a take that counts adds to the SDK-measured counters: its input audio, its speech and silence frames (the
     /// active and inactive frames of `SpeechTracker`, from `log_probs` and `timing_log_probs`, which every Session
@@ -122,7 +124,9 @@ enum AnalyticsEvent: Sendable, Hashable {
     case sessionFinished(SessionTelemetry)
     case sessionAborted(cohort: TelemetryCohort)
     /// A model download: `revision` is the model version when it is known (else the build), `build` the build id.
-    case download(revision: String, build: String, profile: String, bytes: Int64, success: Bool, resumed: Bool)
+    /// `failure`: why a download that failed failed (the telemetry's `failure_reasons`; Apple 3.1.5 and 4.0).
+    case download(revision: String, build: String, profile: String, bytes: Int64, success: Bool, resumed: Bool,
+                  failure: DownloadFailure? = nil)
     /// The Neural Engine's promotion pipeline and in-session failovers (telemetry `promotions`).
     case promotion(PromotionTelemetry)
 }
@@ -131,6 +135,26 @@ enum AnalyticsEvent: Sendable, Hashable {
 /// at once.
 protocol AnalyticsSink: Sendable {
     func record(_ event: AnalyticsEvent)
+}
+
+/// Why a model download failed, as the telemetry's `downloads[].failure_reasons` names it (the server's
+/// DOWNLOAD_FAILURES; Apple 3.1.5 and 4.0). Before, a failure carried no reason, and a download the network stopped or
+/// that had no room was not counted at all.
+enum DownloadFailure: String, Sendable, CaseIterable {
+    case network, http
+    case hashMismatch = "hash_mismatch"
+    case signature, storage, other
+
+    /// The name of a failure whose reason is `reason`: contract 24.8 (`ErrorRules.telemetryReason`).
+    /// Before 24.8 a 5xx or a redirect, worded as no answer, was counted as `network`, and a manifest that did not
+    /// parse as `signature`.
+    init(reason: String) {
+        self = DownloadFailure(rawValue: ErrorRules.telemetryReason(reason)) ?? .other
+    }
+
+    init(_ e: RecognizerError) {
+        self.init(reason: ErrorCause.of(e, stage: "download").reason)
+    }
 }
 
 /// On-device telemetry v2 as SDK 3.0.0 sends it: sums and histograms per UTC day and cohort, the downloads, the
@@ -192,6 +216,8 @@ final class AnalyticsStore: Sendable {
 
     struct Download: Codable, Equatable {
         var bytes: Int64 = 0, success = 0, failed = 0, resumed = 0
+        /// Optional, so an earlier day's record decodes: the failed downloads by reason (`DownloadFailure`).
+        var failureReasons: [String: Int]?
     }
 
     /// One `promotions` entry: a backend, model version, build and context.
@@ -213,6 +239,9 @@ final class AnalyticsStore: Sendable {
         var blankConfirmedOK: Int?
         /// The build id next to the version in `revision` (SDK 3.0.0; optional so days saved by 2.x decode).
         var build: String?
+        /// SDK 4.0: attempts that passed the golden test and stayed on the CPU engine, the accelerator slower: each one's
+        /// median chunk ms, accelerator and CPU (`slower_than_cpu`, at most 8 a day).
+        var slowerThanCPU: [[Double]]?
 
         var activity: Int { attempts + failovers + demoted + reasons.values.reduce(0, +) + (blankConfirmedOK ?? 0) }
     }
@@ -235,10 +264,13 @@ final class AnalyticsStore: Sendable {
         var shareYes = 0
         var shareNo = 0
         var promotions: [String: Promotion] = [:]   // "backend|revision|build|context"
+        /// SDK 4.0: `ayahs` and `surah_ayahs` above are MEASURED from 4.0 on (17.1); the app's counts, the app's
+        /// judgement and the new automatic counters are here.
+        var v4: RecitedDay?
 
         var isEmpty: Bool {
             cohorts.isEmpty && coverage.isEmpty && downloads.isEmpty && launches == 0 && ayahs == 0 && surahAyahs.isEmpty && words == 0
-                && ruleChecks.isEmpty && shareAsked == 0 && shareYes == 0 && shareNo == 0 && promotions.isEmpty
+                && ruleChecks.isEmpty && shareAsked == 0 && shareYes == 0 && shareNo == 0 && promotions.isEmpty && (v4?.isEmpty ?? true)
         }
     }
 
@@ -257,6 +289,11 @@ final class AnalyticsStore: Sendable {
         /// The rules the app reported checks for, by UTC day: at most 32 a day, kept with the day across its deltas
         /// (optional so a state saved by 2.x decodes).
         var rules: [String: [String]]?
+        /// SDK 4.0: takes open in the Core's recited journal and not counted yet, by take id (17.6).
+        var recitedPending: [String: PendingTake]?
+        /// SDK 4.0: this install's own days (17.8, 17.9), and the analytics session that is open (`session_s`).
+        var learner: LearnerJournal?
+        var openSession: OpenAnalyticsSession?
     }
 
     /// The counters besides sessions.
@@ -299,13 +336,20 @@ final class AnalyticsStore: Sendable {
 
     private let file: JSONFile<State>
     private let openFile: JSONFile<OpenSession>
+    /// The ayahs counted and the ayahs judged in this Client's session (17.8 `repeat_ayahs`, 17.9 first and repeat).
+    let sessionAyahs = Locked(Set<Int>())
+    let judgedAyahs = Locked(Set<Int>())
+    /// The groups of 17.8 and 17.9 the signed config switches off (`flags.metrics`), set at each send point.
+    let metricsOff = Locked(Set<String>())
+    /// R10: the learner's days in the Core's journal (set by the Client); nil keeps them in the state (`State.learner`).
+    let learnerDays = Locked<(any LearnerDaysSource)?>(nil)
     private let state: Locked<State>
     private let sending = Locked(false)
     private let backoff = Locked(Backoff())
     private let enabled: Bool
     let context: Context
     private let saver = DispatchQueue(label: "ai.quranlab.analytics", qos: .utility)
-    private let clock: @Sendable () -> Date
+    let clock: @Sendable () -> Date
 
     init(storage: URL, enabled: Bool, context: Context, clock: @escaping @Sendable () -> Date = { Date() }) {
         let f = JSONFile<State>(url: storage.appendingPathComponent("cloud/analytics-deltas.json"))
@@ -329,6 +373,8 @@ final class AnalyticsStore: Sendable {
         self.context = context
         openFile = JSONFile(url: storage.appendingPathComponent("cloud/session-open-v2.json"))
         recordAbortedSession()
+        // an analytics session a killed process left open is closed now (17.8 `session_s`)
+        if state.withLock({ $0.openSession != nil }) { closeSession() }
     }
 
     func markSessionOpen(_ c: TelemetryCohort) {
@@ -349,7 +395,7 @@ final class AnalyticsStore: Sendable {
         record(.sessionAborted(cohort: o.cohort))
     }
 
-    private func mutate(_ body: (inout Day, inout State) -> Void) {
+    func mutate(_ body: (inout Day, inout State) -> Void) {
         guard enabled else { return }
         let d = TelemetryDay.string(clock())
         state.withLock { s in
@@ -371,8 +417,11 @@ final class AnalyticsStore: Sendable {
 
     func waitForSave() { saver.sync {} }
 
+    /// The state as it is now.
+    var stateSnapshot: State { state.withLock { $0 } }
+
     /// Writes the state now (sealed deltas are on disk before they are sent).
-    private func saveNow() {
+    func saveNow() {
         let file = self.file, state = self.state
         saver.sync { file.write(state.withLock { $0 }) }
     }
@@ -418,6 +467,7 @@ final class AnalyticsStore: Sendable {
                 for m in s.margins { c.margin[Histogram.index(m, Histogram.margin.1)] += 1 }
                 for v in s.confidences { c.confidence[Histogram.index(v, Histogram.confidence.1)] += 1 }
             }
+            recordTake(s)
         case .sessionAborted(let co):
             cohort(co) { c in
                 c.sessions += 1
@@ -429,13 +479,14 @@ final class AnalyticsStore: Sendable {
             cohort(co) { c in if passed { c.selfTestPass += 1 } else { c.selfTestFail += 1 } }
         case .fallback(let reason, let co):
             cohort(co) { $0.fallbacks[reason.rawValue, default: 0] += 1 }
-        case .download(let rev, let build, let profile, let bytes, let ok, let resumed):
+        case .download(let rev, let build, let profile, let bytes, let ok, let resumed, let failure):
             let k = "\(rev)|\(build)|\(profile)"
             mutate { d, _ in
                 var x = d.downloads[k] ?? Download()
                 x.bytes += bytes
                 if ok { x.success += 1 } else { x.failed += 1 }
                 if resumed { x.resumed += 1 }
+                if !ok, let failure { x.failureReasons = (x.failureReasons ?? [:]).merging([failure.rawValue: 1], uniquingKeysWith: +) }
                 d.downloads[k] = x
             }
         case .promotion(let t):
@@ -461,6 +512,13 @@ final class AnalyticsStore: Sendable {
                     p.failoverStall[Histogram.index(stallMs, Histogram.stallMs.1)] += 1
                 case .blankConfirmedOK:
                     p.blankConfirmedOK = (p.blankConfirmedOK ?? 0) + 1
+                case .slowerThanCPU(let acc, let cpu, let compileMs):
+                    p.attempts += 1
+                    p.reasons[PromotionReason.slowerThanCPU.rawValue, default: 0] += 1
+                    if let compileMs { p.compileMs[Histogram.index(compileMs, Histogram.compileMs.1)] += 1 }
+                    if acc > 0 { p.speedup[Histogram.speedupIndex(cpu / acc)] += 1 }
+                    let pair = [acc, cpu].map { ($0 * 10).rounded() / 10 }
+                    p.slowerThanCPU = Array(((p.slowerThanCPU ?? []) + [pair]).prefix(8))
                 }
                 d.promotions[k] = p
             }
@@ -489,16 +547,12 @@ final class AnalyticsStore: Sendable {
         }
     }
 
-    /// Where the learner recited in a take that ended with its Heads (app-reported): the ayahs of the range, in the
-    /// day's `ayahs`, `surah_ayahs` and `coverage` (the same values; `coverage` is kept for readers of 2.x).
+    /// Where the learner recited in a take that ended with its Heads, as the app reported it, for a take the detector
+    /// counted nothing for (17.1): `app_ayahs` and `app_surah_ayahs`. SDK 4.0: `ayahs` and `surah_ayahs` are the
+    /// measured counts and `coverage` is not sent.
     func reportRecited(surah: Int, ayahFrom: Int, ayahTo: Int) {
-        let n = ayahTo - ayahFrom + 1
-        guard (1...114).contains(surah), n > 0 else { return }
-        mutate { d, _ in
-            d.ayahs += n
-            d.surahAyahs[String(surah), default: 0] += n
-            d.coverage[String(surah), default: 0] += n
-        }
+        guard (1...114).contains(surah), ayahFrom >= 1, ayahTo >= ayahFrom else { return }
+        count(take: nil, measured: nil, report: SessionShared.Recited(surah: surah, ayahFrom: ayahFrom, ayahTo: ayahTo), late: false)
     }
 
     /// Counted and not sealed yet, by day, for tests and for a host that shows what is sent.
@@ -529,8 +583,11 @@ final class AnalyticsStore: Sendable {
         return (0..<16).map { (_: Int) -> String in String(format: "%02x", UInt8.random(in: 0...255, using: &g)) }.joined()
     }
 
-    /// The six fields the app reports itself, in the order `reported` lists them.
-    static let appReported = ["ayahs", "surah_ayahs", "coverage", "words", "rule_checks", "rule_flags"]
+    /// The fields the app reports itself, in the order `reported` lists them. SDK 4.0 (17.1): `ayahs` and
+    /// `surah_ayahs` are measured by the SDK and never listed; the app's ranges are `app_ayahs` and
+    /// `app_surah_ayahs`; `coverage` is not sent.
+    static let appReported = ["app_ayahs", "app_surah_ayahs", "words", "rule_checks", "rule_flags", "judged", "judged_surah_ayahs",
+                              "correct_surah_ayahs", "judged_tenure", "trend"]
 
     /// The v2 body of one delta as SDK 3.0.0 sends it (a closed schema on the server: exactly these fields; zero
     /// counts and empty objects left out; `report_id` always). Cohorts beyond 16 are merged into the 16 largest by
@@ -579,6 +636,7 @@ final class AnalyticsStore: Sendable {
             o["success"] = Self.clip(v.success)
             o["failed"] = Self.clip(v.failed)
             o["resumed"] = Self.clip(v.resumed)
+            if let r = v.failureReasons, !r.isEmpty { o["failure_reasons"] = r.mapValues { Self.clip($0) } }
             downloads.append(o)
         }
         var p: [String: Any] = ["v": 2, "day": d.day, "product": "apple", "platform": context.platform, "sdk_version": context.sdkVersion,
@@ -594,9 +652,8 @@ final class AnalyticsStore: Sendable {
             }
             return out
         }
-        let perSurah = surahs(d.surahAyahs), coverage = surahs(d.coverage)
+        let perSurah = surahs(d.surahAyahs)
         if !perSurah.isEmpty { p["surah_ayahs"] = perSurah }
-        if !coverage.isEmpty { p["coverage"] = coverage }
         if d.words > 0 { p["words"] = Self.clip(d.words) }
         // at most 32 rules, the most checked first; a flag count never above its check count
         let rules = d.ruleChecks.filter { (e: (key: String, value: Int)) -> Bool in e.value > 0 && Self.ruleKey(e.key) }
@@ -610,6 +667,7 @@ final class AnalyticsStore: Sendable {
         }
         if !ruleChecks.isEmpty { p["rule_checks"] = ruleChecks }
         if !ruleFlags.isEmpty { p["rule_flags"] = ruleFlags }
+        if let v = d.v4 { for (k, value) in v.fields(off: metricsOff.withLock { $0 }) { p[k] = value } }
         let reported = Self.appReported.filter { p[$0] != nil }
         if !reported.isEmpty { p["reported"] = reported }
         if d.shareAsked > 0 { p["share_asked"] = Self.clip(d.shareAsked) }
@@ -665,6 +723,12 @@ final class AnalyticsStore: Sendable {
             if e.failovers > 0 { o["failovers"] = clip(e.failovers) }
             if e.demoted > 0 { o["demoted"] = clip(e.demoted) }
             if let n = e.blankConfirmedOK, n > 0 { o["blank_confirmed_ok"] = clip(n) }
+            // SDK 4.0: each attempt that stayed on the CPU engine, the accelerator slower, with both medians (ms)
+            if let s = e.slowerThanCPU, !s.isEmpty {
+                o["slower_than_cpu"] = s.prefix(8).compactMap { (x: [Double]) -> [String: Double]? in
+                    x.count == 2 ? ["accelerator_ms": min(600_000, max(0, x[0])), "cpu_ms": min(600_000, max(0, x[1]))] : nil
+                }
+            }
             out.append(o)
         }
         return out
@@ -674,12 +738,18 @@ final class AnalyticsStore: Sendable {
     @discardableResult
     func seal() -> Int {
         let oldest = TelemetryDay.string(clock().addingTimeInterval(-7 * 86_400))
+        let off = metricsOff.withLock { $0 }
+        let days = learnerDays.withLock { $0 }
+        var core = days?.read()
+        var toCore: [(sealed: String?, trendWeek: String?)] = []
         let made = state.withLock { s -> Int in
             var n = 0
             for k in s.open.keys.sorted() {
-                guard let d = s.open[k] else { continue }
+                guard var d = s.open[k] else { continue }
                 s.open[k] = nil
                 guard d.day >= oldest, !d.isEmpty else { continue }
+                // 17.8, 17.9: the learner facts of an active day and the week's trend, once, in this same write
+                toCore.append(Self.sealFacts(&d, &s, off: off, core: &core))
                 let id = Self.reportID()
                 guard let body = try? JSONSerialization.data(withJSONObject: payload(d, reportID: id), options: [.sortedKeys]) else { continue }
                 s.seq += 1
@@ -690,6 +760,13 @@ final class AnalyticsStore: Sendable {
             return n
         }
         saveNow()
+        // R10: the days sealed and the trends sent, into the Core's journal once the deltas that carry them are saved
+        if let days {
+            for x in toCore {
+                if let day = x.sealed { days.seal(utc: day) }
+                if let w = x.trendWeek { days.trendSent(week: w) }
+            }
+        }
         return made
     }
 
@@ -775,6 +852,7 @@ extension AnalyticsStore.Day {
         shareYes = try c.decodeIfPresent(Int.self, forKey: .shareYes) ?? 0
         shareNo = try c.decodeIfPresent(Int.self, forKey: .shareNo) ?? 0
         promotions = try c.decodeIfPresent([String: AnalyticsStore.Promotion].self, forKey: .promotions) ?? [:]
+        v4 = try? c.decodeIfPresent(RecitedDay.self, forKey: .v4)
     }
 }
 

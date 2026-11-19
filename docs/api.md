@@ -36,6 +36,7 @@ here. The names are those of the four TajweedFormer SDKs. Start with the README'
 | [`SharingSettingsViewControllerMac`](#sharingsettingsviewcontrollermac) | AppKit: the sharing settings in a view controller. |
 | [`SharingThanksView`](#sharingthanksview) | The thank-you line with its du'a, and (when the server answers) the learner's real shared minutes. |
 | [`SharingTheme`](#sharingtheme) | How the SDK's sharing views look in the app: colours, corner radius and fonts. |
+| [`TajweedRecitedOutcome`](#tajweedrecitedoutcome) | The app's own judgement of an ayah or a range: correct, or incorrect with how many mistakes and which rules. |
 | [`View`](#view) |  |
 
 ## TajweedClient
@@ -44,9 +45,9 @@ here. The names are those of the four TajweedFormer SDKs. Start with the README'
 public final class TajweedClient: Sendable
 ```
 
-The app's link to Quran Lab: the key, the signed config, registration, telemetry, issues, sharing and the model files on disk. Make one at launch with the app's key from sdk.quranlab.ai and keep it: One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition path waits on the network once the model is on the device. A model comes only from Quran Lab's server, through the Client (3.1.0): the key, the signed config, the SDK's own download and its verification. No call takes a model folder, and a Client opens only a build it downloaded itself on this device.
+The app's link to Quran Lab: the key, the signed config, registration, telemetry, issues, sharing and the model files on disk. Make one at launch with the app's key from sdk.quranlab.ai and keep it: One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition path waits on the network once the model is on the device. Making the Client downloads no model: the model downloads only when the app calls `model()` or `prefetch()` (a later start checks only for an update of a build this Client installed on this device). A model comes only from Quran Lab's server, through the Client (3.1.0): the key, the signed config, the SDK's own download and its verification. No call takes a model folder, and a Client opens only a build it downloaded itself on this device.
 
-- `public let sharing: TajweedSharing`: Sharing recitations with Quran Lab: whether it is offered, the learner's choice, the outbox.
+- `public let sharing: TajweedSharing`: Sharing recitations with Quran Lab: whether Quran Lab's switch has it on, the learner's choice, the outbox.
 - `public let analytics: TajweedAnalytics`: Counters the app reports itself.
 - `public convenience init(key: String, options: TajweedClientOptions = TajweedClientOptions()) throws(TajweedError)`: - Parameter key: the app's key from sdk.quranlab.ai (`qlk_v1_...`), for this app's bundle id.
 - `public func close()`: Ends the Client: its network calls and upload queue stop, and another Client can be made. Models made by it stay usable for takes that are open.
@@ -54,6 +55,9 @@ The app's link to Quran Lab: the key, the signed config, registration, telemetry
 - `public func prefetch(unmeteredOnly: Bool = false, onProgress: (@Sendable (_ done: Int64, _ total: Int64) -> Void)? = nil) async throws(TajweedError)`: Downloads and verifies the model ahead of use. Resumable: a download that stopped goes on where it stopped. With `unmeteredOnly` it follows the connection `diagnose()` reports: it downloads on `unmetered` (Wi-Fi, Ethernet) and on `unknown`, and does nothing on `metered` (cellular, a personal hotspot, Low Data Mode) and on `none`; call it again later. A no-op when the model is on the device. `onProgress` gets the bytes done and the total of the files to download, as they arrive.
 - `public var storage: TajweedDiagnosis.Storage`: What the SDK holds on disk: the bytes of each model build, ordered by version then build, and the bytes of the sharing queue. The same object as `diagnose().storage`.
 - `public func removeModels() throws(TajweedError)`: Removes the model files (the next `model()` downloads them again). The learner's sharing choice and the upload queue stay.
+- `public static func isBackgroundSession(_ identifier: String) -> Bool`: Whether a background URLSession identifier is one of the SDK's (they start with `ai.quranlab.`). For the app delegate, and for SwiftUI's `.backgroundTask(.urlSession(matching:))`.
+- `public static func handleBackgroundEvents(identifier: String, completionHandler: @escaping () -> Void) -> Bool`: Forward the app delegate's `application(_:handleEventsForBackgroundURLSession:completionHandler:)` here. The SDK's transfers go on while the app is suspended; when they are done the system starts the app in the background and hands it this completion handler, which the SDK calls once its session has delivered everything. It may be called before the app has made its Client: the handler then waits for the Client, and is called in any case after a short while, so the system is always answered. Returns false, and does not call `completionHandler`, when the session is not the SDK's (pass it to its owner then). An app that does not forward loses nothing: the transfers finish all the same, and the SDK collects their results when the Client is next made. The handler is taken as the system declares it (not marked `@Sendable`), so an app delegate passes it on as it is in any language mode; the SDK calls it once, on the main queue.
+- `public static func backgroundEvents(identifier: String) async`: The same for SwiftUI (iOS 16): returns when the SDK's background session `identifier` has delivered its events, at once when the session is not the SDK's. On the app's scene:
 - `public func background()`: The app left the foreground. iOS and macOS apps need not call it: the SDK follows the system's notifications. For hosts without them (an extension, a command-line tool).
 - `public func foreground()`: The app returned to the foreground (see `background()`).
 - `public func diagnose() async -> TajweedDiagnosis`: One structured report of where the SDK stands, safe to paste into an issue: no audio, no text, no identifiers.
@@ -64,26 +68,12 @@ The app's link to Quran Lab: the key, the signed config, registration, telemetry
 public struct TajweedClientOptions: Sendable
 ```
 
-What a Client may be told besides its key. Every field has a default.
+What a Client may be told besides its key. Every field has a default. SDK 4.0: there is no analytics option. Anonymous analytics (daily counts and durations only, never audio, text, names or device identifiers) are always on; Quran Lab's signed config (`flags.analytics`) is the only off switch. SDK 4.0: there is no audience option. Every app shows the same sharing sheet, every learner is asked under the same rules, and the choice is the learner's.
 
 - `public var appId: String?`: The app's id; nil reads the bundle identifier.
 - `public var appVersion: String?`: The app's version; nil reads the bundle's short version.
 - `public var storage: URL?`: Where the SDK keeps models and its queues; nil means `Application Support/QuranLab` (on macOS `Application Support/<bundle id>/QuranLab`). The folder is the SDK's to fill: a model found there that this Client did not download itself on this device is not opened; it is deleted and downloaded.
-- `public var analytics: Analytics`
-- `public var audience: Audience`
-- `public init(appId: String? = nil, appVersion: String? = nil, storage: URL? = nil, analytics: Analytics = .on, audience: Audience = .general)`
-
-### TajweedClientOptions.Analytics
-
-- `public enum Analytics: String, Sendable, Hashable`
-- `case on`: Anonymous daily sums and histograms: never audio, text or identifiers.
-- `case off`
-
-### TajweedClientOptions.Audience
-
-- `public enum Audience: String, Sendable, Hashable`
-- `case general`
-- `case children`: The sharing sheet addresses the parent or guardian and needs their confirmation.
+- `public init(appId: String? = nil, appVersion: String? = nil, storage: URL? = nil)`
 
 ## TajweedModel
 
@@ -101,14 +91,16 @@ One verified model build on this device: its version, contexts, tokens, calibrat
 - `public func chunkMs(_ context: String) throws(TajweedError) -> Int`: The length of a chunk of `context`, in milliseconds.
 - `public var tokens: TajweedTokens`: The vocabulary: token names and ids, the blank and the word bar.
 - `public var calibration: TajweedCalibration?`: calibration.json as shipped: read-only data for an app's own judge. The SDK never applies it. Nil when the folder has none.
-- `public var reference: TajweedReference?`: The expected units of each ayah, read-only data for an app's own judge; nil when this build ships none. The table is not part of the model's download: `reference.fetch()` brings it, once.
+- `public var reference: TajweedReference?`: The expected units of each ayah, read-only data for an app's own judge; nil when this build ships none. The table is not part of the model's download: `reference.fetch()` brings it, once. SDK 4.0: the table is encrypted and only the Core reads it, at the first `units` call after the model opened (it needs the lease then).
 - `public var sampleClips: [TajweedClip]`: Short recitations to run without a microphone (`listen(from:)`): the folder's self-test clips, else the three clips the SDK carries.
 - `public var backend: TajweedBackend`: The Backend the next Session will use.
 - `public func listen(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession`: A Session fed by the SDK's microphone: asks for the permission, captures at the device's rate and carries that rate to the Session. Interruptions, route changes and the app leaving the foreground are handled and reported on `session.events`. Throws `microphone_denied` when the permission is refused. Nothing is captured before this call or after the take ends.
 - `public func listen(from clip: TajweedClip, options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession`: The same path with no microphone: a Session fed by one of `sampleClips`, at real-time pace or (with `options.pace = .fast`) as fast as the engine takes it. The take ends with `ended(.sourceEnd)`.
 - `public func listen(from samples: [Float], sampleRate: Double, options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession`: The same with samples the app already has: mono, -1...1, at `sampleRate`.
 - `public func session(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession`: A Session the app pushes audio into (`session.push(_:)`), at `options.sampleRate`.
+- `public func prepare(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedBackend`: Warms the engine for the Session these options describe, ahead of its first take. `client.model()` warms the default Session only; a Session with another context, other heads or another backend gets its own engine, which is otherwise made when its first take opens, too late for that take to start on the Neural Engine. Call this once with the options your takes use (their `context`, `heads` and `backend`; the other fields are not read): the context's files are fetched when they are not on the device yet, the CPU engine is built, and the call waits until the Neural Engine's build for these options is ready or will not be. It returns the Backend the next Session with the same options starts on: the accelerator where this device has one for them, else the CPU engine, with the stage and reason `backend` reports. Where no accelerator applies (an older system, a CPU-only context, `backend: .cpu`) it returns at once with the CPU engine. A second call with the same options finds the engine warm and does nothing more. A Session with other options is not covered by it: it gets its own engine as before. On a device that has not promoted the build yet, the wait includes the promotion (the build's download on an unmetered network, its compilation and its test, up to ten minutes); takes can run meanwhile on the CPU engine. While a Session is open the call throws `session_open`: it is for the time before a take.
 - `public func close() async`: Releases the engine. An open Session is cancelled.
+- `public func prepareAccelerator(context: String? = nil, again: Bool = false, timeout: Double = 300) async throws(TajweedError) -> TajweedBackend`: Prepares the Neural Engine's build for `context` (nil: the default context) now and waits for it (4.0.0, as Apple 3.1.5): the download on an unmetered network, the compile, the test against the CPU engine, then the build loaded and warm, so the next Session with `backend: .auto` runs on it from its first chunk. A build promoted at an earlier launch is loaded and warmed again (no test). `again: true` first forgets this device's verdict on the build (a failure, a demotion, a promotion) and prepares it from the start: the way to ask for it again after a failure. The preparation also runs by itself in the background (the first `.auto` engine of a launch starts it after the first take or 20 s without one); a process that ends during it simply goes on with it at a later launch. Call this when the app needs the Neural Engine at a known point, or when its takes name `backend: .cpu` (an engine for `.cpu` alone never prepares the Neural Engine). Returns `backend` as it stands when the build is ready, the preparation stopped (`demoted` with a reason, or `cpu` while it waits for an unmetered network, power or a backoff), or `timeout` seconds passed; after a timeout the preparation goes on in the background. Throws `session_open` while a Session is open. Never needed for correctness: the CPU engine serves every take.
 
 ## TajweedSession
 
@@ -124,7 +116,7 @@ One take: audio in, chunks and events out, the take's Heads at the end. There ar
 - `public func finish() async throws(TajweedError) -> TajweedHeads`: Ends the take and returns its Heads. On a `listen` Session it also stops the microphone. After a take that ended by itself (an `ended` event) it returns that take's Heads; after `cancel()` it throws `cancelled`.
 - `public func cancel() async`: Ends the take and keeps nothing.
 - `public var backend: TajweedBackend`: The Backend in force for this take.
-- `public func reportRecited(surah: Int, ayahFrom: Int, ayahTo: Int) throws(TajweedError)`: Where the learner recited in this take, for the app's analytics on sdk.quranlab.ai: counted into the ayahs per surah, never sent with a recording. One report per take: before the take ends a later call replaces an earlier one and the report is counted when the take ends with its Heads; after such a take has ended the first call is counted at once. A take that was cancelled or failed counts none.
+- `public func reportRecited(surah: Int, ayahFrom: Int, ayahTo: Int, outcome: TajweedRecitedOutcome? = nil, perAyah: [Int: TajweedRecitedOutcome] = [:]) throws(TajweedError)`: Where the learner recited in this take, and optionally whether the app's own judge found it correct, for the app's statistics on sdk.quranlab.ai. The SDK counts the ayat of each take by itself; where it could not tell, it uses this report for that take, and a take is never counted twice. `outcome` applies to every ayah of the range that `perAyah` does not name; neither given, the take is reported as recited and judged nothing (17.9). These numbers are the app's own judgement: the SDK does not judge a recitation. One report per take: a later call replaces an earlier one; it is used when the take ends with its Heads, or at once when that take has already ended. A take that was cancelled or failed counts none. Anything outside the rules (a surah or ayah out of range, a `perAyah` ayah outside the range, mistakes outside 1 to 1000, more than 8 rules, a rule id that is not `^[a-z][a-z0-9_]{0,23}$`) is `invalid_argument` and nothing is sent.
 
 ## TajweedSessionOptions
 
@@ -394,12 +386,13 @@ A short recitation that ships with the model, for running without a microphone.
 public final class TajweedSharing: Sendable
 ```
 
-Sharing recitations with Quran Lab, reached through `client.sharing`. Quran Lab decides per app whether learners are asked (the signed config); the developer switches nothing on. The SDK asks with its own sheet after a finished take, at most three times per install; a yes is never asked again. Once the learner said yes, every take the SDK listens to is shared in full, and takes that follow one another within a few seconds are one recording. The SDK's sheet and settings view are `SharingConsentView`, `SharingSettingsView` and the view modifier `.quranLabSharing(_:)`; an app with its own settings screen uses the members here.
+Sharing recitations with Quran Lab, reached through `client.sharing`. Every learner is asked, in every app, under the same rules, and the choice is theirs: "Not now", or a yes they can take back, and they can delete what they shared at any time. The developer switches nothing on or off; Quran Lab's signed config keeps an incident switch (`flags.contributions`) that stops all asking and sharing. The SDK asks with its own sheet at the end of a good take, and after "Not now" with a small card, at most three times per install; a yes is never asked again. Once the learner said yes, every take the SDK listens to is shared in full, and takes that follow one another within a few seconds are one recording. The SDK's sheet and settings view are `SharingConsentView`, `SharingSettingsView` and the view modifier `.quranLabSharing(_:)`; an app with its own settings screen uses the members here.
 
-- `public var isAvailable: Bool`: Quran Lab's config allows sharing for this app on this platform. False until a verified config says so.
+- `public var isAvailable: Bool`: Quran Lab's signed config has sharing on: its incident switch (`flags.contributions`) is on and this platform may upload. False until a verified config says so.
+- `public var theme: SharingTheme`: The look of the sheets the SDK presents by itself: the ask at the end of a good take, `ask()`'s, and the card with the sheet it opens. Colours, corner radius and fonts only: the words, the structure and the consent version never change. The views and `.quranLabSharing()` take their own `theme` argument. Before 4.0 the SDK's own sheet always used `SharingTheme.standard` (the Flutter port, 11-18: an app's theme never reached it).
 - `public var isOn: Bool`: The learner said yes.
-- `public func setOn(_ on: Bool, guardianConfirmed: Bool = false) async throws(TajweedError)`: The settings switch. On records the learner's yes (a children's app needs `guardianConfirmed`); off stops uploads at once and deletes the unsent queue. Throws `sharing_unavailable` when turned on while Quran Lab's config does not allow sharing for this app; off always works, with one exception: when the device gives neither the learner's stored answer nor a place to write the off down, it throws `storage_failed`, and the SDK then records and uploads nothing more in this process. On throws `storage_failed`, and changes nothing, while the learner's stored answer cannot be read.
-- `public func ask() -> Bool`: Asks now with the SDK's sheet, when an ask is still allowed (at most three per install, never after a yes or after sharing was turned off). True when the sheet is shown. The SDK also asks by itself after a finished take.
+- `public func setOn(_ on: Bool) async throws(TajweedError)`: The settings switch. On records the learner's yes; off stops uploads at once and deletes the unsent queue. Throws `sharing_unavailable` when turned on while Quran Lab's incident switch has sharing off (`isAvailable` is false); off always works, with one exception: when the device gives neither the learner's stored answer nor a place to write the off down, it throws `storage_failed`, and the SDK then records and uploads nothing more in this process. On throws `storage_failed`, and changes nothing, while the learner's stored answer cannot be read.
+- `public func ask() -> Bool`: Asks now, at a point of the app's own flow, when an ask is due by the SDK's rules: the sheet the first time, a card after "Not now" (at most three asks per install, never after a yes or after sharing was turned off, never two in one app session or one day, the first not in the first 24 hours or before the 3rd completed take, a re-ask only 14 days and 7 completed takes after the last). Never at launch or during a take: only after a completed take in this app session and with no take open. True when the ask is due and goes on screen now; false, with nothing shown, when it is not due. The SDK also asks by itself at the end of a good take.
 - `public func feed(_ samples: [Float], sampleRate: Double)`: Audio the app already captures outside takes (before the first, between them, after the last), mono at `sampleRate`. With sharing on and a yes, the SDK keeps the last second of it in memory and puts it in front of the next take's recording, and adds half a second after a take; otherwise it is dropped at once. The model never sees it. An app that uses `listen()` has no audio outside takes and need not call this.
 - `public var items: [Item]`: The outbox: each recording and where its upload stands.
 - `public func summary() async -> Summary?`: The learner's summary from Quran Lab's server; nil when the call fails (show nothing then).
@@ -457,7 +450,9 @@ public struct TajweedDiagnosis: Sendable, Hashable
 - `public let lastError: String?`: The catalogue code of the last error the SDK raised in this process.
 - `public let droppedChunks: Int`: Chunks that waited unread on a Session's `chunks` and were dropped to make room (at most 256 wait), since the Client was made. Above 0, the app reads `chunks` late; the takes' Heads are whole all the same.
 - `public let connection: String`: The device's connection: `unmetered` (Wi-Fi, Ethernet), `metered` (cellular, a personal hotspot, Low Data Mode), `none`, or `unknown` when the system does not say. `prefetch(unmeteredOnly:)` downloads on `unmetered` and `unknown`.
-- `public var json: String`: The report as JSON, its eleven fields in the order every SDK writes them, for pasting.
+- `public var downloadProtocol: String?`: The protocol of the last model request that was answered for this Client in this process: `h3`, `h2` or `http/1.1`; nil when none was made yet or the system named none. Held in memory and sent in no telemetry. In `json` it is the optional key `downloadProtocol`, written after the eleven fields when it is known.
+- `public var protected: Protected? = nil`: Nil before the protected model's runtime exists (no key configured).
+- `public var json: String`: The report as JSON, its eleven fields in the order every SDK writes them, for pasting; then `downloadProtocol` when one is known, and (4.0) `protected`.
 
 ### TajweedDiagnosis.Key
 
@@ -484,6 +479,17 @@ public struct TajweedDiagnosis: Sendable, Hashable
 - `public struct Storage: Sendable, Hashable`
 - `public let models: [StoredModel]`: One entry per model build on disk, ordered by version then build.
 - `public let sharingQueueBytes: Int64`
+
+### TajweedDiagnosis.Protected
+
+- `public struct Protected: Sendable, Hashable`: SDK 4.0, contract section 25 (`sdk_4.0.0/DIAGNOSIS_40.md`): the protected model as the Core holds it. Its fields in the section's order; no key, path or identifier.
+- `public let keyStore: String?`: Where the install's agreement key lives: `secureEnclave`, `keychain` (a software key in the Keychain), or `file` where the Keychain refuses the process (a 0600 file in the storage folder; the Core then seals its state under a key of its release, 18.4.7, as C's `file`). Nil before the install has a key.
+- `public let lease: String`: `valid`, `grace` (expired, opened because Quran Lab could not be reached, 18.4.7.1), `expired`, `stopped` or `none`.
+- `public let leaseExpires: Int64?`: The `exp` of the lease the Core holds, also when it has expired or was stopped; nil only when `lease` is `none`.
+- `public let leaseClass: String?`: `attested` or `standard`, from the lease's flags (bit 3, 18.4.6: `attested` may use the Neural Engine), never from `exp - iat` (18.4.7.2: how long a lease lasts is Quran Lab's); nil when `lease` is `none` or `stopped`.
+- `public let refreshAfter: Int64?`: The lease's `refresh_after`; nil when `lease` is `none` or `stopped`.
+- `public let graceUntil: Int64?`: `exp` + 86400 while `lease` is `grace`; nil otherwise.
+- `public let core: String?`: The Core's release and target (`qlc_version`); nil when the Core is not loaded.
 
 ## TajweedError
 
@@ -520,7 +526,7 @@ The SDK's microphone, through AVAudioEngine. `model.listen()` uses it; an app th
 public struct SharingConsentView: View
 ```
 
-The consent sheet: why sharing helps, what is shared, who receives it, how to stop, and two buttons of equal weight. Nothing is pre-ticked; in a children's app the share button is enabled only after the parent or guardian confirms.
+The consent sheet: why sharing helps, what is shared, who receives it, how to stop, and two buttons of equal weight. Nothing is pre-ticked. Every app shows this same sheet (SDK 4.0, contract section 26), and the learner's tap is the answer.
 
 - `public init(_ client: TajweedClient, reask: Bool = false, theme: SharingTheme = .standard, onDone: @escaping @MainActor (Bool) -> Void =`: - Parameters: - client: the app's Client. - reask: the gentler wording of a second or third ask. - onDone: called with the learner's answer once a button was tapped.
 - `public var body: some View`
@@ -551,7 +557,7 @@ AppKit: the consent sheet in a view controller (present it as a sheet of the app
 public struct SharingSettingsView: View
 ```
 
-The sharing settings: the switch, "What is shared", "Delete what I shared" (with its confirmation), and the learner's recovery code for a lost device (revealed on tap, shown only here). Works whatever the developer flag says, so a learner can always stop and delete.
+The sharing settings: the switch, "What is shared", "Delete what I shared" (with its confirmation), and the learner's recovery code for a lost device (revealed on tap, shown only here). Works whatever Quran Lab's switch says, so a learner can always stop and delete.
 
 - `public init(_ client: TajweedClient, theme: SharingTheme = .standard)`
 - `public var body: some View`
@@ -604,6 +610,17 @@ How the SDK's sharing views look in the app: colours, corner radius and fonts. T
 - `public var bodyFont: Font`
 - `public init(accent: Color = .accentColor, background: Color = Color.clear, text: Color = .primary, secondaryText: Color = .secondary, cornerRadius: CGFloat = 14, titleFont: Font = .title2.weight(.semibold), bodyFont: Font = .body)`
 - `public static let standard = SharingTheme()`
+
+## TajweedRecitedOutcome
+
+```swift
+public enum TajweedRecitedOutcome: Sendable, Hashable, Codable
+```
+
+The app's own judgement of an ayah or a range: correct, or incorrect with how many mistakes and which rules. The SDK only counts it; it never judges a recitation.
+
+- `case correct`
+- `case incorrect(mistakes: Int? = nil, rules: [String] = [])`: `mistakes` 1 to 1000 (nil adds none); `rules` at most 8 ids `^[a-z][a-z0-9_]{0,23}$`, the calibration's ids where they apply (`madd`, `qalqalah`). Each rule of an incorrect ayah adds 1 to the day's checks and flags of that rule: use this or `analytics.reportChecks` for a rule, not both.
 
 ## View
 

@@ -16,6 +16,8 @@ struct RemoteConfig: Codable, Sendable, Equatable {
         let model_id: String?
         /// The SDK folder inside the repository ("sdk/v3.2"), when the server knows it.
         let folder: String?
+        /// SDK 4.0 (18.4.5): the build's key id, its signed manifest's `encryption.key_id`.
+        var key_id: String? = nil
     }
 
     /// The model the server recommends for this app and SDK version: the newest recommended model
@@ -31,6 +33,8 @@ struct RemoteConfig: Codable, Sendable, Equatable {
         let version: String?
         /// "pin", "stable" or "beta".
         let source: String
+        /// SDK 4.0 (18.4.5): the build's key id, its signed manifest's `encryption.key_id`.
+        var key_id: String? = nil
 
         var modelID: ModelID { ModelID(model_id, repository: model, folder: folder) }
 
@@ -44,6 +48,9 @@ struct RemoteConfig: Codable, Sendable, Equatable {
             version = (try? c.decodeIfPresent(String.self, forKey: .version)) ?? nil
             let f = (try? c.decodeIfPresent(String.self, forKey: .folder)) ?? nil
             folder = f.flatMap { $0.isEmpty ? nil : $0 } ?? "sdk/\(model_id)"
+            // SDK 4.0: the build's key id (this custom decoder never read it, so the recommended build's manifest was
+            // not held to its key id; the first compile, 11-18)
+            key_id = (try? c.decodeIfPresent(String.self, forKey: .key_id)) ?? nil
         }
     }
 
@@ -61,20 +68,42 @@ struct RemoteConfig: Codable, Sendable, Equatable {
     struct Flags: Codable, Sendable, Equatable {
         var analytics: Bool
         var issues: Bool
+        /// Quran Lab's incident switch for sharing: for everyone, or for a platform not offered yet; never a decision
+        /// about one app. Off: nothing is asked and nothing is uploaded.
         var contributions: Bool
         /// Per platform: `off`, `capped` or `attested` (who may upload shared sessions).
         var upload_trust: [String: String]?
-        /// 2.0.3: how long a shared recording stays open for the next take, in ms. A whole number 0 to 10000; absent
-        /// or anything else 3000; 0 never joins takes.
+        /// 2.0.3: how long a shared recording stays open for the next take, in ms. A whole number 0 to 60000 (SDK 4.0,
+        /// section 23; 3.x: 0 to 10000); absent or anything else 3000; 0 never joins takes.
         var share_join_ms: Int
+        /// SDK 4.0: the recited detector runs (absent or true), or only the app's reports count.
+        var recited: Bool
+        /// The detector's copy exception for another surah on a continuation (absent or true: on).
+        var recited_twins: Bool
+        /// SDK 4.0 (17.8, 17.9): groups of the automatic counters switched off (`false`); absent or true is on.
+        var metrics: [String: Bool]?
+        /// SDK 4.0 (SHARING_40.md 19.3): a shared recording captured at a rate other than 48000 goes as Ogg FLAC at that
+        /// rate (`ShareCodec`). Only a literal true turns it on; absent or anything else is Opus as section 10.
+        var share_flac: Bool = false
+        /// SDK 4.0 (as Android): the speedup (CPU median chunk time / accelerator median) a Neural Engine build needs to
+        /// be promoted after its golden test; nil or below 1.0 is 1.0 (`PromotionPolicy.minSpeedup`).
+        var accel_min_speedup: Double?
+
+        /// 3.1.5 (SPEC 16.4): whether a background transfer of a model file sends `x-qlab-key` beside the app
+        /// token. True when absent or not a boolean. Requests the app makes itself always send both.
+        var model_requests_key_in_background: Bool
 
         init(analytics: Bool = true, issues: Bool = true, contributions: Bool = true, upload_trust: [String: String]? = nil,
-                    share_join_ms: Int = 3000) {
+                    share_join_ms: Int = 3000, recited: Bool = true, recited_twins: Bool = true,
+                    model_requests_key_in_background: Bool = true) {
+            self.recited = recited
+            self.recited_twins = recited_twins
             self.analytics = analytics
             self.issues = issues
             self.contributions = contributions
             self.upload_trust = upload_trust
             self.share_join_ms = share_join_ms
+            self.model_requests_key_in_background = model_requests_key_in_background
         }
 
         init(from d: any Decoder) throws {
@@ -87,6 +116,14 @@ struct RemoteConfig: Codable, Sendable, Equatable {
             // any JSON type is read (a string, a boolean or a fraction is the default), never failing the config
             let window: JSONValue? = try? c.decodeIfPresent(JSONValue.self, forKey: .share_join_ms)
             share_join_ms = TakeJoin.window(window)
+            // only a literal false turns them off
+            recited = ((try? c.decodeIfPresent(Bool.self, forKey: .recited)) ?? nil) ?? true
+            recited_twins = ((try? c.decodeIfPresent(Bool.self, forKey: .recited_twins)) ?? nil) ?? true
+            metrics = (try? c.decodeIfPresent([String: Bool].self, forKey: .metrics)) ?? nil
+            share_flac = ((try? c.decodeIfPresent(Bool.self, forKey: .share_flac)) ?? nil) ?? false
+            accel_min_speedup = (try? c.decodeIfPresent(Double.self, forKey: .accel_min_speedup)) ?? nil
+            let key: Bool? = try? c.decodeIfPresent(Bool.self, forKey: .model_requests_key_in_background)
+            model_requests_key_in_background = key ?? true
         }
     }
 
@@ -106,6 +143,9 @@ struct RemoteConfig: Codable, Sendable, Equatable {
     let inference: JSONValue?
     /// With a pinned model version the server could not serve: `{"version", "status": "unavailable"}`.
     let pin: JSONValue?
+    /// SDK 4.0: when the SDK asks a learner to share, at the top level (never in `flags`), as it came:
+    /// read field by field with `ShareAsk.Config.resolve`, so nothing in it can fail the config. Absent: the defaults.
+    var share_ask: JSONValue? = nil
 
     /// The context the config names, when it names one.
     var inferenceContext: String? { inference?.object?["context"]?.string }
@@ -133,8 +173,9 @@ struct RemoteConfig: Codable, Sendable, Equatable {
         if let inference, contexts.contains(inference) { return (inference, "config") }
         return (defaultContext, "manifest")
     }
-    /// Where model files are served, signed with the rest of the config. Read it with `modelBase`: any other JSON type
-    /// is ignored there rather than failing the whole config.
+    /// A model base older configs carried. SDK 4.0 never uses it, whatever it holds (the 4.0 config names none): the
+    /// manifest is read under Quran Lab's CDN (`ModelHost.manifestBase`), and the build's files only where the lease
+    /// answer says. Decoded as any JSON so that an older config still verifies.
     let base: JSONValue?
     /// 2.0.1: rules that keep one accelerator off on matching devices (read with `accelDenyRules`; a malformed rule is
     /// skipped on its own, never the config).
@@ -192,13 +233,6 @@ struct RemoteConfig: Codable, Sendable, Equatable {
     /// The first `accel_deny` rule matching this device and accelerator kind now, if any.
     func accelDenyRule(values: [String: String], kind: String, now: Date = Date()) -> AccelDenyRule? {
         accelDenyRules.first { $0.matches(values, kind: kind, now: now) }
-    }
-
-    /// `base` when it is an https URL, the same rule qlab-api applies when it signs it.
-    var modelBase: URL? {
-        guard let s = base?.string,
-              s.range(of: #"^https://[A-Za-z0-9.-]+(:\d+)?(/[A-Za-z0-9._~/-]*)?$"#, options: .regularExpression) != nil else { return nil }
-        return URL(string: s)
     }
 
     var expiresAt: Date { Date(timeIntervalSince1970: TimeInterval(expires_at)) }

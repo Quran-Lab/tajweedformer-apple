@@ -1,0 +1,433 @@
+{
+  "about": "SHARING_40.md 19.5: POST /v1/uploads bodies of SDK 4.0 that the server accepts and refuses (400 invalid_body). The SDK 3.x body (PLATFORM_CLIENT.md section 10) is accepted as before and is not repeated here. `day` must be within the last year when replayed: replace it with today.",
+  "accepted": [
+    {
+      "name": "flac 16 kHz from iOS 4.0",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 16000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "flac 44.1 kHz from Android 4.0",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 44100,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 44100,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "sm8650",
+        "device_model": "samsung SM-S921B",
+        "os_major": 15
+      }
+    },
+    {
+      "name": "flac without input_sample_rate (it is sample_rate)",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "opus 48 kHz from 4.0 with a model",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "opus",
+          "container": "ogg",
+          "sample_rate": 48000,
+          "channels": 1,
+          "input_sample_rate": 48000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "opus from web 4.0: no device_model",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "opus",
+          "container": "ogg",
+          "sample_rate": 48000,
+          "channels": 1,
+          "input_sample_rate": 48000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "web",
+        "os_major": 26
+      }
+    }
+  ],
+  "refused": [
+    {
+      "name": "flac at 48 kHz (48 kHz is always Opus)",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 48000,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 48000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "flac from SDK 3.1.5",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 16000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "3.1.5"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "flac whose input rate differs from its rate",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 44100,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "flac without bits_per_sample",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "input_sample_rate": 16000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "flac at 24 bits",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "bits_per_sample": 24,
+          "input_sample_rate": 16000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "flac at 7999 Hz",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 7999,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 7999,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "opus at 16 kHz (Opus is always coded at 48 kHz)",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "opus",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "input_sample_rate": 48000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "opus with bits_per_sample",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "opus",
+          "container": "ogg",
+          "sample_rate": 48000,
+          "channels": 1,
+          "input_sample_rate": 48000,
+          "input_route": "built_in",
+          "bits_per_sample": 16
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "iPhone16,1",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "device_model with a character outside the set",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 16000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "Pixel 8 ™",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "device_model of 65 characters",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 16000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "os_major": 26
+      }
+    },
+    {
+      "name": "device_model starting with a space",
+      "body": {
+        "format": 1,
+        "audio": {
+          "codec": "flac",
+          "container": "ogg",
+          "sample_rate": 16000,
+          "channels": 1,
+          "bits_per_sample": 16,
+          "input_sample_rate": 16000,
+          "input_route": "built_in"
+        },
+        "decode": {
+          "model_revision": "v4.0.0",
+          "backend": "exact",
+          "weights_sha256": null,
+          "sdk_version": "4.0.0"
+        },
+        "consent_version": "share-2026-11-09",
+        "contributor": "0123456789abcdef0123456789abcdef",
+        "day": "2026-11-15",
+        "device_class": "A17",
+        "device_model": " iPhone16,1",
+        "os_major": 26
+      }
+    }
+  ]
+}

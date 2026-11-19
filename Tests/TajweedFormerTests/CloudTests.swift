@@ -149,7 +149,7 @@ final class RegistrationAndConfigTests: XCTestCase {
     }
 
     func testDenyListMatching() async throws {
-        let rule: [String: Any] = ["platform": "ios", "os_version": "*", "device_class": "*", "sdk_version": "3.*",
+        let rule: [String: Any] = ["platform": "ios", "os_version": "*", "device_class": "*", "sdk_version": "4.*",
                                    "model_revision": "*", "backend_forced": "exact", "reason": "bad fp16 on this build"]
         StubProtocol.reset(CloudFixtures.server(config: CloudFixtures.config(deny: [rule])))
         let cloud = CloudFixtures.cloud(storage: CloudFixtures.storage())
@@ -292,9 +292,11 @@ final class AnalyticsAndIssueTests: XCTestCase {
         .sessionFinished(SessionTelemetry(cohort: c, audioSeconds: seconds, chunkSeconds: chunks, chunkAudioSeconds: 0.32))
     }
 
-    /// The v2 body as SDK 3.0.0 sends it: exactly the documented fields (the server's schema is closed), per cohort the
+    /// The v2 body as SDK 4.0.0 sends it: exactly the documented fields (the server's schema is closed), per cohort the
     /// sums, the histograms and the SDK-measured counters, the app-reported counters with `reported`, the downloads
-    /// with their build, nothing identifying, under the 32 KB cap.
+    /// with their build, nothing identifying, under the 32 KB cap. 4.0 (17.1): the app's range of a take the detector
+    /// did not count is `app_ayahs` and `app_surah_ayahs`; `ayahs` and `surah_ayahs` are measured; `coverage` is not
+    /// sent; `recited_takes` and `take_s` are new (17.8).
     func testDailyAggregatesAndTheirV2Payload() async throws {
         let a = store(CloudFixtures.storage(), at: day1)
         var first = SessionTelemetry(cohort: Self.ane, audioSeconds: 90, chunkSeconds: [0.004, 0.009, 0.012, 0.5], chunkAudioSeconds: 0.32)
@@ -322,17 +324,21 @@ final class AnalyticsAndIssueTests: XCTestCase {
         let days = a.pending
         XCTAssertEqual(days.count, 1)
         let p = a.payload(days[0], reportID: "0123456789abcdef0123456789abcdef")
-        XCTAssertEqual(Set(p.keys), ["v", "day", "product", "platform", "sdk_version", "app_version", "device", "cohorts", "coverage", "downloads",
-                                     "report_id", "ayahs", "surah_ayahs", "words", "rule_checks", "rule_flags", "reported"],
+        XCTAssertEqual(Set(p.keys), ["v", "day", "product", "platform", "sdk_version", "app_version", "device", "cohorts", "downloads",
+                                     "report_id", "app_ayahs", "app_surah_ayahs", "recited_takes", "take_s", "words", "rule_checks",
+                                     "rule_flags", "reported"],
                        "the report id, the counters that are not zero, and which of them the app reported")
         XCTAssertEqual(p["report_id"] as? String, "0123456789abcdef0123456789abcdef")
-        XCTAssertEqual(p["ayahs"] as? Int, 4)
-        XCTAssertEqual(p["surah_ayahs"] as? [String: Int], ["112": 4])
-        XCTAssertEqual(p["coverage"] as? [String: Int], ["112": 4])
+        XCTAssertEqual(p["app_ayahs"] as? Int, 4)
+        XCTAssertEqual(p["app_surah_ayahs"] as? [String: Int], ["112": 4])
+        XCTAssertNil(p["ayahs"], "measured only")
+        XCTAssertNil(p["coverage"])
+        XCTAssertEqual(p["recited_takes"] as? [String: Int], ["app": 1])
+        XCTAssertEqual((p["take_s"] as? [String: Int])?["le_120"], 1, "the finished take of 90 s; the others have no take seconds")
         XCTAssertEqual(p["words"] as? Int, 4)
         XCTAssertEqual(p["rule_checks"] as? [String: Int], ["cons_sub": 10, "madd": 4, "word": 4, "qalqalah": 3], "a rule checked 0 times is not there")
         XCTAssertEqual(p["rule_flags"] as? [String: Int], ["cons_sub": 1, "madd": 1, "word": 1], "only rules with a flag")
-        XCTAssertEqual(p["reported"] as? [String], ["ayahs", "surah_ayahs", "coverage", "words", "rule_checks", "rule_flags"])
+        XCTAssertEqual(p["reported"] as? [String], ["app_ayahs", "app_surah_ayahs", "words", "rule_checks", "rule_flags"])
         XCTAssertEqual(p["v"] as? Int, 2)
         XCTAssertEqual(p["product"] as? String, "apple")
         XCTAssertEqual(p["sdk_version"] as? String, "3.0.0")
@@ -405,7 +411,7 @@ final class AnalyticsAndIssueTests: XCTestCase {
         let recited = store(CloudFixtures.storage(), at: day1)
         recited.reportRecited(surah: 1, ayahFrom: 1, ayahTo: 7)
         let r = recited.payload(recited.pending[0], reportID: "0123456789abcdef0123456789abcdef")
-        XCTAssertEqual(r["reported"] as? [String], ["ayahs", "surah_ayahs", "coverage"])
+        XCTAssertEqual(r["reported"] as? [String], ["app_ayahs", "app_surah_ayahs"])
     }
     /// 2.0.1: each send point sends what was counted since the previous one (today included), once.
     func testEachFlushSendsADeltaOfWhatIsNewOnce() async throws {
@@ -442,21 +448,25 @@ final class AnalyticsAndIssueTests: XCTestCase {
         let b = store(storage, at: day2)
         let n = await b.flush(send: { (_: Data) async throws(CloudError) -> Void in throw CloudError.offline("down") })
         XCTAssertEqual(n, 0)
-        XCTAssertEqual(store(storage, at: day2).sealed.count, 1, "an offline flush keeps the sealed delta on disk")
-        XCTAssertEqual(store(storage, at: day2).sealed.first?.day, "2026-09-21", "sealed under the day it was counted in")
+        // SDK 4.0: each store's own app session (`session_s`) is a delta of its own at a send point, with no take in it
+        let withTakes = { (a: AnalyticsStore) in a.sealed.filter { TelemetryDeltaTests.sessions(TelemetryDeltaTests.json($0.body)) > 0 } }
+        XCTAssertEqual(withTakes(store(storage, at: day2)).count, 1, "an offline flush keeps the sealed delta on disk")
+        XCTAssertEqual(withTakes(store(storage, at: day2)).first?.day, "2026-09-21", "sealed under the day it was counted in")
         let c = store(storage, at: day2)
         _ = await c.flush(send: { (_: Data) async throws(CloudError) -> Void in
             throw CloudError.rejected(status: 400, code: "invalid_body", message: "")
         })
-        XCTAssertTrue(store(storage, at: day2).sealed.isEmpty, "a refused delta is dropped, never retried")
+        XCTAssertTrue(withTakes(store(storage, at: day2)).isEmpty, "a refused delta is dropped, never retried")
         let old = store(storage, at: day1)
         old.record(Self.session(Self.cpu, 60, [0.01]))
         old.waitForSave()
         let late = store(storage, at: day1.addingTimeInterval(9 * 86_400))
         let calls = Locked(0)
-        _ = await late.flush(send: { (_: Data) async throws(CloudError) -> Void in calls.withLock { $0 += 1 } })
+        _ = await late.flush(send: { (d: Data) async throws(CloudError) -> Void in
+            if TelemetryDeltaTests.sessions(TelemetryDeltaTests.json(d)) > 0 { calls.withLock { $0 += 1 } }
+        })
         XCTAssertEqual(calls.withLock { $0 }, 0)
-        XCTAssertTrue(late.pending.isEmpty && late.sealed.isEmpty, "older than 7 days: deleted unsent")
+        XCTAssertTrue(late.pending.isEmpty && withTakes(late).isEmpty, "older than 7 days: deleted unsent")
     }
 
     func testOffRecordsNothing() {

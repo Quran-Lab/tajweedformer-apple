@@ -88,6 +88,12 @@ One call is removed: `TajweedModel.open(_:)`. A model comes from Quran Lab's ser
 of the app's resources: the SDK no longer reads `QuranLabModels/` in the app bundle. Nothing else in an app's code
 changes. An install that updates from 3.0 downloads its model once more at the first launch after the update.
 
+## From 3.x to 4.0.0
+
+- `TajweedClientOptions.analytics` (`.on`, `.off`) is gone, removed rather than deprecated: anonymous analytics are
+  always on, and they are only daily counts and durations, never audio, text, names or device identifiers. Remove
+  `analytics:` from your `TajweedClientOptions(...)`; Quran Lab's signed config is the only off switch.
+
 ## Staying on 2.x
 
 SDK 2.0.2 keeps working until Quran Lab retires SDK 2.x, which happens when 3.0 is released or shortly after;

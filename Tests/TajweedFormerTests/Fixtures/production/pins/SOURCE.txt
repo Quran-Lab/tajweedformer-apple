@@ -1,0 +1,3 @@
+The Core's pin check (its tools/pin_check.c): the production V4
+4.0.0 manifest as the CDN serves it (signed by Quran Lab's production key, key id ad6879dd), the same with one byte
+changed, and a manifest signed by the contract's test key. Public files; no key.

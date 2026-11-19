@@ -13,7 +13,8 @@ struct ShareTake: Codable, Sendable, Hashable {
 /// vector `takes_join.json`:
 ///
 /// - When a take ends while sharing is on, its recording stays open for the JOIN WINDOW (the signed config's
-///   `flags.share_join_ms`, a whole number 0 to 10000; absent or anything else 3000; 0 never joins).
+///   `flags.share_join_ms`, a whole number 0 to 60000 from SDK 4.0, 0 to 10000 before it; absent or anything else
+///   3000; 0 never joins; contract sdk_4.0.0/SHARE_JOIN_40.md, section 23).
 /// - The next take joins it when it starts within the window (its start minus the end of the previous take that had
 ///   audio, wall ms, at most the window) with the same input sample rate, while the app is in the foreground, sharing
 ///   is still on, and the contributor, the consent version and the model revision are the recording's: its audio
@@ -30,7 +31,8 @@ struct ShareTake: Codable, Sendable, Hashable {
 /// backlog would push the bitrate ladder down).
 enum TakeJoin {
     static let defaultWindowMs = 3000
-    static let maxWindowMs = 10_000
+    /// SDK 4.0 (section 23): 60 s (2.0.3 to 3.x: 10 s). Also the largest gap a take list holds.
+    static let maxWindowMs = 60_000
     /// A recording never holds more than 20 minutes of audio (SDK 3.0.0): when its audio reaches the cap inside a take
     /// it closes there as a whole recording, and the take goes on in a new one at the next sample.
     static let capMs: Int64 = 20 * 60 * 1000
@@ -42,7 +44,7 @@ enum TakeJoin {
     /// Tried and rejected: holding every joining take (a crash would lose it, and its segments would wait).
     static let holdMs: Int64 = 30_000
 
-    /// `flags.share_join_ms`: a whole number 0 to 10000, else `defaultWindowMs` (a boolean, a string, a fraction, a
+    /// `flags.share_join_ms`: a whole number 0 to 60000, else `defaultWindowMs` (a boolean, a string, a fraction, a
     /// negative or larger number).
     static func window(_ v: JSONValue?) -> Int {
         guard case .number(let d)? = v, d == d.rounded(), d >= 0, d <= Double(maxWindowMs) else { return defaultWindowMs }

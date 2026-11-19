@@ -1,0 +1,88 @@
+{
+ "about": "The re-ask card's strings of deck 2026-11-15.1 (sdk_4.0.0/SHARE_ASK_40.md 20.7), as translated and reviewed; read by make_decks_2026-11-15.py. card.not_now is not here: it is each deck's own sheet.not_now, word for word.",
+ "source": {
+  "card.line": "Your recitation today could help another learner tomorrow.",
+  "card.open": "See how it helps",
+  "card.not_now": "Not now"
+ },
+ "method": "card.line and card.open translated by the Quran Lab router (ag/gemini-3.8-flash-high) from the English source with a translator brief (warm, humble, the deck's own voice and form of address, card.line as the reviewed reask's first sentence where it stands alone, card.open no longer than sheet.share and never a consent word), then back-translated to English in a separate call that did not see the English (ag/gemini-3.8-flash-high; ag/gemini-3.8-flash answered 403 that day); card.not_now is this deck's sheet.not_now word for word",
+ "languages": {
+  "ar": {
+   "card.line": "قد تساعد تلاوتك اليوم متعلماً آخر غداً.",
+   "card.open": "تعرف كيف يساعد",
+   "back_translation": {
+    "card.line": "Your recitation today may help another learner tomorrow.",
+    "card.open": "Learn how it helps",
+    "card.not_now": "Not now"
+   },
+   "line_is_reask_first_sentence": true,
+   "drift": "round 1: card.open read back as \"How does that help\" (a question; \"See\" dropped); round 2 (router, with that feedback and the 14-character limit): \"Learn how it helps\", kept. card.line reads back \"may help\" for \"could help\": the possibility is kept"
+  },
+  "id": {
+   "card.line": "Bacaan Anda hari ini bisa membantu pembelajar lain esok hari.",
+   "card.open": "Lihat manfaatnya",
+   "back_translation": {
+    "card.line": "Your recitation today can help other learners tomorrow.",
+    "card.open": "See its benefits",
+    "card.not_now": "Just later"
+   },
+   "line_is_reask_first_sentence": true,
+   "drift": "card.open reads back \"See its benefits\" (benefit for \"how it helps\"; same intent, kept within the 19 characters of sheet.share). card.not_now is the deck's own sheet.not_now (\"Nanti saja\", literally \"later, then\")"
+  },
+  "ms": {
+   "card.line": "Bacaan anda hari ini mungkin dapat membantu pembelajar lain esok.",
+   "card.open": "Cara ia membantu",
+   "back_translation": {
+    "card.line": "Your recitation today may be able to help other learners tomorrow.",
+    "card.open": "How it helps",
+    "card.not_now": "Not now"
+   },
+   "line_is_reask_first_sentence": true,
+   "drift": "card.open reads back \"How it helps\": \"See\" is not said (\"Lihat cara ia membantu\" is 22 characters, over the 18 of sheet.share); the meaning is kept"
+  },
+  "tr": {
+   "card.line": "Bugünkü tilavetiniz yarın bir başka öğrenciye yardımcı olabilir.",
+   "card.open": "Nasıl yardımcı olur",
+   "back_translation": {
+    "card.line": "Your recitation today can help another student tomorrow.",
+    "card.open": "How it helps",
+    "card.not_now": "Not now"
+   },
+   "line_is_reask_first_sentence": true,
+   "drift": "card.open reads back \"How it helps\": \"See\" is not said (the longer form is over the 20 characters of sheet.share); the meaning is kept. card.line says \"student\" (ogrenci), as the reviewed reask does"
+  },
+  "fr": {
+   "card.line": "Votre récitation d'aujourd'hui pourrait aider un autre apprenant demain.",
+   "card.open": "Voir comment cela aide",
+   "back_translation": {
+    "card.line": "Your recitation today could help another learner tomorrow.",
+    "card.open": "See how this helps",
+    "card.not_now": "Not now"
+   },
+   "line_is_reask_first_sentence": true,
+   "drift": null
+  },
+  "ur": {
+   "card.line": "آج آپ کی تلاوت سے کل کسی اور سیکھنے والے کی مدد ہو سکتی ہے۔",
+   "card.open": "دیکھیے کیسے مدد ہوگی",
+   "back_translation": {
+    "card.line": "Today, from your recitation, another learner can be helped tomorrow.",
+    "card.open": "See how it will help",
+    "card.not_now": "Not now"
+   },
+   "line_is_reask_first_sentence": true,
+   "drift": "card.line reads back in the passive (\"another learner can be helped\"), as the reviewed reask's first sentence does; card.open reads back \"See how it will help\""
+  },
+  "bn": {
+   "card.line": "আজকের আপনার তিলাওয়াত হয়তো আগামী দিনে অন্য কোনো শিক্ষার্থীকে সাহায্য করতে পারে।",
+   "card.open": "কীভাবে সাহায্য করে দেখুন",
+   "back_translation": {
+    "card.line": "Your recitation today can perhaps help another learner in the coming days.",
+    "card.open": "See how it helps",
+    "card.not_now": "Not now"
+   },
+   "line_is_reask_first_sentence": true,
+   "drift": "card.line reads back \"in the coming days\" for \"tomorrow\" and \"perhaps ... can\" for \"could\", as the reviewed reask's first sentence does"
+  }
+ }
+}

@@ -1,0 +1,1 @@
+Copied from quranlab-contract branch sdk-4.0.0-protected, sdk_4.0.0/vectors/sharing40/ (SHARING_40.md section 19, made by tools/sharing40.py --write): commit c7f6e9b.

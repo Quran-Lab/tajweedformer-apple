@@ -13,7 +13,9 @@ import XCTest
 /// of 20, with the keys that failed and how often.
 ///
 /// How the keys are measured here:
-/// - `no_audio_after` (rule R1: no byte of audio leaves the device after the call returns, whatever was in flight):
+/// - `no_audio_after` (rule R1: once the call returns the SDK hands no more audio to the system and has ended the
+///   request in flight; what a real system had already taken into its send buffer may still go out, which a stub
+///   does not see):
 ///   the body bytes of every PUT that started after the call, AND the bytes the server took of the held PUT's body
 ///   after the call. The held PUT is a slow upload: the stub takes the first 4096 bytes of its body when the request
 ///   starts and the rest when it is let go, as a server on a slow connection does.

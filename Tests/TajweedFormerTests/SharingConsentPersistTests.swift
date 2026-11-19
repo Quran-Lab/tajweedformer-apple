@@ -10,6 +10,7 @@ final class SharingConsentPersistTests: XCTestCase {
     override func tearDown() {
         try? Contributions.setWording(nil)
         Contributions.setPresenter(nil)
+        Contributions.settleMs.withLock { $0 = ShareAsk.settleMs }
         QuranLab.configure(key: nil, options: .init(cloud: nil), cloud: nil)
     }
 
@@ -258,11 +259,91 @@ final class SharingConsentPersistTests: XCTestCase {
         let server = SharingTests.Server()
         StubProtocol.reset(server.handler)
         let other = await launch(server, storage: CloudFixtures.storage())
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
         Contributions.answer(share: true)
         XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-09")
         let fresh = try await sharedSession(other, count: 1)
         XCTAssertEqual(fresh["consent_version"] as? String, "share-2026-11-09")
+    }
+
+    // MARK: a yes given on the sheet 3.x showed with `guardian`
+
+    /// The sharing state as SDK 3.1 left it after a yes given on the sheet it showed with `guardian` set, and a while
+    /// of sharing: the JSON object that SDK wrote, field for field.
+    static let grantedGuardian31 = """
+        {"v":1,"consent":"granted","asks":1,"lastAskSession":2,"sessions":41,"thanked":true,"decidedAt":1794300000,\
+        "consentVersion":"share-2026-11-09","guardian":true,"sharedOnce":true,"consentCount":1,"deleting":false}
+        """
+
+    /// Never re-ask consent (Quran Lab's permanent rule; 26.1 item 4 and 26.4): a 3.x yes stored with `guardian`
+    /// true is a grant like any other under 4.0. It reads as granted; sharing goes on with no pause and no ask (at
+    /// start, after many takes, at the app's own moment, after a restart); every recording carries the version the
+    /// learner agreed to; and every write of the state puts the field back exactly as it came: 4.0 never reads it and
+    /// never drops it. A `false` comes back `false`, and a state without the field is written without it.
+    func testA3xGrantWithGuardianTrueStaysAGrantAndTheFieldIsWrittenBackUnchanged() async throws {
+        // the SDK's own decoder and encoder: the field as it came, never made up
+        let cases: [(String, Bool?)] = [
+            (Self.grantedGuardian31, true),
+            (Self.granted301, false),
+            (#"{"v":1,"consent":"granted","asks":1,"consentVersion":"share-2026-11-09"}"#, nil),
+        ]
+        for (text, want) in cases {
+            let s = try JSONDecoder().decode(SharingState.self, from: Data(text.utf8))
+            XCTAssertEqual(s.consent, .granted, text)
+            XCTAssertEqual(s.guardian, want, text)
+            let back = try XCTUnwrap(try JSONSerialization.jsonObject(with: JSONEncoder().encode(s)) as? [String: Any], text)
+            XCTAssertEqual(back["guardian"] as? Bool, want, text)
+            XCTAssertEqual(back["guardian"] == nil, want == nil, "\(text): absent stays absent")
+        }
+
+        let server = SharingTests.Server()
+        StubProtocol.reset(server.handler)
+        let storage = CloudFixtures.storage()
+        let file = storage.appendingPathComponent("cloud/sharing-state.json")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(Self.grantedGuardian31.utf8).write(to: file, options: .atomic)
+
+        // at start
+        let cloud = await launch(server, storage: storage)
+        XCTAssertEqual(Contributions.consent, .granted, "the 3.x yes is a yes")
+        XCTAssertTrue(Contributions.isActive, "no pause")
+        XCTAssertEqual(Contributions.consentVersion, "share-2026-11-09")
+        assertNeverAsked(3, "a 3.x yes stored with guardian true, at start")
+        // the next recording goes out, with the version agreed to
+        let meta = try await sharedSession(cloud, count: 1)
+        XCTAssertEqual(meta["consent_version"] as? String, "share-2026-11-09")
+        XCTAssertNil(meta["consent_text_sha256"])
+        assertNeverAsked(30, "a 3.x yes stored with guardian true, after many takes")
+        try await assertNothingPresented("no sheet, no card, no thank-you again, nothing handed to the app")
+        XCTAssertTrue(Contributions.isActive)
+
+        // 4.0 has written the state since (its own clocks, the takes it counted), and the field is as it came
+        let saved = try UnreadableStateTests.saved(storage)
+        XCTAssertNotNil(saved["installedAt"], "4.0 wrote the state")
+        XCTAssertGreaterThan(saved["sessions"] as? Int ?? 0, 41, "4.0 wrote the state")
+        XCTAssertEqual(saved["guardian"] as? Bool, true, "written back unchanged")
+        XCTAssertEqual(saved["consent"] as? String, "granted")
+        XCTAssertEqual(saved["consentVersion"] as? String, "share-2026-11-09")
+        XCTAssertEqual((saved["decidedAt"] as? NSNumber)?.doubleValue, 1_794_300_000, "the yes was not given again")
+        XCTAssertEqual(saved["consentCount"] as? Int, 1, "the yes was not given again")
+        XCTAssertEqual(saved["asks"] as? Int, 1, "no ask was counted")
+
+        // after a restart (the state read back from the device)
+        let again = await launch(server, storage: storage)
+        XCTAssertTrue(Contributions.isActive)
+        assertNeverAsked(5, "a 3.x yes stored with guardian true, after a restart")
+        let next = try await sharedSession(again, count: 2)
+        XCTAssertEqual(next["consent_version"] as? String, "share-2026-11-09")
+        try await assertNothingPresented("nothing after the restart either")
+        XCTAssertEqual(try UnreadableStateTests.saved(storage)["guardian"] as? Bool, true, "after the restart")
+
+        // the learner's own switch, off and on again: their choice, and the field still as it came
+        await Contributions.setSharing(false)
+        XCTAssertEqual(Contributions.consent, .final)
+        await Contributions.setSharing(true)
+        XCTAssertEqual(Contributions.consent, .granted)
+        XCTAssertEqual(try UnreadableStateTests.saved(storage)["guardian"] as? Bool, true, "never read, never dropped")
     }
 
     // MARK: a deck or wording change after a grant
@@ -302,8 +383,12 @@ final class SharingConsentPersistTests: XCTestCase {
         StubProtocol.reset(server.handler)
         let storage = CloudFixtures.storage()
         let cloud = await launch(server, storage: storage)
+        Contributions.settleMs.withLock { $0 = 0 }
         try Contributions.setWording(["sheet.title": "Share your recitation with Quran Lab"])
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
+        // the ask goes on screen (to the app's own UI) once the moment has settled, and the learner answers there
+        try await waitUntil("the ask handed over") { seen.withLock { $0.count } == 1 }
         Contributions.answer(share: true)
         let version = Contributions.consentVersionInForce
         let hash = try XCTUnwrap(Contributions.consentTextSHA256)
@@ -313,7 +398,7 @@ final class SharingConsentPersistTests: XCTestCase {
         XCTAssertEqual(first["consent_text_sha256"] as? String, hash)
         XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .thanks)
         try await waitUntil("the ask and the thank-you handed over") { seen.withLock { $0.count } == 2 }
-        XCTAssertEqual(seen.withLock { $0 }, [.ask(reask: false, guardian: false), .thanks])
+        XCTAssertEqual(seen.withLock { $0 }, [.ask(reask: false), .thanks])
         seen.withLock { $0 = [] }
 
         try Contributions.setWording(["sheet.title": "Help the next learner", "sheet.share": "Share"])
@@ -335,7 +420,8 @@ final class SharingConsentPersistTests: XCTestCase {
         let newVersion = Contributions.consentVersionInForce
         let newHash = try XCTUnwrap(Contributions.consentTextSHA256)
         let other = await launch(server, storage: CloudFixtures.storage())
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
         Contributions.answer(share: true)
         XCTAssertEqual(Contributions.state().consentVersion, newVersion)
         let fourth = try await sharedSession(other, count: 4)
@@ -352,7 +438,8 @@ final class SharingConsentPersistTests: XCTestCase {
         StubProtocol.reset(server.handler)
         let storage = CloudFixtures.storage()
         let cloud = await launch(server, storage: storage)
-        for _ in 0..<40 {
+        for _ in 0..<3 {
+            Contributions.makeAskDue()
             if Contributions.sessionCompleted(feedback: true) != nil { Contributions.answer(share: false) }
         }
         XCTAssertEqual(Contributions.state().asks, 3)

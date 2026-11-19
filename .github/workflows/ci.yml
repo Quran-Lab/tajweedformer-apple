@@ -1,12 +1,10 @@
 name: CI
 
-# swift test on macOS, package builds for iOS, the iOS Simulator and macOS, and the example program.
-# TajweedFormerCore.xcframework is rebuilt from the engine submodule (Quran-Lab/tajweedformer-engine) and must be
-# what the package links. The model-dependent tests (V4 through the exact engine, every output of every
-# chunk; CoreML parity) need the model, which Quran Lab serves with an app key: they run when the
-# release `test-fixtures-v4` of this repository provides it, or the V4 folder is downloaded from
-# cdn.quranlab.ai/models with the QURANLAB_CI_KEY secret (scripts/fetch-model.py; the variable
-# QURANLAB_MODEL_REVISION pins the revision), and skip otherwise.
+# SDK 4.0: the Swift package over the Quran Lab Core. Nothing here builds the Core: Package.swift names
+# QuranLabCore.xcframework.zip on cdn.quranlab.ai by URL and checksum, and SwiftPM fetches and checks it. swift test on
+# macOS, package builds for iOS, the iOS Simulator and macOS, the example program, and a consumer package with the
+# README's install line and quick start. The tests that need the Core's test release or a protected test build (Quran
+# Lab's own) skip with the published Core.
 
 on:
   push:
@@ -24,85 +22,20 @@ env:
   GH_TOKEN: ${{ github.token }}
 
 jobs:
-  xcframework:
-    name: TajweedFormerCore.xcframework from the engine submodule
-    runs-on: macos-26
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - name: Xcode
-        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
-      - name: Engine submodule
-        run: bash scripts/ci-engine.sh engine && echo "ZF_ENGINE_DIR=$GITHUB_WORKSPACE/engine" >> "$GITHUB_ENV"
-      - name: Build (scripts/build_xcframework.sh)
-        run: scripts/build_xcframework.sh
-      - name: The committed xcframework is this build
-        run: |
-          for s in ios-arm64 ios-arm64-simulator macos-arm64; do
-            for h in zf_tajweed.h zf/stream.h zf/decode.h zf/fbank.h zf/resample.h; do
-              git show "HEAD:TajweedFormerCore.xcframework/$s/Headers/$h" > "$RUNNER_TEMP/committed.h"
-              if ! cmp "$RUNNER_TEMP/committed.h" "TajweedFormerCore.xcframework/$s/Headers/$h"; then
-                ls -la "TajweedFormerCore.xcframework/$s/Headers" || true
-                diff "$RUNNER_TEMP/committed.h" "TajweedFormerCore.xcframework/$s/Headers/$h" | head -20 || true
-                echo "::error::committed $s/$h differs from the engine's"; exit 1
-              fi
-            done
-          done
-      - name: The privacy manifest is in every slice
-        run: |
-          for s in ios-arm64 ios-arm64-simulator macos-arm64; do
-            plutil -lint "TajweedFormerCore.xcframework/$s/PrivacyInfo.xcprivacy"
-          done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TajweedFormerCore-xcframework
-          path: TajweedFormerCore.xcframework
-      - uses: actions/upload-artifact@v4
-        with:
-          name: engine-conformance
-          path: ${{ env.ZF_ENGINE_DIR }}/conformance
-
   macos:
     name: swift test (macOS)
-    needs: xcframework
     runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && swift --version
-      - uses: actions/download-artifact@v4
-        with:
-          name: TajweedFormerCore-xcframework
-          path: ${{ runner.temp }}/xcf
-      - name: Use it
-        run: rm -rf TajweedFormerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" TajweedFormerCore.xcframework
-      - uses: actions/download-artifact@v4
-        with:
-          name: engine-conformance
-          path: engine/conformance
       - name: GitHub token for the COpus release asset
         run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
-      - name: Model fixtures (optional)
-        env:
-          QURANLAB_KEY: ${{ secrets.QURANLAB_CI_KEY }}
-          QURANLAB_MODEL_REVISION: ${{ vars.QURANLAB_MODEL_REVISION }}
+      - name: The Core's binary target (resolved from cdn.quranlab.ai and checked by SwiftPM)
         run: |
-          echo "TAJWEED_V4_EXPECTED=$GITHUB_WORKSPACE/engine/conformance" >> "$GITHUB_ENV"
-          if gh release view test-fixtures-v4 -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release download test-fixtures-v4 -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP"
-            mkdir -p "$RUNNER_TEMP/v4-folder" "$RUNNER_TEMP/tajweed-coreml" "$RUNNER_TEMP/audio"
-            tar xzf "$RUNNER_TEMP/tajweed_v4_c16_folder.tar.gz" -C "$RUNNER_TEMP/v4-folder"
-            tar xzf "$RUNNER_TEMP/tajweed_coreml_test.tar.gz" -C "$RUNNER_TEMP/tajweed-coreml"
-            mkdir -p ExampleApp/Audio && tar xzf "$RUNNER_TEMP/conformance-v2-audio.tar.gz" -C ExampleApp/Audio
-            echo "TAJWEED_V4_FOLDER=$RUNNER_TEMP/v4-folder" >> "$GITHUB_ENV"
-            echo "TAJWEED_COREML=$RUNNER_TEMP/tajweed-coreml" >> "$GITHUB_ENV"
-          elif [ -n "$QURANLAB_KEY" ]; then
-            python3 scripts/fetch-model.py "$RUNNER_TEMP/model" --decode
-            echo "TAJWEED_V4_FOLDER=$RUNNER_TEMP/model/sdk/v4.0" >> "$GITHUB_ENV"
-          else
-            echo "::notice::no test-fixtures-v4 release and no QURANLAB_CI_KEY secret: the model-dependent tests skip"
-          fi
+          swift package resolve
+          grep -q 'url: "https://cdn.quranlab.ai/sdk/apple/' Package.swift || { echo "::error::Package.swift does not fetch the Core from its release folder"; exit 1; }
       - name: swift test
         # SharingSheetLayoutTests also draws the sharing sheet with SwiftUI into this folder (PNG): the pictures a
         # release's review looks at, uploaded below as the artifact sharing-sheet-pictures
@@ -121,43 +54,14 @@ jobs:
           found=$(find .build -name PrivacyInfo.xcprivacy -path '*TajweedFormer_TajweedFormer*' | head -1)
           test -n "$found" || { echo "::error::PrivacyInfo.xcprivacy is not in the package's resource bundle"; exit 1; }
           plutil -lint "$found"
-      - name: The proof on a Mac, rehearsed (scripts/prove-on-mac.sh --rehearse)
-        # The script a person runs on a Mac with a real key, here over the test suite's stub server with stand-in
-        # engines: its checks of the Mac, its build, the run it follows, the summary it prints last and its exit
-        # status. Nothing here reaches Quran Lab's servers: the two reachability probes go to a local server.
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/probe"
-          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$RUNNER_TEMP/probe" >/dev/null 2>&1 &
-          sleep 2
-          export QURANLAB_PROVE_PROBE_API=http://127.0.0.1:8765/ QURANLAB_PROVE_PROBE_CDN=http://127.0.0.1:8765/
-          QURANLAB_PROVE_DIR="$RUNNER_TEMP/prove" scripts/prove-on-mac.sh --rehearse | tee "$RUNNER_TEMP/prove.log"
-          # the summary is the last thing printed: the records of the golden stage's measures, then the tolerance made
-          # from them, named a proposal for the model side
-          tail -1 "$RUNNER_TEMP/prove.log" | grep -q '^}$' || { echo "::error::the summary's proposal is not the last thing printed"; exit 1; }
-          grep -q '^{"build": "coreml-compact", "context": "c16_l64", .*"passed": true, .*}$' "$RUNNER_TEMP/prove.log" || { echo "::error::the compact build's record is not in the summary"; exit 1; }
-          grep -q '^{"build": "coreml", "context": "c16_l64", .*"passed": false, .*}$' "$RUNNER_TEMP/prove.log" || { echo "::error::the fp16 build's record is not in the summary"; exit 1; }
-          grep -B1 '^"golden_raw_tolerance": {$' "$RUNNER_TEMP/prove.log" | grep -q '^a proposal for the model side, not a tolerance in force' || { echo "::error::the tolerance made from the measures is not named a proposal for the model side"; exit 1; }
-          # each build's golden stage is printed as measures against the signed bounds, or says that it has none
-          grep -q 'golden stage, judged by the tolerance the signed manifest gives coreml-compact (measured / bound):$' "$RUNNER_TEMP/prove.log" || { echo "::error::the compact build's measures are not printed against its bounds"; exit 1; }
-          grep -q 'log_probs: token_edits 0 / 2, lp_mean 0.012346 / 0.13, lp_p99 0.45679 / 0.5: inside$' "$RUNNER_TEMP/prove.log" || { echo "::error::no line shows a measure next to its bound"; exit 1; }
-          grep -q 'golden stage, the signed manifest gives coreml no tolerance: identical tokens decided$' "$RUNNER_TEMP/prove.log" || { echo "::error::a build without a tolerance does not say that tokens decided"; exit 1; }
-          test "$(grep -c '^step [0-6]  .* PASS' "$RUNNER_TEMP/prove.log")" = 7 || { echo "::error::not every step of the rehearsal passed"; exit 1; }
-          # a build whose tokens differ stays on the CPU engine, and step 4 passes and says so
-          grep -q '^step 4  the promotion pipeline  *PASS  promoted 1 of 2; 1 stayed on the CPU engine: tokens differ$' "$RUNNER_TEMP/prove.log" || { echo "::error::step 4 does not say how the builds ended"; exit 1; }
-          grep -q 'still compiling' "$RUNNER_TEMP/prove.log" || { echo "::error::a compile that takes a while printed no line"; exit 1; }
-          # no build id is expected unless the caller names one: the signed config says which build an SDK gets
-          if grep -q 'd841ec6c' scripts/prove-on-mac.sh; then echo "::error::the script names a build id"; exit 1; fi
-          grep -q 'the network: not metered  *yes$' "$RUNNER_TEMP/prove.log" || echo "::warning::the script could not ask the system whether the network is metered"
       - name: Summary
         if: always()
-        run: grep -E "^(v4-coreml|v4-scorer|v4-exact)|Executed [0-9]+ tests|skipped" "$RUNNER_TEMP/test.log" | sort | uniq -c | tail -40 || true
+        run: grep -E "Executed [0-9]+ tests|skipped" "$RUNNER_TEMP/test.log" | sort | uniq -c | tail -40 || true
 
   consumer:
-    # The README's install line and quick start as a developer has them: a package that depends on this
-    # repository at this commit (SwiftPM fetches it from GitHub, with the committed xcframework) and holds the
-    # quick start's code (the marked region of examples/QuickStart/Sources/QuickStart/QuickStart.swift) in its
-    # own target.
+    # The README's install line and quick start as a developer has them: a package that depends on this repository at
+    # this commit (SwiftPM fetches it from GitHub, and the Core from cdn.quranlab.ai) and holds the quick start's code
+    # (the marked region of examples/QuickStart/Sources/QuickStart/QuickStart.swift) in its own target.
     name: A consumer package builds (install line and quick start)
     if: github.event_name != 'pull_request'
     runs-on: macos-26
@@ -166,6 +70,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && swift --version
+      - name: GitHub token for the COpus release asset
+        run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
       - name: Build
         run: |
           mkdir -p "$RUNNER_TEMP/consumer/Sources/App"
@@ -187,19 +93,12 @@ jobs:
 
   builds:
     name: iOS and macOS builds
-    needs: xcframework
     runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
-      - uses: actions/download-artifact@v4
-        with:
-          name: TajweedFormerCore-xcframework
-          path: ${{ runner.temp }}/xcf
-      - name: Use it
-        run: rm -rf TajweedFormerCore.xcframework && cp -R "$RUNNER_TEMP/xcf" TajweedFormerCore.xcframework
       - name: GitHub token for the COpus release asset
         run: printf 'machine api.github.com login x-access-token password %s\n' "$GH_TOKEN" > ~/.netrc && chmod 600 ~/.netrc
       - name: The example program (examples/QuickStart) builds

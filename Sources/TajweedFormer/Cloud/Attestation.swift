@@ -173,8 +173,23 @@ actor TokenProvider {
         return t
     }
 
+    /// Why the last call of `token()` failed, nil when it gave a token: a call made with the token tells by it whether
+    /// it was the token that failed (an error report's stage `attest`, contract 24.3).
+    nonisolated let lastFailure = Locked<CloudError?>(nil)
+
     /// A token valid for at least another hour.
     func token() async throws(CloudError) -> APIToken {
+        do throws(CloudError) {
+            let t = try await obtain()
+            lastFailure.withLock { $0 = nil }
+            return t
+        } catch {
+            lastFailure.withLock { $0 = error }
+            throw error
+        }
+    }
+
+    private func obtain() async throws(CloudError) -> APIToken {
         if let t = usable(cached) { return t }
         // unreadable is taken as not there here, because a token is asked for again
         if let t = usable(file.read().takingUnreadableAsMissing) { cached = t; return t }
@@ -287,6 +302,54 @@ actor TokenProvider {
                   ["attestation_failed", "challenge_invalid", "team_mismatch", "attest_key_revoked"].contains(code) else { throw error }
             return try await unattested()
         }
+    }
+
+    // MARK: SDK 4.0: the install certificate
+
+    /// A full attest with the install's NEW key, once per certificate (30 days, or 24 hours unattested): the key's
+    /// SPKI as both install keys (one Secure Enclave key agrees and signs), `install_sig` by it over the challenge (or
+    /// "-" without one) and its install hash, `install_hw`, and App Attest where the device has it, with a new App
+    /// Attest key whose client data hash covers `challenge "\n" <install hash>`. Returns the answer's certificate; the
+    /// answer's token replaces the one in hand, and later tokens come from that App Attest key's assertions as before.
+    /// An attestation the server refuses is sent once more without it (`att none`), as `attestNewKey` does.
+    func certify(_ key: any InstallKey) async throws(CloudError) -> String {
+        let installHash = key.installHash
+        var attested: (keyID: String, fields: [String: String], challenge: String)?
+        if app.platform != "android", attester.isSupported, let team = teamID ?? Self.teamIDFromKeychain() {
+            let challenge = try await challenge()
+            do {
+                let keyID = try await attester.generateKey()
+                let object = try await attester.attestKey(keyID, clientDataHash: Self.clientDataHash(challenge + "\n" + installHash))
+                attested = (keyID, ["team_id": team, "key_id": keyID, "attestation": object.base64EncodedString(), "challenge": challenge], challenge)
+            } catch {
+                attested = nil // App Attest failed on the device this time: the certificate is unattested
+            }
+        }
+        func send(_ a: (keyID: String, fields: [String: String], challenge: String)?) async throws(CloudError) -> (APIToken, String) {
+            guard let sig = key.attestProof(challenge: a?.challenge) else { throw .invalid("the install key did not sign") }
+            var body: [String: Any] = ["platform": app.platform, "bundle_id": app.bundleID, "install_key": key.spki.base64URL,
+                                       "install_sign_key": key.spki.base64URL, "install_sig": sig, "install_hw": key.hardware ? 1 : 0]
+            if let a { body.merge(a.fields.mapValues { $0 as Any }) { mine, _ in mine } }
+            let resp = try await http.checked(try request("v1/attest", body: body))
+            let t = try tokenFrom(resp)
+            guard let o = (try? JSONSerialization.jsonObject(with: resp.body)) as? [String: Any], let cert = o["install_cert"] as? String else {
+                throw .invalid("the attest answer has no install certificate (the server's protected model is off)")
+            }
+            return (t, cert)
+        }
+        let answer: (APIToken, String)
+        do throws(CloudError) {
+            answer = try await send(attested)
+            if let a = attested, answer.0.attested { rememberKey(a.keyID) }
+        } catch {
+            guard attested != nil, case .rejected(_, let code, _, _) = error,
+                  ["attestation_failed", "challenge_invalid", "team_mismatch", "attest_key_revoked"].contains(code) else { throw error }
+            answer = try await send(nil)
+        }
+        cached = answer.0
+        file.write(answer.0)
+        issued()
+        return answer.1
     }
 
     private func unattested() async throws(CloudError) -> APIToken {
