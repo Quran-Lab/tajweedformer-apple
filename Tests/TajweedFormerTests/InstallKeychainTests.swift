@@ -45,6 +45,11 @@ final class InstallKeychainTests: XCTestCase {
         print("keychain: this test process, the data protection keychain: a read of a missing item answers \(answers.read), an add answers \(answers.add) (errSecItemNotFound \(errSecItemNotFound), errSecMissingEntitlement \(errSecMissingEntitlement))")
         XCTAssertEqual(first.load(), .none, "no key yet")
         let created = first.create()
+        // a session with no logged-in user's keychain (a test run over SSH: the login keychain is locked, and this tool
+        // has no data protection keychain) cannot keep a key at all; the test needs a logged-in session
+        if case .failed(let why) = created, why.contains("\(errSecInteractionNotAllowed)") {
+            throw XCTSkip("the login keychain is locked in this session (\(why)): run in a logged-in session")
+        }
         guard case .key(let key) = created else { return XCTFail("the key store did not keep a key: \(created)") }
         let next = KeychainInstallKeyStore(service: first.service, account: first.account)
         XCTAssertEqual(next.load(), .key(key), "the next start finds the key the first one kept")

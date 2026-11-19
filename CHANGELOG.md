@@ -1,5 +1,130 @@
 # Changelog
 
+## 4.0.0
+
+The model is protected. It is encrypted from Quran Lab's server to the device and runs only inside the Quran Lab Core
+(`QuranLabCore.xcframework`, which SwiftPM fetches with the package), under a lease for each install. The calls of a
+take stay as they were. Moving from 3.x: [docs/migrating-to-4.md](docs/migrating-to-4.md).
+
+- **Removed: the `analytics` option**, with `TajweedClientOptions.Analytics`. The anonymous analytics (daily counts and
+  durations, never audio, text, names or device identifiers) are always on. Code that sets it no longer compiles:
+  delete `analytics:`.
+- **Removed: the `audience` option of `TajweedClientOptions` and the `Audience` type, the guardian sheet, and the
+  `guardianConfirmed:` argument of `sharing.setOn`;** code that sets them no longer compiles. Every app shows the same
+  sharing sheet. Complying with children's privacy law is the app's and the app store's. A learner who said yes before
+  keeps that yes and is never asked again.
+- **Add the App Attest capability.** With it, an install is hardware-verified: it gets the Neural Engine and sharing
+  uploads. Without it the SDK still runs, on the CPU engine only. On the Simulator, use a development key.
+- **The lease.** The model opens under a lease Quran Lab signs for the install, renewed in the background. Offline
+  within it, the model opens: learners keep working offline for days at a time (the exact time is set by Quran Lab
+  and may change). When it has ended and Quran Lab cannot be reached, the model keeps opening for 24 hours
+  more; a refusal ends that at once. A Model that is open keeps running.
+- **Making the Client downloads nothing.** The model downloads only when your app calls `client.model()` or
+  `client.prefetch()`. In 3.x, making the Client could download the model at launch on a device that had none; a
+  later start now checks only for an update of a build the Client installed.
+- **The model downloads once more after the upgrade**, encrypted, at the first `client.model()` or
+  `client.prefetch()`, so that call needs a connection once.
+- **Error reports.** Every error your app gets (except misuse of the API) and every failure the SDK goes on from
+  reaches Quran Lab as a small anonymous report. You see them on your app's Problems page at sdk.quranlab.ai.
+- **More exact error codes.** `needs_connection` only when no request got an answer; an answer from a server that
+  failed is `download_failed`, with what answered in the message.
+- **Recited ayahs.** The SDK counts the ayahs of each take itself; `reportRecited` is the fallback, and its new
+  `outcome:` and `perAyah:` carry your app's own judgement.
+- **Sharing.** Asked later and less often (never in the first 24 hours, at most three times), and a recording stays
+  open up to 60 seconds between takes. There is still no developer switch.
+- **Every learner is asked** and the choice is theirs: Not now, stop, or delete at any time. No app is exempt.
+- **Privacy manifests** now also declare crash data (not linked to the learner, not used for tracking) and the boot
+  clock, which the lease reads. Check your App Store privacy answers against them.
+- **Model versions.** From V4.1 on, new model versions are published only encrypted, for SDK 4.0. SDK 3.x stops
+  receiving the V4 model on 15 January 2027, 00:00 UTC.
+
+## 3.1.5
+
+Not released as a 3.x version: these fixes ship in 4.0.0.
+
+Corrections to the preparation of the Neural Engine's build: a download that the network or the system stopped,
+and a process that ends while the build is being prepared. One new call to prepare the build at a known point. Error
+reports (contract section 24), and the right code for a server that fails. The same engine, the same model
+builds and the same API as 3.1.4 otherwise.
+
+- **Fixed: a download stopped in the middle of the CoreML package kept the Neural Engine off.** Through 3.1.4 a
+  download's working file (`<stored path>.part`) was kept next to its file, which for the CoreML build is inside
+  the package, and a gzip file was inflated straight into place. A download the network or the system stopped
+  (the connection lost, the request timed out, the app suspended or ended) left there a file the manifest does not
+  list, or a short decoded file. At the next launch the folder's check turned CoreML off for it ("... is in the
+  CoreML package but not in the manifest", "... does not match the manifest"), and the promotion's download stage,
+  which judged the build by that check from before the download, refused the download that had just finished it
+  (`verify`). Each such refusal took one of the build's tries for that OS build. Now working files live in the
+  model folder's own working folder (`.work/`), outside every package, and a decoded file is moved into place only
+  once it is the manifest's file; the download stage judges the build by the files on disk after the download.
+- **What an earlier download left is set right before the build is installed.** A working file an earlier SDK
+  kept inside a package is moved out and the download goes on from where it stopped; an Apple file on disk that
+  does not have the manifest's size and SHA-256 is deleted and downloaded again; any other file in a package that
+  the manifest does not list deletes the whole package, which is then downloaded again from nothing. The folder's
+  check is as strict as before: nothing the manifest does not list is ever taken, and hashes are not relaxed. A
+  build that still does not verify after the download is a `verify` failure and its files are deleted at once, so
+  the next attempt starts from nothing.
+- **A download the network stopped, or that had no room, no longer uses up the build's tries.** It is retried
+  after 1 hour, 6 hours, then every 24 hours, and never turns the Neural Engine off for good.
+- **Fixed: a process that ended normally during the preparation was taken for a crash.** The compile, the first
+  load and the first inference of the build run in the background of the app's process, with a mark on disk that
+  a crash leaves behind. Through 3.1.4 a process that ended normally during one of them (a command-line tool that
+  returned from `main`, an app quit in its first seconds) and an app the system ended in the background left the
+  same mark as a crash, and a crash turns the build off for good for that model build and OS build. A second
+  process of the same app that started while the first was in a stage also read the first one's mark as a crash.
+  Now each process keeps its own mark under a lock the system releases when the process ends, so a stage under way
+  in another process is never judged; a normal exit (`exit`, returning from `main`, the app's willTerminate, and on
+  the Mac SIGINT and SIGTERM when the app left them to the system) and an end in the background are told from a
+  crash. After an exit or a stop in the background the preparation goes on at the next launch from the stage it
+  was at, with nothing counted (a third stop in the background in a row of one attempt counts as one failure,
+  `hang`). Only a process that dies in the foreground during a stage is a crash.
+- **The first launch of 3.1.5 gives these verdicts of an earlier SDK one more attempt:** a crash at the compile,
+  warm-up or golden stage, and a download stage that ended with `verify`, `network` or `storage`. A golden-test
+  mismatch and the other verdicts stay.
+- **Added: `model.prepareAccelerator(context:again:timeout:)`.** It prepares the Neural Engine's build now (the
+  download on an unmetered network, the compile, the test against the CPU engine) and returns `model.backend` when
+  the build is loaded and warm, when the preparation stopped, or after `timeout` seconds (the work goes on in the
+  background). At a later launch it loads and warms a build promoted before, so the next take runs on the Neural
+  Engine from its first chunk. `again: true` first forgets this device's verdict on the build and prepares it from
+  the start. The preparation still runs by itself as before; it belongs to the Model's `.auto` engine, so an app
+  whose takes name `backend: .cpu` uses this call to have it prepared.
+- **Telemetry: a failed download says why.** A download entry carries `failure_reasons` (`network`, `http`,
+  `hash_mismatch`, `signature`, `storage`, `other`), by the reason of the failure as contract 24.8 names it: no
+  answer or a timeout `network`; a 5xx, a 429, a refusal, a redirect or an answer that is not the file `http`; a
+  manifest that does not parse `other`. A failed download of the model the network stopped or that had no room is
+  now counted as failed, and so is a manifest that failed, also for want of a network; through 3.1.4 neither was
+  counted, and no failure said why. An incident report of a stop says `interrupted`, or for a stop in the background
+  `crash_on_last_run` with `foreground` false.
+- **Error reports** (contract section 24, `sdk_4.0.0/ERRORS_40.md`, as 24.11 asks of Apple
+  3.1.5): every error the app gets (every `TajweedError` but `invalid_argument`, `client_exists`, `session_open`,
+  `session_closed` and `cancelled`) and the silent failures of 24.1 the SDK sees (a config, registration or token
+  request that failed with an answer, a telemetry report the server refused) become one `POST /v1/issues` with
+  `kind: "error"` and a closed `error` object: the stage of the cause, the reason, the HTTP status, the `NSError`
+  domain and code of a request that got no answer, the engine's status, the count, `first_launch`, `first_report`,
+  the model version and build, the device model, RAM tier and ABI. Not `storage_free`: the free space is read under
+  the required reason E174.1, which keeps anything derived from it on the device. Never a message, a path, a URL or
+  an identifier. One report per install, UTC day and signature, at most 16 a day and 32 queued, 7 days, in
+  `cloud/error-reports.json`; sent at every telemetry send point (the launch's after its config) and 30 s after a
+  new one while in the foreground; 202 sent, 400 or 413 dropped, anything else kept. `flags.issues: false` turns
+  them off, as it does the issue reports. A failure the SDK goes on from is reported with code `none`; a call it
+  makes fail is its own report, with the code the app got.
+- **Fixed: a server failure was `needs_connection`.** A config that answered 5xx, 429 or a redirect, or did not
+  verify, with no stored config, and a manifest or file that answered so, were `needs_connection` (Apple 3.1.4).
+  They are `download_failed`, whose detail names what answered ("the server answered 503"). `needs_connection` is
+  now only a call where no request got any answer and nothing of the build is on the device.
+- The COpus module has an explicit module map with `COpus.h` as its one header, so apps no longer get three
+  umbrella-header warnings from the package.
+
+Tests: `DownloadAndStopTests` (the stopped download, the leftover of 3.1.4 resumed from its byte, a file in the
+package that is not the downloader's, a build that still does not verify, a quit at each stage, stops in the
+background, a stage under way in another process, the upgrade's verdicts, the telemetry's reasons), red on the
+code of 3.1.4 first for the download stage and the normal exit during the warm-up. `ErrorReportVectorTests` replays
+the contract's `vectors/errors_40.json` (the 49 code cases, the 15 queue sequences, the signatures, the telemetry
+names); `ErrorReportTests` makes each failure on the stand-in server (a config that answers 503 is `download_failed`,
+with the config's silent report apart, no answer at all is `needs_connection`, a manifest that answers 502, a key
+store that fails, the microphone refused, the send point and its body, `flags.issues: false`, a refused telemetry
+report); `ErrorCauseTests`. Written without a Mac: not compiled when this was written.
+
 ## 3.1.4
 
 Corrections to what the SDK does with something it keeps on the device and cannot read at that moment, and to

@@ -7,8 +7,9 @@ The sentence itself is written nowhere: a test (SharingDeckTests) slides a windo
 bytes of every text the sharing sheet is built from and fails when a window has that hash.
 
     python scripts/make_deck_removed_hashes.py <contract checkout>
-        reads <contract>/sharing_copy/archive/2026-11-12.1/<lang>.json and <contract>/sharing_copy/<lang>.json
-        and writes the data file
+        reads <contract>/sharing_copy/archive/2026-11-12.1/<lang>.json and the deck that removed the sentence,
+        <contract>/sharing_copy/archive/2026-11-13.1/<lang>.json (the current deck, 2026-11-15.1, has the same
+        strings and the re-ask card's three more), and writes the data file
     python scripts/make_deck_removed_hashes.py --check <folder of deck files>
         the test's own check, over the decks in a folder: prints per language whether a string of the deck holds
         the sentence, and exits 1 when one does (the archived decks must; the bundled decks must not)
@@ -62,7 +63,7 @@ def make(checkout):
     languages = {}
     for lang in LANGS:
         earlier = strings(source.joinpath("archive", "2026-11-12.1", f"{lang}.json"))
-        now = strings(source.joinpath(f"{lang}.json"))
+        now = strings(source.joinpath("archive", "2026-11-13.1", f"{lang}.json"))
         differing = sorted(k for k in earlier if earlier[k] != now.get(k))
         assert differing == KEYS and set(earlier) == set(now), (lang, differing)
         entry = {}

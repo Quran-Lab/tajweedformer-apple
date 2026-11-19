@@ -1,0 +1,1860 @@
+{
+ "section": "PROTECTED_MODEL.md 18.4.7.1",
+ "note": "Test keys only, made by protected40.py from fixed labels (stream(label, n): SHA-256 of the label and a 32-bit little-endian counter, concatenated). No SDK trusts them.",
+ "rule": "an attempt ends as a lease, a stop, refused (a 4xx other than 429 whose body is JSON with an error string, after 18.4.10's retries inside the attempt) or unreachable (anything else: no answer, a stall, no outcome within 10 s, a 5xx, a 429, a redirect, a 4xx that is not the API's, a 2xx that is not a lease the Core accepts). Per lease, kept in the sealed state: unreachable and refused, both cleared by a lease accepted. The Core's clock is 18.4.7's (clock.json). valid while now < exp; grace while exp <= now < exp + 86400 and an attempt ended unreachable and none refused since the lease; else needs_connection; stopped after a verified stop. until = exp + 86400 while a lease is held",
+ "grace_s": 86400,
+ "attempt_wait_s": 10,
+ "answers_are": "{route, answer: none | stalled | late} for no answer (none at all; one that began and stalled; none within attempt_wait_s), else {route, status, body: json | html | empty, error: the JSON body's error string or null, reason: its stop reason or null, core: accepted or refused for a 2xx lease answer, stop for a signed stop the Core verified, else null}. route: token, challenge, attest, model-key",
+ "outcomes": [
+  {
+   "name": "a lease the Core accepts",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": "accepted"
+    }
+   ],
+   "outcome": "lease"
+  },
+  {
+   "name": "no answer: DNS, TLS, a refused or reset connection, a connect time-out, offline",
+   "answers": [
+    {
+     "route": "challenge",
+     "answer": "none"
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "the lease request got no answer",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "answer": "none"
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "an answer that began and stalled",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "answer": "stalled"
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "no outcome within the 10 seconds a model open waits",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "answer": "late"
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "500",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 500,
+     "body": "json",
+     "error": "internal",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "502 from the edge, not JSON",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 502,
+     "body": "html",
+     "error": null,
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "503 not_configured",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 503,
+     "body": "json",
+     "error": "not_configured",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "503 network_blocked",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 503,
+     "body": "json",
+     "error": "network_blocked",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "503 lease_unavailable with Retry-After 30 (a dependency of the lease route down or slow, no last good value)",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 503,
+     "body": "json",
+     "error": "lease_unavailable",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "503 attest_unavailable on attest again",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "install_cert_invalid",
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "attest",
+     "status": 503,
+     "body": "json",
+     "error": "attest_unavailable",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "503 service_unavailable on the challenge",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 503,
+     "body": "json",
+     "error": "service_unavailable",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "504",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 504,
+     "body": "empty",
+     "error": null,
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "429 rate_limited",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 429,
+     "body": "json",
+     "error": "rate_limited",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "429 on the challenge",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 429,
+     "body": "json",
+     "error": "rate_limited",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "a redirect (never followed, 15.4)",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 302,
+     "body": "empty",
+     "error": null,
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "a 403 that is not the API's: a firewall's page",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 403,
+     "body": "html",
+     "error": null,
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "407 from a proxy",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 407,
+     "body": "html",
+     "error": null,
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "a 4xx whose JSON has no error string",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "200 that is not a lease answer: a captive portal",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "html",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 200,
+     "body": "html",
+     "error": null,
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "200 whose lease the Core refuses",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": "refused"
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "400 invalid_body",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 400,
+     "body": "json",
+     "error": "invalid_body",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "401 invalid_token without a reason, renewed once, the repeat refused again",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "invalid_token",
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "token",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "invalid_token",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "401 invalid_token without a reason, renewed once, then a lease",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "invalid_token",
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "token",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": "accepted"
+    }
+   ],
+   "outcome": "lease"
+  },
+  {
+   "name": "401 invalid_token, the renewal gets no answer",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "invalid_token",
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "token",
+     "answer": "none"
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "401 challenge_invalid, a new challenge, the repeat refused again",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "challenge_invalid",
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "challenge_invalid",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "401 install_cert_invalid, attest again, then a lease",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "install_cert_invalid",
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "attest",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": "accepted"
+    }
+   ],
+   "outcome": "lease"
+  },
+  {
+   "name": "401 install_cert_invalid, attest again answers 503",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "install_cert_invalid",
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "attest",
+     "status": 503,
+     "body": "json",
+     "error": "unavailable",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "unreachable"
+  },
+  {
+   "name": "401 install_cert_invalid, attest again answers 403 lease_integrity_failed",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "install_cert_invalid",
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "attest",
+     "status": 403,
+     "body": "json",
+     "error": "lease_integrity_failed",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "403 sdk_too_old (a Core release revoked)",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 403,
+     "body": "json",
+     "error": "sdk_too_old",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "403 lease_attestation_required",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 403,
+     "body": "json",
+     "error": "lease_attestation_required",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "403 lease_integrity_failed",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 403,
+     "body": "json",
+     "error": "lease_integrity_failed",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "403 turnstile_required",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 403,
+     "body": "json",
+     "error": "turnstile_required",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "403 turnstile_failed",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 403,
+     "body": "json",
+     "error": "turnstile_failed",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "404 build_unknown",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 404,
+     "body": "json",
+     "error": "build_unknown",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "404 not_found: the route is off",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 404,
+     "body": "json",
+     "error": "not_found",
+     "reason": null,
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "401 invalid_key with a stop reason the Core does not verify (unsigned)",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "invalid_key",
+     "reason": "key_revoked",
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "403 app_blocked, unsigned",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 403,
+     "body": "json",
+     "error": "app_blocked",
+     "reason": "app_blocked",
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  },
+  {
+   "name": "401 invalid_key, a signed stop the Core verifies",
+   "answers": [
+    {
+     "route": "challenge",
+     "status": 200,
+     "body": "json",
+     "error": null,
+     "reason": null,
+     "core": null
+    },
+    {
+     "route": "model-key",
+     "status": 401,
+     "body": "json",
+     "error": "invalid_key",
+     "reason": "key_revoked",
+     "core": "stop"
+    }
+   ],
+   "outcome": "stop"
+  },
+  {
+   "name": "a stop of 15.3 on the token route",
+   "answers": [
+    {
+     "route": "token",
+     "status": 401,
+     "body": "json",
+     "error": "invalid_token",
+     "reason": "key_revoked",
+     "core": null
+    }
+   ],
+   "outcome": "refused"
+  }
+ ],
+ "override_leases_are": "18.4.7.2: leases made under the server's lease_grace switch for lease.json's ECDH install (its install key, release, build, key id, signer and now): the Core accepts each at accept_at as any lease; checks: on 18.4.7's clock anchored at iat on one boot, the state at each time, with an unreachable attempt told before the checks marked attempt_before",
+ "override_leases": [
+  {
+   "name": "capped_7d: an unattested lease (flags 0) with the 7-day expiry, the 24-hour class's refresh",
+   "fields": {
+    "flags": 0,
+    "iat": 1789996400,
+    "exp": 1790599966,
+    "refresh_after": 1790043921,
+    "lease_id_hex": "7554a6c34e2c517776ba52bbfd5a9b4e",
+    "mark_hex": "61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db"
+   },
+   "lease_hex": "514c4c31010000007554a6c34e2c517776ba52bbfd5a9b4e702db16a000000001e63ba6a0000000011e7b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004570f0c017f18c3a2402b07c3980ccb7964f6fcc96fe24d9b1f526f0caec712307ca77c44a591b00f9c84038a8f2b32714cb7e91acd0e8cd97a8e592e64ded2d140000391b067a08389ec5e311ccecf87e206ec5926dc5e3ee9c6069a97f0e218aaf634c0f9e41ec20b4481e637fd870ab0d6d21dc818a5932b940ecb529ff5cbcc6cbae32b00126ed013da1d2ffbe2745d09060241de8cd4453fa300c56dae2454707ec52c2261c8f682668088bf6cc1256a1aca381675852a2524eca5da9c2dbf57351113a59fd88f03",
+   "accept_at": 1790000000,
+   "expect": "accept",
+   "checks": [
+    {
+     "at": 1790599965,
+     "state": "valid",
+     "attempt_before": false
+    },
+    {
+     "at": 1790599966,
+     "state": "needs_connection",
+     "attempt_before": false
+    },
+    {
+     "at": 1790599966,
+     "state": "grace",
+     "attempt_before": true
+    },
+    {
+     "at": 1790686365,
+     "state": "grace",
+     "attempt_before": true
+    },
+    {
+     "at": 1790686366,
+     "state": "needs_connection",
+     "attempt_before": true
+    }
+   ]
+  },
+  {
+   "name": "capped_7d: a lease with a Play re-check owed (flags bit 2)",
+   "fields": {
+    "flags": 4,
+    "iat": 1789996400,
+    "exp": 1790599966,
+    "refresh_after": 1790043921,
+    "lease_id_hex": "ab10250a5b9aaedad93bc68ef32139f0",
+    "mark_hex": "61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db"
+   },
+   "lease_hex": "514c4c3101000400ab10250a5b9aaedad93bc68ef32139f0702db16a000000001e63ba6a0000000011e7b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d63310141000423661cc0f16f9e2162a4fa5ec81ca5efdc2da46aed78171d862bc0640042062cb1fb96fbcc3545ad88805811d8af55c7e49fafd18ac45658d4308eacb3fc382e400052ba41fb73de2e4edf161b815609820bbf0917e6b49994576f9130b2024038eef89d64d46440eb650fdbb3ac9af0a352ecb2d1180b34690a1bf3b0cedd821b01bae32b00126ed0137c7eb1bc8abaa2aea956864bae558fe844699db7608bdf1c2b167dd6153a7c28790425cf40f36b86816ad8c3b46526358756a4c0d63b9f485e0714b67d7d830c",
+   "accept_at": 1790000000,
+   "expect": "accept",
+   "checks": [
+    {
+     "at": 1790599965,
+     "state": "valid",
+     "attempt_before": false
+    },
+    {
+     "at": 1790599966,
+     "state": "needs_connection",
+     "attempt_before": false
+    },
+    {
+     "at": 1790599966,
+     "state": "grace",
+     "attempt_before": true
+    },
+    {
+     "at": 1790686365,
+     "state": "grace",
+     "attempt_before": true
+    },
+    {
+     "at": 1790686366,
+     "state": "needs_connection",
+     "attempt_before": true
+    }
+   ]
+  },
+  {
+   "name": "extra_hours 72 on a 24-hour lease",
+   "fields": {
+    "flags": 0,
+    "iat": 1789996400,
+    "exp": 1790341679,
+    "refresh_after": 1790043921,
+    "lease_id_hex": "960bf655bb20d331b5e9a6dbbeab0afb",
+    "mark_hex": "61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db"
+   },
+   "lease_hex": "514c4c3101000000960bf655bb20d331b5e9a6dbbeab0afb702db16a000000002f72b66a0000000011e7b16a00000000d14d9aeeeecb3a238cb86c41a5e8b0c25221e22fba69737fe00682a9447451b22cdca991c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c61c787be9d52382ec5dc283408f5e65d741666e87fe8c0db0476342e3005342e312e3008342e302e302d633101410004144d58d86e67c869953837cc1ee1d59d81652b57257554e02308ca3f7a1237f638f162c5881b4b935e0cd972a3135713caa974893b0bc12a23a38481bcc7d2c14000c89800cf35d657f3ef4e9011bd414e9060e58107e50132c301852a0f2ac723bedce0ab48790edf96510615b0242e72c95eaeb901f8a7f13d6b923ff620f37995bae32b00126ed0138d234c5225831dec3438e7a8646397d560428c0409d84c9ee11a88a0c896c7573b8282bbea3e464adabaf82a3f811ada304e01af579969597bf2b1d3aa175608",
+   "accept_at": 1790000000,
+   "expect": "accept",
+   "checks": [
+    {
+     "at": 1790341678,
+     "state": "valid",
+     "attempt_before": false
+    },
+    {
+     "at": 1790341679,
+     "state": "needs_connection",
+     "attempt_before": false
+    },
+    {
+     "at": 1790341679,
+     "state": "grace",
+     "attempt_before": true
+    },
+    {
+     "at": 1790428078,
+     "state": "grace",
+     "attempt_before": true
+    },
+    {
+     "at": 1790428079,
+     "state": "needs_connection",
+     "attempt_before": true
+    }
+   ]
+  }
+ ],
+ "steps_are": "lease (accepted or refused as expired, with its anchor, as clock.json); attempt: qlc_lease_attempt with unreachable or refused, and its result (ok, needs_connection, stopped); stop: a verified stop (qlc_refusal_accept QLC_E_STOPPED); restart: the state saved and handed back to a new process; check: a model open at that clock, with the Core's now, until (qlc_lease_grace) and the state (valid, grace, needs_connection, stopped)",
+ "sequences": [
+  {
+   "name": "7 days, then Quran Lab down: grace for 24 hours from exp, then needs_connection",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1790259200,
+      "boot": 260200,
+      "boot_id": "b1"
+     },
+     "now": 1790259200,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604799,
+      "boot": 605799,
+      "boot_id": "b1"
+     },
+     "now": 1790604799,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "check": {
+      "wall": 1790604800,
+      "boot": 605800,
+      "boot_id": "b1"
+     },
+     "now": 1790604800,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790691199,
+      "boot": 692199,
+      "boot_id": "b1"
+     },
+     "now": 1790691199,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790691200,
+      "boot": 692200,
+      "boot_id": "b1"
+     },
+     "now": 1790691200,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "24 hours: grace ends 48 hours after iat",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790086400
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790086399,
+      "boot": 87399,
+      "boot_id": "b1"
+     },
+     "now": 1790086399,
+     "until": 1790172800,
+     "state": "valid"
+    },
+    {
+     "check": {
+      "wall": 1790086400,
+      "boot": 87400,
+      "boot_id": "b1"
+     },
+     "now": 1790086400,
+     "until": 1790172800,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790172799,
+      "boot": 173799,
+      "boot_id": "b1"
+     },
+     "now": 1790172799,
+     "until": 1790172800,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790172800,
+      "boot": 173800,
+      "boot_id": "b1"
+     },
+     "now": 1790172800,
+     "until": 1790172800,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "no attempt since the lease: expired is needs_connection; the first unreachable attempt opens the grace",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1790608400,
+      "boot": 609400,
+      "boot_id": "b1"
+     },
+     "now": 1790608400,
+     "until": 1790691200,
+     "state": "needs_connection"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790608401,
+      "boot": 609401,
+      "boot_id": "b1"
+     },
+     "now": 1790608401,
+     "until": 1790691200,
+     "state": "grace"
+    }
+   ]
+  },
+  {
+   "name": "a refusal ends the grace at once, and for the rest of this lease",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604900,
+      "boot": 605900,
+      "boot_id": "b1"
+     },
+     "now": 1790604900,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "attempt": "refused",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604901,
+      "boot": 605901,
+      "boot_id": "b1"
+     },
+     "now": 1790604901,
+     "until": 1790691200,
+     "state": "needs_connection"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604902,
+      "boot": 605902,
+      "boot_id": "b1"
+     },
+     "now": 1790604902,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a refusal before exp: the lease holds to exp (it is not a stop), no grace after it",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1790086400,
+      "boot": 87400,
+      "boot_id": "b1"
+     },
+     "now": 1790086400,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "attempt": "refused",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790172800,
+      "boot": 173800,
+      "boot_id": "b1"
+     },
+     "now": 1790172800,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604799,
+      "boot": 605799,
+      "boot_id": "b1"
+     },
+     "now": 1790604799,
+     "until": 1790691200,
+     "state": "valid"
+    },
+    {
+     "check": {
+      "wall": 1790604800,
+      "boot": 605800,
+      "boot_id": "b1"
+     },
+     "now": 1790604800,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "the grace never stacks: attempts in it never move its end",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790684800,
+      "boot": 685800,
+      "boot_id": "b1"
+     },
+     "now": 1790684800,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790691199,
+      "boot": 692199,
+      "boot_id": "b1"
+     },
+     "now": 1790691199,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790691200,
+      "boot": 692200,
+      "boot_id": "b1"
+     },
+     "now": 1790691200,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "an attempt after the grace ended opens nothing",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "check": {
+      "wall": 1790691205,
+      "boot": 692205,
+      "boot_id": "b1"
+     },
+     "now": 1790691205,
+     "until": 1790691200,
+     "state": "needs_connection"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790691206,
+      "boot": 692206,
+      "boot_id": "b1"
+     },
+     "now": 1790691206,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a new lease clears the attempts: its own grace needs an attempt after it",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790608400,
+      "boot": 609400,
+      "boot_id": "b1"
+     },
+     "now": 1790608400,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "lease": {
+      "iat": 1790608400,
+      "exp": 1791213200
+     },
+     "wall": 1790608400,
+     "boot": 609400,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790608400
+    },
+    {
+     "check": {
+      "wall": 1790612000,
+      "boot": 613000,
+      "boot_id": "b1"
+     },
+     "now": 1790612000,
+     "until": 1791299600,
+     "state": "valid"
+    },
+    {
+     "check": {
+      "wall": 1791213210,
+      "boot": 1214210,
+      "boot_id": "b1"
+     },
+     "now": 1791213210,
+     "until": 1791299600,
+     "state": "needs_connection"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1791213220,
+      "boot": 1214220,
+      "boot_id": "b1"
+     },
+     "now": 1791213220,
+     "until": 1791299600,
+     "state": "grace"
+    }
+   ]
+  },
+  {
+   "name": "a new lease after a refusal: the refusal is cleared with the old lease",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "refused",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604810,
+      "boot": 605810,
+      "boot_id": "b1"
+     },
+     "now": 1790604810,
+     "until": 1790691200,
+     "state": "needs_connection"
+    },
+    {
+     "lease": {
+      "iat": 1790604820,
+      "exp": 1791209620
+     },
+     "wall": 1790604820,
+     "boot": 605820,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790604820
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1791209620,
+      "boot": 1210620,
+      "boot_id": "b1"
+     },
+     "now": 1791209620,
+     "until": 1791296020,
+     "state": "grace"
+    }
+   ]
+  },
+  {
+   "name": "a verified stop: no lease, no grace",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604810,
+      "boot": 605810,
+      "boot_id": "b1"
+     },
+     "now": 1790604810,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "stop": true
+    },
+    {
+     "check": {
+      "wall": 1790604811,
+      "boot": 605811,
+      "boot_id": "b1"
+     },
+     "now": null,
+     "until": null,
+     "state": "stopped"
+    },
+    {
+     "attempt": "unreachable",
+     "result": "stopped"
+    },
+    {
+     "check": {
+      "wall": 1790604812,
+      "boot": 605812,
+      "boot_id": "b1"
+     },
+     "now": null,
+     "until": null,
+     "state": "stopped"
+    }
+   ]
+  },
+  {
+   "name": "no lease yet: an attempt changes nothing",
+   "steps": [
+    {
+     "attempt": "unreachable",
+     "result": "needs_connection"
+    },
+    {
+     "check": {
+      "wall": 1790000000,
+      "boot": 100,
+      "boot_id": "b1"
+     },
+     "now": null,
+     "until": null,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a restart keeps the attempts with the lease",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "restart": true
+    },
+    {
+     "check": {
+      "wall": 1790604810,
+      "boot": 605810,
+      "boot_id": "b1"
+     },
+     "now": 1790604810,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "restart": true
+    },
+    {
+     "attempt": "refused",
+     "result": "ok"
+    },
+    {
+     "restart": true
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790604811,
+      "boot": 605811,
+      "boot_id": "b1"
+     },
+     "now": 1790604811,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "the clock moved back during the grace: the boot clock still ends it",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 605810,
+      "boot_id": "b1"
+     },
+     "now": 1790604810,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 692200,
+      "boot_id": "b1"
+     },
+     "now": 1790691200,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a reboot in the grace: the corrected wall clock counts the time the device was off",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1790608400,
+      "boot": 100,
+      "boot_id": "b2"
+     },
+     "now": 1790608400,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790691100,
+      "boot": 200,
+      "boot_id": "b3"
+     },
+     "now": 1790691100,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1790691200,
+      "boot": 300,
+      "boot_id": "b4"
+     },
+     "now": 1790691400,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  },
+  {
+   "name": "a reboot with the clock moved back: at least the new boot's own time has passed",
+   "steps": [
+    {
+     "lease": {
+      "iat": 1790000000,
+      "exp": 1790604800
+     },
+     "wall": 1790000000,
+     "boot": 1000,
+     "boot_id": "b1",
+     "accepted": true,
+     "anchor": 1790000000
+    },
+    {
+     "attempt": "unreachable",
+     "result": "ok"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 604850,
+      "boot_id": "b2"
+     },
+     "now": 1790604850,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 691199,
+      "boot_id": "b2"
+     },
+     "now": 1790691199,
+     "until": 1790691200,
+     "state": "grace"
+    },
+    {
+     "check": {
+      "wall": 1787408000,
+      "boot": 691200,
+      "boot_id": "b2"
+     },
+     "now": 1790691200,
+     "until": 1790691200,
+     "state": "needs_connection"
+    }
+   ]
+  }
+ ]
+}

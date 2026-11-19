@@ -6,8 +6,8 @@ import XCTest
 
 /// The sharing sheet of SDK 3.1.1 drawn by SwiftUI on the test's Mac, as an iPhone shows it (the phone layout, 390 by
 /// 844 points) and as a Mac shows it (the card): every deck line drawn whole in every language, the name at the top
-/// whatever the theme, the two buttons of one size, the share button waiting for the guardian's switch, the direction
-/// from the deck, and nothing of the host app's environment reaching the sheet. With `QURANLAB_SHEET_PICTURES` set
+/// whatever the theme, the two buttons of one size, both buttons ready at once and no switch on the sheet (one sheet
+/// for every app, SDK 4.0), the direction from the deck, and nothing of the host app's environment reaching the sheet. With `QURANLAB_SHEET_PICTURES` set
 /// to a folder, `testThePicturesOfTheReleaseReview` writes the pictures of the release review there (PNG, 3x).
 final class SharingSheetLayoutTests: XCTestCase {
     override func tearDown() {
@@ -56,25 +56,22 @@ final class SharingSheetLayoutTests: XCTestCase {
 
     // MARK: words
 
-    /// Every line of the sheet, in each of the eight languages, in the first ask, the re-ask and the guardian's
-    /// variant: the text the sheet draws for each key is the deck file's own, whole (read from the file, not through
-    /// the SDK's reader), drawn as it is in a left to right deck and after a right to left mark in an Arabic or Urdu
-    /// one (so a line that starts with the Latin name is still a right to left paragraph), and the name `Quran Lab`
-    /// is at the top.
+    /// Every line of the sheet, in each of the eight languages, in the first ask and the re-ask: the text the sheet
+    /// draws for each key is the deck file's own, whole (read from the file, not through the SDK's reader), drawn as it
+    /// is in a left to right deck and after a right to left mark in an Arabic or Urdu one (so a line that starts with
+    /// the Latin name is still a right to left paragraph), and the name `Quran Lab` is at the top. Nothing else is
+    /// drawn: the keys the sheet draws are these and no others (SDK 4.0: one sheet for every app).
     @MainActor
     func testEveryLineOfTheSheetIsDrawnWholeInEveryLanguage() throws {
         for lang in SharingCopy.bundledLanguages {
             let strings = try SharingDeckTests.strings(lang)
             Self.use(lang)
-            for (reask, guardian) in [(false, false), (true, false), (false, true)] {
-                let variant = "\(lang)\(reask ? " re-ask" : "")\(guardian ? " guardian" : "")"
-                let drawn = Self.draw(SharingConsentView(reask: reask, guardian: guardian, theme: .standard,
-                                                         render: SheetRender(layout: .phone)))
-                var keys = [guardian ? "sheet.guardian.title" : "sheet.title", guardian ? "sheet.guardian.body" : "sheet.body",
-                            "sheet.what", "sheet.who", "sheet.control", "sheet.mistakes",
-                            guardian ? "sheet.guardian.share" : "sheet.share", "sheet.not_now"]
+            for reask in [false, true] {
+                let variant = "\(lang)\(reask ? " re-ask" : "")"
+                let drawn = Self.draw(SharingConsentView(reask: reask, theme: .standard, render: SheetRender(layout: .phone)))
+                var keys = ["sheet.title", "sheet.body", "sheet.what", "sheet.who", "sheet.control", "sheet.mistakes",
+                            "sheet.share", "sheet.not_now"]
                 if reask { keys.append("reask") }
-                if guardian { keys.append("sheet.guardian.confirm") }
                 XCTAssertTrue(Contributions.copy.hadithVerified, variant)
                 keys += ["sheet.hadith", "sheet.hadith_ref"]
                 for k in keys {
@@ -87,6 +84,7 @@ final class SharingSheetLayoutTests: XCTestCase {
                 }
                 XCTAssertEqual(drawn.lines["name"], "Quran Lab", "\(variant): the name at the top")
                 XCTAssertNil(drawn.lines["reask"].flatMap { reask ? nil : $0 }, "\(variant): the re-ask line only on a re-ask")
+                XCTAssertEqual(Set(drawn.lines.keys), Set(keys + ["name"]), "\(variant): the lines drawn are the sheet's, no others")
             }
         }
     }
@@ -110,34 +108,31 @@ final class SharingSheetLayoutTests: XCTestCase {
     // MARK: layout
 
     /// The two buttons have the same width and height in every language, at the default and at the largest text size,
-    /// on a 390 and a 320 point wide phone, in both variants: 52 high at the default size, and taller only as far as
-    /// two lines of the label need.
+    /// on a 390 and a 320 point wide phone: 52 high at the default size, and taller only as far as two lines of the
+    /// label need.
     @MainActor
     func testBothButtonsHaveTheSameSize() throws {
         for lang in SharingCopy.bundledLanguages {
             Self.use(lang)
             for size in [DynamicTypeSize.large, .accessibility5] {
                 for width in [CGFloat(390), 320] {
-                    for guardian in [false, true] {
-                        let at = "\(lang) \(size) \(Int(width)) \(guardian ? "guardian" : "learner")"
-                        let drawn = Self.draw(SharingConsentView(guardian: guardian, theme: .standard,
-                                                                 render: SheetRender(layout: .phone, textSize: size)),
-                                              size: CGSize(width: width, height: 844))
-                        let share = try XCTUnwrap(drawn.frames["share"], "\(at): the share button is laid out")
-                        let notNow = try XCTUnwrap(drawn.frames["not_now"], "\(at): Not now is laid out")
-                        XCTAssertEqual(share.width, notNow.width, accuracy: 0.5, "\(at): the same width")
-                        XCTAssertEqual(share.height, notNow.height, accuracy: 0.5, "\(at): the same height")
-                        XCTAssertEqual(share.width, width - 48, accuracy: 0.5, "\(at): full width inside the bar's 24 point sides")
-                        XCTAssertEqual(notNow.minY - share.maxY, 10, accuracy: 0.5, "\(at): 10 between them")
-                        XCTAssertGreaterThanOrEqual(share.height, 52 - 0.5, "\(at): at least 52 (a 44 point touch target and more)")
-                        let copy = Contributions.copy
-                        let type = SheetType(theme: .standard, size: size, rightToLeft: copy.rightToLeft)
-                        let labels = [copy.string(guardian ? "sheet.guardian.share" : "sheet.share"), copy.string("sheet.not_now")]
-                        let line = labels.map { type.style(.button, $0).firstLine }.max() ?? 20
-                        XCTAssertLessThanOrEqual(share.height, max(52, 2 * line + 16) + 0.5, "\(at): two lines of a label at most")
-                        if size == .large {
-                            XCTAssertEqual(share.height, 52, accuracy: 0.5, "\(at): 52 high at the default size (each label on one line)")
-                        }
+                    let at = "\(lang) \(size) \(Int(width))"
+                    let drawn = Self.draw(SharingConsentView(theme: .standard, render: SheetRender(layout: .phone, textSize: size)),
+                                          size: CGSize(width: width, height: 844))
+                    let share = try XCTUnwrap(drawn.frames["share"], "\(at): the share button is laid out")
+                    let notNow = try XCTUnwrap(drawn.frames["not_now"], "\(at): Not now is laid out")
+                    XCTAssertEqual(share.width, notNow.width, accuracy: 0.5, "\(at): the same width")
+                    XCTAssertEqual(share.height, notNow.height, accuracy: 0.5, "\(at): the same height")
+                    XCTAssertEqual(share.width, width - 48, accuracy: 0.5, "\(at): full width inside the bar's 24 point sides")
+                    XCTAssertEqual(notNow.minY - share.maxY, 10, accuracy: 0.5, "\(at): 10 between them")
+                    XCTAssertGreaterThanOrEqual(share.height, 52 - 0.5, "\(at): at least 52 (a 44 point touch target and more)")
+                    let copy = Contributions.copy
+                    let type = SheetType(theme: .standard, size: size, rightToLeft: copy.rightToLeft)
+                    let labels = [copy.string("sheet.share"), copy.string("sheet.not_now")]
+                    let line = labels.map { type.style(.button, $0).firstLine }.max() ?? 20
+                    XCTAssertLessThanOrEqual(share.height, max(52, 2 * line + 16) + 0.5, "\(at): two lines of a label at most")
+                    if size == .large {
+                        XCTAssertEqual(share.height, 52, accuracy: 0.5, "\(at): 52 high at the default size (each label on one line)")
                     }
                 }
             }
@@ -193,20 +188,18 @@ final class SharingSheetLayoutTests: XCTestCase {
         }
     }
 
-    /// In the guardian's variant the share button cannot be tapped until the switch is on; "Not now" always can. In the
-    /// learner's variant both can.
+    /// Both buttons can be tapped as the sheet opens, in every language and in the first ask and the re-ask: the
+    /// learner's tap is the answer, with nothing to confirm first (SDK 4.0: one sheet for every app).
     @MainActor
-    func testTheShareButtonWaitsForTheGuardiansSwitch() {
-        Self.use("en")
-        let off = Self.draw(SharingConsentView(guardian: true, theme: .standard, render: SheetRender(layout: .phone)))
-        XCTAssertEqual(off.enabled["share"], false, "the switch is off: the share button waits")
-        XCTAssertEqual(off.enabled["not_now"], true)
-        let on = Self.draw(SharingConsentView(guardian: true, theme: .standard, render: SheetRender(layout: .phone, confirmed: true)))
-        XCTAssertEqual(on.enabled["share"], true, "the switch is on")
-        XCTAssertEqual(on.enabled["not_now"], true)
-        let learner = Self.draw(SharingConsentView(guardian: false, theme: .standard, render: SheetRender(layout: .phone)))
-        XCTAssertEqual(learner.enabled["share"], true)
-        XCTAssertEqual(learner.enabled["not_now"], true)
+    func testBothButtonsCanBeTappedAtOnce() {
+        for lang in SharingCopy.bundledLanguages {
+            Self.use(lang)
+            for reask in [false, true] {
+                let drawn = Self.draw(SharingConsentView(reask: reask, theme: .standard, render: SheetRender(layout: .phone)))
+                XCTAssertEqual(drawn.enabled["share"], true, "\(lang)\(reask ? " re-ask" : ""): Share")
+                XCTAssertEqual(drawn.enabled["not_now"], true, "\(lang)\(reask ? " re-ask" : ""): Not now")
+            }
+        }
     }
 
     /// The deck's direction decides, not the app's: an Arabic or Urdu sheet is right to left (the emblem at the right
@@ -246,7 +239,7 @@ final class SharingSheetLayoutTests: XCTestCase {
     @MainActor
     func testNothingOfTheHostsEnvironmentReachesTheSheet() throws {
         Self.use("en")
-        let sheet = { AnyView(SharingConsentView(guardian: true, theme: Self.designTheme(dark: false),
+        let sheet = { AnyView(SharingConsentView(theme: Self.designTheme(dark: false),
                                                  render: SheetRender(layout: .phone, scrolledToEnd: true, bottomInset: 34))) }
         let baseline = SheetHost.pixels(sheet(), size: Self.phone)
         XCTAssertGreaterThan(SheetHost.colours(baseline), 40, "the window's snapshot holds a drawn sheet (not a blank page)")
@@ -286,7 +279,7 @@ final class SharingSheetLayoutTests: XCTestCase {
                 reached.append(name)
                 SheetPictures.write(wrap(sheet()), size: Self.phone, scale: 2, dark: false,
                                     name: "hostile-" + name.replacingOccurrences(of: " ", with: "-") + ".png",
-                                    what: "the guardian sheet inside the host modifier \(name): it differs from the plain one")
+                                    what: "the sheet inside the host modifier \(name): it differs from the plain one")
             }
         }
         print("sheet: host modifiers that changed the 3.1.1 sheet: \(reached.isEmpty ? "none" : reached.joined(separator: ", "))")
@@ -295,50 +288,40 @@ final class SharingSheetLayoutTests: XCTestCase {
         XCTAssertEqual(reached, [], "the host's environment reached the sheet")
     }
 
-    /// The guardian's switch, clicked as a person clicks it: the share button can be tapped once it is on, and waits
-    /// again once it is off. The switch is the system's switch control.
+    /// The sheet as a window draws it, the whole column laid out: no switch control anywhere on it (3.x drew one for
+    /// a confirmation before the share button; 4.0 shows every app the same sheet), and both buttons ready.
     @MainActor
-    func testClickingTheGuardiansSwitchEnablesTheShareButton() throws {
+    func testTheSheetHasNoSwitch() throws {
         Self.use("en")
         SheetProbe.enabled = [:]
         defer { SheetProbe.enabled = nil }
-        let window = SheetHost.open(SharingConsentView(guardian: true, theme: .standard, render: SheetRender(layout: .phone)),
+        let window = SheetHost.open(SharingConsentView(theme: .standard, render: SheetRender(layout: .phone)),
                                     size: CGSize(width: 390, height: 2400), dark: false)
         defer { SheetHost.close(window) }
         let host = try XCTUnwrap(window.contentView)
-        XCTAssertEqual(SheetProbe.enabled?["share"], false, "the switch is off: the share button waits")
-        let switches = SheetHost.subviews(of: host).compactMap { $0 as? NSSwitch }
-        print("sheet: \(switches.count) switch control(s) in the guardian's sheet")
-        let control = try XCTUnwrap(switches.first, "the guardian's switch is the system's switch control")
-        XCTAssertEqual(switches.count, 1)
-        XCTAssertEqual(control.state, .off)
-        control.performClick(nil)
-        SheetHost.settle(host)
-        XCTAssertEqual(control.state, .on)
-        XCTAssertEqual(SheetProbe.enabled?["share"], true, "the switch is on: the share button can be tapped")
+        XCTAssertGreaterThan(SheetHost.subviews(of: host).count, 0, "the sheet is drawn")
+        XCTAssertEqual(SheetHost.subviews(of: host).compactMap { $0 as? NSSwitch }.count, 0, "no switch on the sheet")
+        XCTAssertEqual(SheetProbe.enabled?["share"], true)
         XCTAssertEqual(SheetProbe.enabled?["not_now"], true)
-        control.performClick(nil)
-        SheetHost.settle(host)
-        XCTAssertEqual(SheetProbe.enabled?["share"], false, "off again: the share button waits again")
     }
 
     // MARK: pictures
 
     /// The pictures of the release review, drawn by SwiftUI (only with `QURANLAB_SHEET_PICTURES`): light and dark,
-    /// English and Arabic, as it opens and scrolled to the end, the default and the largest text size, the guardian's
-    /// variant, a re-ask, a 320 point wide phone, the Mac's card, the app's own accent, the thank-you and the settings,
-    /// and for the record the 3.1.0 sheet with the host modifiers that change it.
+    /// English and Arabic, as it opens and scrolled to the end, the default and the largest text size, a re-ask, a 320
+    /// point wide phone, the Mac's card, the app's own accent, the thank-you and the settings, and for the record the
+    /// 3.1.0 sheet with the host modifiers that change it.
     @MainActor
     func testThePicturesOfTheReleaseReview() throws {
         guard SheetPictures.folder != nil else { throw XCTSkip("QURANLAB_SHEET_PICTURES is not set") }
         let small = CGSize(width: 320, height: 568)
-        func shot(_ lang: String, dark: Bool = false, size: DynamicTypeSize = .large, end: Bool = false, guardian: Bool = false,
-                  reask: Bool = false, confirmed: Bool = false, canvas: CGSize = Self.phone, theme: SharingTheme? = nil,
+        func shot(_ lang: String, dark: Bool = false, size: DynamicTypeSize = .large, end: Bool = false,
+                  reask: Bool = false, canvas: CGSize = Self.phone, theme: SharingTheme? = nil,
                   contrast: Bool = false, name: String, what: String) {
             Self.use(lang)
             let inset: CGFloat = canvas.width < 380 ? 0 : 34
-            let sheet = SharingConsentView(reask: reask, guardian: guardian, theme: theme ?? Self.designTheme(dark: dark),
-                                           render: SheetRender(layout: .phone, textSize: size, scrolledToEnd: end, confirmed: confirmed,
+            let sheet = SharingConsentView(reask: reask, theme: theme ?? Self.designTheme(dark: dark),
+                                           render: SheetRender(layout: .phone, textSize: size, scrolledToEnd: end,
                                                                bottomInset: inset, showsIndicators: false, increasedContrast: contrast))
             SheetPictures.write(PhoneCanvas(size: canvas, top: canvas.width < 380 ? 30 : 54, dark: dark, sheet: sheet),
                                 size: canvas, scale: 3, dark: dark, name: name, what: what)
@@ -356,17 +339,11 @@ final class SharingSheetLayoutTests: XCTestCase {
         shot("en", size: .accessibility5, end: true, name: "en-light-largest-end.png", what: "English, the largest text size, scrolled to the end")
         shot("ar", size: .accessibility5, name: "ar-light-largest-open.png", what: "Arabic, the largest text size, as it opens")
         shot("ar", size: .accessibility5, end: true, name: "ar-light-largest-end.png", what: "Arabic, the largest text size, scrolled to the end")
-        shot("en", guardian: true, name: "en-light-guardian-open.png", what: "the guardian's variant (children's app), as it opens")
-        shot("en", end: true, guardian: true, name: "en-light-guardian-end.png", what: "the guardian's variant at the end: the switch off, the share button waiting (0.45)")
-        shot("en", end: true, guardian: true, confirmed: true, name: "en-light-guardian-end-on.png", what: "the guardian's variant at the end with the switch on")
-        shot("ar", dark: true, end: true, guardian: true, name: "ar-dark-guardian-end.png", what: "Arabic, dark, the guardian's variant at the end")
         shot("en", reask: true, name: "en-light-reask-open.png", what: "a re-ask: the re-ask line between the title and the body")
         shot("en", canvas: small, name: "en-light-320-open.png", what: "a 320 point wide phone (320 by 568), as it opens")
         shot("en", end: true, canvas: small, name: "en-light-320-end.png", what: "a 320 point wide phone, scrolled to the end")
-        shot("id", size: .accessibility5, end: true, guardian: true, canvas: small, name: "id-light-320-largest-guardian-end.png",
-              what: "Indonesian (the longest button label), 320 wide, the largest size, the guardian's variant at the end")
-        shot("en", size: .accessibility5, end: true, guardian: true, name: "en-light-largest-guardian-end.png",
-             what: "the guardian's variant at the largest size: the switch under its text")
+        shot("id", size: .accessibility5, end: true, canvas: small, name: "id-light-320-largest-end.png",
+              what: "Indonesian (the longest button label), 320 wide, the largest size, at the end")
         shot("fr", name: "fr-light-open.png", what: "French, light, as it opens")
         shot("bn", name: "bn-light-open.png", what: "Bengali, light, as it opens (at least a quarter of the size between its lines)")
         shot("bn", end: true, name: "bn-light-end.png", what: "Bengali, light, scrolled to the end")

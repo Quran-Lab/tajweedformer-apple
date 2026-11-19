@@ -1,5 +1,4 @@
 @preconcurrency import AVFoundation
-import CoreML
 import Foundation
 import os
 #if canImport(UIKit) && !os(watchOS)
@@ -84,6 +83,8 @@ actor TajweedRecognizer {
     private var takeID = ""
     var take = HeadsBuffer()
     var takeChunkFrames: [Int] = []
+    /// Each chunk's speech frames and the learner's local hour when it arrived (17.8 `hour_speech_s`).
+    private var takeChunkSpeech: [(hour: Int, frames: Int)] = []
     private var takeAudioSeconds = 0.0
     /// The take's input audio in whole milliseconds: floor(1000 * samples / rate), per input rate of the take.
     private var takeAudioMs = 0
@@ -140,7 +141,8 @@ actor TajweedRecognizer {
     static func promotedEarlier(model: ModelFolder, context: String, requested: Backend, compact: Bool = false) -> Bool {
         guard requested == .automatic, mayUseAccelerator(requested: requested, context: context), DownloadProfile.osRunsCoreML,
               model.coreML(context: context, compact: compact) != nil else { return false }
-        let key = AcceleratorController.key(revision: model.identity, context: context, build: compact ? "coreml-compact" : "coreml")
+        let key = AcceleratorController.key(revision: model.identity, context: context, build: compact ? "coreml-compact" : "coreml",
+                                            program: AcceleratorController.programKey(model.manifest, context: context, compact: compact))
         let store = PromotionStore(dir: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"))
         return store.record(key)?.status == .ready
     }
@@ -166,8 +168,8 @@ actor TajweedRecognizer {
         TelemetryCohort(revision: model.version, build: model.build, context: context, backend: (activeBackend ?? .exact).telemetryName)
     }
 
-    /// The exact CPU engine when it is open (it is closed while the Neural Engine serves a take).
-    var exact: TajweedExactEngine? { runner?.cpu as? TajweedExactEngine }
+    /// The Core's exact CPU engine when it is open (it is closed while an accelerator serves a take).
+    var exact: CoreStreamEngine? { runner?.cpu as? CoreStreamEngine }
 
     /// Where the Neural Engine stands.
     var acceleratorState: AcceleratorState { controllerBox.withLock { $0 }?.state ?? fixedState }
@@ -224,7 +226,7 @@ actor TajweedRecognizer {
     private func makeRunner() -> TakeRunner {
         if let runner { return runner }
         let ctx = context
-        let dir = model.directory
+        let folder = model
         // only the heads this recognizer hands out or keeps (log_probs and conf for the decoded layer, the timing
         // head for speech and silence)
         let mask = HeadSelection(selection.heads.union(HeadID.kept)).engineMask
@@ -233,7 +235,12 @@ actor TajweedRecognizer {
             if let override {
                 do { return try override(ctx) } catch { throw (error as? RecognizerError) ?? .engineFailed(code: -1, message: "\(error)") }
             }
-            let e = try TajweedExactEngine(directory: dir, context: ctx)
+            // SDK 4.0: the Core opens the model from this folder's device forms and the lease it holds; the SDK
+            // reads no model file
+            guard let runtime = ProtectedRuntime.current.withLock({ $0 }) else {
+                throw RecognizerError.offline("needs_connection: no Client holds a lease for this model")
+            }
+            let e = try runtime.openEngine(folder, context: ctx)
             e.setHeads(mask)
             return e
         }
@@ -252,11 +259,10 @@ actor TajweedRecognizer {
         let ctx = context
         guard Self.mayUseAccelerator(requested: requested, context: ctx) else { return }
         guard DownloadProfile.osRunsCoreML else {
-            if requested == .neuralEngine { throw .neuralEngineUnavailable("the V4 CoreML package needs iOS 18 or macOS 15") }
-            if model.manifest.files.contains(where: { DownloadProfile.packageRoles.contains($0.role) }) {
-                fixedState = .disabled("the OS is older than iOS 18 / macOS 15")
-                noteFallback(.aneUnavailable, "the OS is older than iOS 18 / macOS 15")
-            }
+            // SDK 4.0: no accelerator here (the Simulator, a Core that does not open accelerator programs, an OS
+            // before iOS 18 / macOS 15). The CPU engine runs; nothing is attempted, so no promotion incident is
+            // reported (the server saw many from simulators).
+            if requested == .neuralEngine { throw .neuralEngineUnavailable("no accelerator in this process (AcceleratorGate)") }
             return
         }
         let downloadable = QuranLab.cloud.map { $0.updater.coreML } ?? false
@@ -264,13 +270,14 @@ actor TajweedRecognizer {
         // fp16 build, and the compact one only when an app names it
         let present = model.coreML(context: ctx, compact: compact)
         if requested == .neuralEngine {
-            // debug builds: a build in the folder at once, without the pipeline
-            guard let build = model.coreML(context: ctx) else {
+            // debug builds: a build in the folder at once, without the pipeline; the Core prepares it (R2)
+            guard model.coreML(context: ctx) != nil else {
                 throw .neuralEngineUnavailable(model.coreMLProblem ?? "the folder has no CoreML package for \(ctx)")
             }
-            guard #available(iOS 18.0, macOS 15.0, *) else { return }
-            forced = AcceleratorExecutor(try TajweedNeuralEngine(build))
-            fixedState = .ready
+            guard let runtime = ProtectedRuntime.current.withLock({ $0 }) else {
+                throw .neuralEngineUnavailable("no Client holds a lease for this model")
+            }
+            forced = AcceleratorExecutor(try runtime.prepareAccelerator(model, context: ctx, compact: compact))
             return
         }
         // the promotion applies when the folder has the build, or lists it and this install may download it
@@ -287,8 +294,10 @@ actor TajweedRecognizer {
         let cohortNow = cohort
         let env = AcceleratorController.Environment(
             revision: identity, version: version, context: ctx, build: buildKey,
+            program: AcceleratorController.programKey(model.manifest, context: ctx, compact: compact),
             storage: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"),
             denied: { QuranLab.cloud?.acceleratorDenied(revision: version.isEmpty ? identity : version) },
+            minSpeedup: { QuranLab.cloud?.currentConfig?.flags.accel_min_speedup },
             record: { QuranLab.record($0) },
             // kept on the device even without a Quran Lab client (sent once one is configured with a key)
             incident: { QuranLab.reportIncident($0) },
@@ -321,6 +330,29 @@ actor TajweedRecognizer {
     /// Whether the Neural Engine is considered at all. Never for a CPU-only context, even when it is asked for.
     static func mayUseAccelerator(requested: Backend, context: String) -> Bool {
         requested != .exact && !ModelContexts.isCPUOnly(context)
+    }
+
+    /// `TajweedModel.prepareAccelerator` (4.0.0, as Apple 3.1.5): the promotion now, at the app's priority, not after the idle delay;
+    /// with `again`, this device's verdict on the build is forgotten first. Waits until the build is promoted, loaded
+    /// and warm, or the pipeline stops (failed, waiting for conditions or a backoff), or `timeout` seconds pass; the
+    /// pipeline goes on in the background after a timeout. Returns the Backend of the next take.
+    func prepareAcceleratorNow(again: Bool, timeout: Double) async -> TajweedBackend {
+        try? setUpAccelerator()
+        guard let c = controllerBox.withLock({ $0 }) else { return backendNext }
+        if again { c.forget() }
+        pipelineStarted = true
+        let start = Date()
+        let run = Task.detached(priority: .userInitiated) { [weak self] in await self?.runPipeline() }
+        await withTaskGroup(of: Void.self) { g in
+            g.addTask { await run.value }
+            g.addTask { try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1e9)) }
+            _ = await g.next()
+            g.cancelAll()
+        }
+        // a run already under way (the launch's own) is waited for by its state
+        let left = timeout - Date().timeIntervalSince(start)
+        if left > 0, c.state == .preparing { _ = await c.awaitReady(timeout: left) }
+        return backendNext
     }
 
     private func idleDelayPassed() {
@@ -367,28 +399,24 @@ actor TajweedRecognizer {
                 // this recognizer's build and no other
                 if m.coreML(context: ctx, compact: compact) != nil { return }
                 guard let cloud = QuranLab.cloud else { throw PromotionFailure(.network, "no Quran Lab cloud to download the CoreML build from") }
-                do throws(RecognizerError) {
-                    _ = try await cloud.updater.installAccelerator(m, context: ctx, compact: compact)
-                } catch {
-                    throw Self.downloadFailure(error)
+                // R2: the accelerator build (110 to 167 MB) only when the lease in force allows accelerator programs
+                // (flags bit 3, qlc_accel_allowed); a lease that does not is not a failure of the device
+                if ProtectedRuntime.current.withLock({ $0 })?.acceleratorAllowed() == false {
+                    throw PromotionFailure(.denylist, "lease_no_accel: the lease in force does not allow accelerator programs")
                 }
-                let profile = DownloadProfile(context: ctx, coreML: true, compact: compact)
-                let updated = m.adding(verified: profile.appleFiles(m.manifest).map(\.localPath),
-                                       removing: profile.otherBuildFiles(m.manifest).map(\.localPath))
-                guard updated.coreML(context: ctx, compact: compact) != nil else {
-                    throw PromotionFailure(.verify, updated.coreMLProblem ?? "the downloaded CoreML build is not usable")
+                let updated = try await Self.downloadAccelerator(m, context: ctx, compact: compact) {
+                    (folder: ModelFolder) async throws(RecognizerError) -> Void in
+                    _ = try await cloud.updater.installAccelerator(folder, context: ctx, compact: compact)
                 }
                 box.withLock { $0 = updated }
             },
             compile: { () async throws(PromotionFailure) -> UncheckedBox<any AcceleratorBackend> in
                 let m = box.withLock { $0 }
-                guard let build = m.coreML(context: ctx, compact: compact) else { throw PromotionFailure(.compileError, "no CoreML build for \(ctx)") }
-                guard #available(iOS 18.0, macOS 15.0, *) else { throw PromotionFailure(.compileError, "the OS is too old") }
-                do throws(RecognizerError) {
-                    return UncheckedBox(try TajweedNeuralEngine(build) as any AcceleratorBackend)
-                } catch {
-                    throw PromotionFailure(.compileError, "\(error)")
-                }
+                guard m.coreML(context: ctx, compact: compact) != nil else { throw PromotionFailure(.compileError, "no CoreML build for \(ctx)") }
+                // R2: the Core decrypts the program into its memory and hands it to Core ML itself (qlc_accel_prepare,
+                // the dispatch folder for the short-lived file of a build without the specification); the backend is a
+                // stream on it. Seconds long, so off the cooperative pool.
+                return try await Self.prepare(m, context: ctx, compact: compact)
             },
             warmup: { (b: UncheckedBox<any AcceleratorBackend>) async throws(PromotionFailure) -> Void in
                 let m = box.withLock { $0 }
@@ -407,12 +435,43 @@ actor TajweedRecognizer {
             fingerprint: { () -> String? in Self.programFingerprint(box.withLock { $0 }, context: ctx, compact: compact) })
     }
 
-    /// The SHA-256 of the build's program on disk (the manifest's, checked when the folder was opened or the install
-    /// verified it), or "gone".
+    /// The compile (and the load of a key promoted earlier): `ProtectedRuntime.prepareAccelerator` on a queue of its
+    /// own. A timeout of the pipeline leaves it running; the model's close waits for it, or it closes the model itself
+    /// when it ends.
+    static func prepare(_ m: ModelFolder, context: String, compact: Bool) async throws(PromotionFailure) -> UncheckedBox<any AcceleratorBackend> {
+        let r = await withCheckedContinuation { (c: CheckedContinuation<Result<UncheckedBox<any AcceleratorBackend>, PromotionFailure>, Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                guard let runtime = ProtectedRuntime.current.withLock({ $0 }) else {
+                    return c.resume(returning: .failure(PromotionFailure(.loadError, "no Client holds a lease for this model")))
+                }
+                do throws(RecognizerError) {
+                    let b = try runtime.prepareAccelerator(m, context: context, compact: compact)
+                    debugLog("the Core prepared the accelerator program: \(b.name)")
+                    c.resume(returning: .success(UncheckedBox(b as any AcceleratorBackend)))
+                } catch {
+                    c.resume(returning: .failure(prepareFailure(error)))
+                }
+            }
+        }
+        return try r.get()
+    }
+
+    /// Why the Core left this device on the CPU engine, as the promotion records it.
+    static func prepareFailure(_ e: RecognizerError) -> PromotionFailure {
+        switch e {
+        case .offline: return PromotionFailure(.network, "\(e)")
+        case .storageFailed, .insufficientStorage: return PromotionFailure(.storage, "\(e)")
+        case .checksumMismatch, .manifestInvalid: return PromotionFailure(.verify, "\(e)")
+        default: return PromotionFailure(.compileError, "\(e)")
+        }
+    }
+
+    /// The digest of the build's whole program on disk (`AcceleratorController.programDigest`: every file the Core's
+    /// prepare loads, by the manifest's SHA-256s, checked when the folder was opened or the install verified it), or
+    /// "gone".
     static func programFingerprint(_ m: ModelFolder, context: String, compact: Bool = false) -> String {
         guard m.coreML(context: context, compact: compact) != nil else { return "gone" }
-        let role = compact ? "coreml-compact" : "coreml"
-        return m.manifest.files(role: role).first { $0.localPath.hasSuffix("/weights/weight.bin") }?.localSHA256 ?? "gone"
+        return AcceleratorController.programDigest(files: m.manifest.files, context: context, compact: compact) ?? "gone"
     }
 
     /// Debug builds only: a line for the developer (os.Logger, notice).
@@ -420,6 +479,25 @@ actor TajweedRecognizer {
         #if DEBUG
         Logger(subsystem: "ai.quranlab.sdk", category: "accelerator").notice("\(line, privacy: .public)")
         #endif
+    }
+
+    /// The download stage once it has found the build is not usable in `m`: `install` brings the build's files, then
+    /// the build is judged by the files now on disk (`ModelFolder.rechecked`), never by what `m` found before the
+    /// download (SDK 3.1.5). A build that still does not verify is a `verify` failure, and its unencrypted files that
+    /// do not match are deleted at once, so the next attempt downloads them again.
+    static func downloadAccelerator(_ m: ModelFolder, context: String, compact: Bool,
+                                    install: (ModelFolder) async throws(RecognizerError) -> Void) async throws(PromotionFailure) -> ModelFolder {
+        do throws(RecognizerError) { try await install(m) } catch { throw downloadFailure(error) }
+        let updated: ModelFolder
+        do throws(RecognizerError) { updated = try m.rechecked() } catch { throw PromotionFailure(.verify, "\(error)") }
+        guard updated.coreML(context: context, compact: compact) != nil else {
+            for f in m.manifest.files where DownloadProfile.appleRoles.contains(f.role) && !f.isEncrypted
+                && !updated.verifiedFiles.contains(f.localPath) {
+                try? FileManager.default.removeItem(at: m.directory.appendingPathComponent(f.localPath))
+            }
+            throw PromotionFailure(.verify, updated.coreMLProblem ?? "the downloaded CoreML build is not usable")
+        }
+        return updated
     }
 
     static func downloadFailure(_ e: RecognizerError) -> PromotionFailure {
@@ -488,14 +566,14 @@ actor TajweedRecognizer {
         // the CPU run computes every head the test compares, whatever the Session selected; the selection is put
         // back when the test ends, before the next take
         let session = HeadSelection(selection.heads.union(HeadID.kept)).engineMask
-        func restore() { (runner.cpu as? TajweedExactEngine)?.setHeads(session) }
+        func restore() { (runner.cpu as? CoreStreamEngine)?.setHeads(session) }
         var results: [GoldenRaw.Clip] = []
         for c in clips {
             // the CPU engine
             let cpu: any CPUStreamEngine
             do throws(RecognizerError) { cpu = try runner.ensureCPU() } catch { return .failed(PromotionFailure(.other, "the CPU engine: \(error)")) }
             cpu.reset()
-            (cpu as? TajweedExactEngine)?.setHeads(HeadSelection.all.engineMask)
+            (cpu as? CoreStreamEngine)?.setHeads(HeadSelection.all.engineMask)
             var cpuHeads = HeadsBuffer()
             var at = 0
             repeat {
@@ -592,6 +670,7 @@ actor TajweedRecognizer {
         converter = nil
         take = HeadsBuffer()
         takeChunkFrames = []
+        takeChunkSpeech = []
         delivered = 0
         handedOut = 0
         takeAudioSeconds = 0
@@ -614,6 +693,7 @@ actor TajweedRecognizer {
         if exec != nil && !runner.onAccelerator { endLease() }
         activeBackend = runner.onAccelerator ? .neuralEngine : .exact
         takeOpen = true
+        recitedBegin()
         activity = SessionActivity()
         shareTake = Contributions.recorder.takeStarted(
             .init(revision: model.identity, version: model.version, backend: activeBackend ?? .exact,
@@ -703,6 +783,8 @@ actor TajweedRecognizer {
         let out = try runner.push(s)
         let chunks = apply(out)
         noteFailover()
+        // the recited detector is fed after each chunk, off the audio thread (17.5)
+        if !chunks.isEmpty { recitedFeed() }
         return chunks
     }
 
@@ -712,6 +794,7 @@ actor TajweedRecognizer {
         if let t = o.truncateTo, t < takeChunkFrames.count {
             take.truncate(n40: takeChunkFrames.prefix(t).reduce(0, +))
             takeChunkFrames.removeLast(takeChunkFrames.count - t)
+            if t < takeChunkSpeech.count { takeChunkSpeech.removeLast(takeChunkSpeech.count - t) }
         }
         // a confirmed blank disagreement: the CPU's chunks are handed out again from the first one in question
         if let r = o.redeliverFrom { delivered = min(delivered, max(0, r)) }
@@ -745,6 +828,8 @@ actor TajweedRecognizer {
             take.append(c.keeping(keep))
             let index = takeChunkFrames.count
             takeChunkFrames.append(c.n40)
+            let speech = SpeechTracker.speechFrames(SpeechTracker.active(logProbs: c.top1(.logProbs), timing: c.top1(.timingLogProbs), blank: blank))
+            takeChunkSpeech.append((DayMath.localHour(Date()), speech))
             if index >= delivered {
                 // speech and silence are read from the engine's own chunk: the timing head is there whatever the
                 // app selected
@@ -791,6 +876,7 @@ actor TajweedRecognizer {
         if index + 1 < takeChunkFrames.count {
             take.truncate(n40: takeChunkFrames.prefix(index + 1).reduce(0, +))
             takeChunkFrames.removeLast(takeChunkFrames.count - index - 1)
+            if index + 1 < takeChunkSpeech.count { takeChunkSpeech.removeLast(takeChunkSpeech.count - index - 1) }
         }
         lastChunks = []
         lastFlush = []
@@ -806,6 +892,7 @@ actor TajweedRecognizer {
     private func endTake(completed: Bool) {
         guard takeOpen else { return }
         takeOpen = false
+        recitedEnd(completed: completed)
         // SDK 3.1.1: a take that ends, cancelled or finished, before one sample of audio was pushed or captured is not
         // a session: it records nothing in the telemetry (no session, no aborted take, no duration, no backend). What
         // else it did stays: the recognizer for its options was made and warmed, which is why an app opens one.
@@ -848,12 +935,57 @@ actor TajweedRecognizer {
             t.count(audioMs: takeAudioMs, selected: HeadID.ctc.filter { selection.contains($0) }.map(\.rawValue),
                     computeMicroseconds: (runner?.chunkSeconds ?? []).reduce(0) { $0 + Int(($1 * 1_000_000).rounded()) },
                     ids: { HeadID(rawValue: $0).map { heads.top1($0) } ?? [] })
+            for c in takeChunkSpeech where c.frames > 0 { t.hourSpeechMs[c.hour, default: 0] += c.frames * SpeechTracker.frameMs }
             let d = decoded()
             t.margins = d.tokens.map(\.margin)
             t.confidences = d.tokens.compactMap(\.confidence)
         }
         QuranLab.record(.sessionFinished(t))
     }
+    // MARK: the recited range (SDK 3.2 in the Core: contract 17.1, 17.5, 17.6)
+
+    /// The take's id in the Core's recited journal while it runs.
+    private var recitedTake: UInt64?
+    /// The take that ended last: its id and the range the detector counted (nil: none).
+    private var lastRecited: (take: UInt64?, range: CoreRecited?) = (nil, nil)
+
+    /// What the detector counted for the take that ended last.
+    func recitedOutcome() -> (take: UInt64?, range: CoreRecited?) { lastRecited }
+
+    /// A take opens in the Core's journal when the detector runs here: analytics on, `flags.recited` not false, and
+    /// the build's prebuilt index loaded in the Core (a build without one leaves the app's reports to count).
+    private func recitedBegin() {
+        lastRecited = (nil, nil)
+        recitedTake = nil
+        guard RecitedSwitch.detectorOn, let e = exact, ProtectedRuntime.current.withLock({ $0 })?.recitedReady(e.model.host) == true else { return }
+        let id = UInt64.random(in: 1...UInt64.max)
+        guard e.model.host.recitedBegin(id) else { return }
+        recitedTake = id
+        QuranLab.cloud?.analytics.recitedBegan(id)
+    }
+
+    /// The take's units so far: the stream's greedy transcript (the Core journals it; a kill loses at most the units
+    /// since its last write).
+    private func recitedFeed() {
+        guard recitedTake != nil, let e = exact else { return }
+        _ = e.withStream { e.model.host.recitedFeed($0) }
+    }
+
+    /// The end of the take in the journal: finished, and its range kept for the Session when it ended with its Heads;
+    /// a cancelled or failed take is finished too (so it never comes back as an open take) and counts nothing.
+    private func recitedEnd(completed: Bool) {
+        guard let id = recitedTake else { return }
+        recitedTake = nil
+        let e = exact
+        if let e { _ = e.withStream { e.model.host.recitedFeed($0) } }
+        let r = e?.model.host.recitedFinish(id, flags: RecitedSwitch.flags)
+        if completed {
+            lastRecited = (id, r)
+        } else {
+            QuranLab.cloud?.analytics.recitedDropped(id)
+        }
+    }
+
     /// Ends the take without results (the learner left); a shared session is kept only as far as it got.
     func cancelTake() async {
         endTake(completed: false)
@@ -870,9 +1002,9 @@ actor TajweedRecognizer {
     /// The decoded layer of the take so far: per frame top-1 and runner-up, the greedy tokens with confidence and
     /// margin, words and times.
     func decoded() -> DecodedTake {
-        // the CPU engine keeps the top-2 of the take as it runs (when it ran the whole take); other heads go through
-        // zf_tajweed_top2
-        let frames = cpuHoldsTake ? exact?.top2() : nil
+        // the top-2 of every frame from the take's log_probs (the Core's top-K, `qlc_topk`): the Core
+        // hands out outputs, not its stream's own tables
+        let frames: [DecodedTake.Frame]? = nil
         var d = DecodedTake(heads: take, vocabulary: model.vocabulary, frames: frames)
         d.ranked = try? ranking(.logProbs, k: 2)
         return d
@@ -893,7 +1025,7 @@ actor TajweedRecognizer {
     func ranking(_ head: HeadID, k: Int) throws(RecognizerError) -> TajweedRanking {
         let names = head.classNames(vocabulary: model.vocabulary)
         let frames = head.frameMs == 40 ? take.n40 : take.n20
-        if cpuHoldsTake, let exact, let r = try exact.ranking(head, k: k, frames: frames, names: names) { return r }
+        _ = frames
         return try TajweedRanking.rank(take[head], head: head, k: k, names: names)
     }
 }

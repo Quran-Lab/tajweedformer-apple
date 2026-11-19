@@ -264,6 +264,16 @@ struct ModelStore: Sendable {
     }
 
     func currentRevision(_ id: ModelID) -> String? { pointer(base(id), "current") }
+
+    /// The current revision of a model the store holds, whatever its id. An install holds one model; should the
+    /// store hold several, the first by its id is taken. (No file time is read to choose: the SDK's privacy
+    /// manifest declares none for it.)
+    func anyCurrentRevision() -> String? {
+        for name in ((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []).sorted() {
+            if let revision = pointer(root.appendingPathComponent(name, isDirectory: true), "current") { return revision }
+        }
+        return nil
+    }
     func previousRevision(_ id: ModelID) -> String? { pointer(base(id), "previous") }
 
     func pendingRevision(_ id: ModelID) -> String? {

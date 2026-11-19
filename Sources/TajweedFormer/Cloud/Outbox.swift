@@ -16,9 +16,11 @@ import Foundation
 /// its take list (`POST /v1/uploads/{id}/takes`, the body of `takes.json`). That call never changes the item's
 /// status: it is retried with the same backoff until it is accepted or dropped, across relaunches.
 ///
-/// Sharing off during an upload (3.0.1, the four rules of the shared `sharing_off.json`): when the learner turns
-/// sharing off or deletes what they shared, no byte of audio leaves the device after the call returns, whatever
-/// was in flight; the call returns within 3 s even when a request hangs; nothing unsent stays on the device; and
+/// Audio leaves the device only while the learner shares. Sharing off during an upload (3.0.1, the four rules of the
+/// shared `sharing_off.json`): when the learner turns sharing off or deletes what they shared, the SDK hands no more
+/// audio to the system once the call returns and has ended the request in flight (what the system had already taken
+/// into its send buffer may still go out, at most the segment being sent, and nothing after it); the call returns
+/// within 3 s even when a request hangs; nothing unsent stays on the device; and
 /// turning sharing on again works at once. For that every request of a pass is its own task and is cancelled by
 /// a stop (`transmit`, `abort`), the pass asks `may` before every request and after every answer, a recording
 /// that was taken out stays out (`gone`: no record, no write, no request, and its folder is deleted again at the
@@ -51,7 +53,7 @@ actor ContributionOutbox {
         var started = false
         /// Presigned PUT URLs for segments not uploaded yet (optional: items of older builds lack it).
         var urls: [ContributionClient.SegmentURL]?
-        /// "seg-00001.opus", ... in R2.
+        /// "seg-00001.opus", ... in R2 (the local file names: "seg-00001.oga", ... for a FLAC recording, 4.0).
         var uploaded: Set<String> = []
         var failCode: String?
         var failMessage: String?
@@ -404,7 +406,7 @@ actor ContributionOutbox {
     /// Whether the pass may send or write for `id` now: no stop is at work, sharing is still on, and the recording
     /// is still in the queue. Asked before every request and after every answer.
     private func may(_ id: String) -> Bool {
-        stops == 0 && !gone.contains(id) && !held.contains(id) && records[id] != nil && Contributions.isActive
+        stops == 0 && !isClosed && !gone.contains(id) && !held.contains(id) && records[id] != nil && Contributions.isActive
     }
 
     /// A token for the pass. The wait for one is a wait for the network (an attestation, a token request), so a stop
@@ -459,7 +461,17 @@ actor ContributionOutbox {
     /// `ignoringBackoff` is for tests.
     /// The Client that owns this outbox was closed: no pass runs from here on (what is queued stays on disk for the
     /// next Client's outbox).
+    /// The end of the Client that made this queue. No pass starts from here on, and a pass that was started before
+    /// stops before it deletes or uploads anything (3.1.5): it looks at the shut-down mark before its first look at
+    /// the queue, and before every request.
+    /// Tried before (to 3.1.3): only new passes were stopped. A pass that was already on its way went on to read
+    /// the queue's folders, and removed a recording whose files the next Client's owner had changed meanwhile.
     nonisolated func shutdown() { closedFlag.withLock { $0 = true } }
+
+    #if DEBUG
+    /// For tests: a wait between a pass being started and its first look at the queue, in nanoseconds.
+    static let passDelayForTests = Locked<UInt64>(0)
+    #endif
 
     nonisolated var isClosed: Bool { closedFlag.withLock { $0 } }
 
@@ -480,6 +492,10 @@ actor ContributionOutbox {
         againIgnoringBackoff = false
         let t = Task {
             await self.reconcile()
+            #if DEBUG
+            let wait = Self.passDelayForTests.withLock { $0 }
+            if wait > 0 { try? await Task.sleep(nanoseconds: wait) }
+            #endif
             await self.pass(ignoringBackoff: ignore)
             self.scheduleWake()
             self.running = nil
@@ -490,6 +506,8 @@ actor ContributionOutbox {
     }
 
     private func pass(ignoringBackoff: Bool) async {
+        // a queue that was shut down after this pass was started: nothing is read, deleted or sent
+        guard !isClosed else { return }
         scan()
         expireTakes()
         guard let tokens, stops == 0, Contributions.isActive else { return }
@@ -501,7 +519,7 @@ actor ContributionOutbox {
             .sorted { $0.seq < $1.seq }.map(\.id)
         guard !due.isEmpty else { return }
         if config.current?.flags.contributions != true {
-            for id in due { note(id, "sharing is turned off for this app; waiting") }
+            for id in due { note(id, "sharing is paused by Quran Lab's switch; waiting") }
             return
         }
         for id in due {
@@ -573,7 +591,7 @@ actor ContributionOutbox {
         }
         // every closed segment, in order, each to its own URL
         for m in markers {
-            let name = ShareFiles.name(m.n) + ".opus"
+            let name = m.audioFile
             guard !rec.uploaded.contains(name), !inFlight.contains("\(id)/\(name)") else { continue }
             // sharing can go off while this pass runs: from then on nothing more is sent
             guard may(id) else { return false }
@@ -613,7 +631,7 @@ actor ContributionOutbox {
         // done once the session has ended and every segment is up: the server reads the rest from
         // the audio (the last segment ends the stream)
         guard end != nil, rec.started, !markers.isEmpty,
-              markers.allSatisfy({ rec.uploaded.contains(ShareFiles.name($0.n) + ".opus") }) else { return true }
+              markers.allSatisfy({ rec.uploaded.contains($0.audioFile) }) else { return true }
         rec.state = .uploaded
         rec.lastError = nil
         rec.nextAttempt = nil
@@ -813,7 +831,7 @@ actor ContributionOutbox {
             return false
         case .success(let resp) where (200..<300).contains(resp.status):
             rec.uploaded.insert(name)
-            rec.urls?.removeAll { ShareFiles.name($0.n) + ".opus" == name }
+            rec.urls?.removeAll { name.hasPrefix(ShareFiles.name($0.n) + ".") }
             rec.lastError = nil
             // an upload went through: later segments need not wait for an earlier failure's backoff
             rec.nextAttempt = nil
@@ -826,7 +844,7 @@ actor ContributionOutbox {
             // 403: the URL expired (R2: "Request has expired") or its signature is no longer valid
             // (the Worker's R2 key was rotated): fresh URLs from the same segment, and again
             rec.attempts += 1
-            if resp.status == 403 { rec.urls?.removeAll { ShareFiles.name($0.n) + ".opus" == name } }
+            if resp.status == 403 { rec.urls?.removeAll { name.hasPrefix(ShareFiles.name($0.n) + ".") } }
             save(rec)
             retry(id, "PUT \(name): HTTP \(resp.status)", immediately: resp.status == 403 && rec.attempts < 5)
             return true
@@ -846,7 +864,7 @@ actor ContributionOutbox {
         if aborted.remove("\(id)/\(name)") != nil { return }
         guard !gone.contains(id), var rec = records[id], rec.state == .active else { return }
         rec.attempts += 1
-        rec.urls?.removeAll { ShareFiles.name($0.n) + ".opus" == name }
+        rec.urls?.removeAll { name.hasPrefix(ShareFiles.name($0.n) + ".") }
         save(rec)
         retry(id, "PUT \(name): redirected to \(host)")
     }
@@ -917,6 +935,8 @@ actor ContributionOutbox {
     /// look. A recording whose item file or stamp cannot be read is left alone (`held`), and so is one a killed
     /// app left whose files cannot be read: nothing of it is deleted or written over.
     private func scan() {
+        // a queue that was shut down deletes nothing and drops nothing: the live Client's queue does that
+        guard !isClosed else { return }
         guard let look = Self.earlier(root: root, storage: storage) else { return }
         held = look.held
         for name in look.gone {
@@ -1046,6 +1066,8 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate, @unchecked Sen
             if let u = m[identifier] { return u }
             let u = BackgroundUploader(identifier: identifier)
             m[identifier] = u
+            // the system's completion handler came before the Client was made: it was waiting for this session
+            if let waited = BackgroundEvents.take(identifier) { u.setFinishedHandler(waited) }
             return u
         }
     }

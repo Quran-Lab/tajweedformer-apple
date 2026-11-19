@@ -1,13 +1,15 @@
 import Foundation
 
-/// Where model files are served: one host, `{base}/{owner}/{repo}/{revision}/{folder}/{path}`, with the app key in
-/// `x-qlab-key`.
+/// Where model manifests are served: one host, `{base}/{owner}/{repo}/{revision}/{folder}/{path}`, with the app key in
+/// `x-qlab-key`. SDK 4.0: a build's files come only from the model folder its lease answer names
+/// (`ProtectedRuntime.acceptedBase`), never from here and never from a config.
 enum ModelHost {
-    /// Used when neither the app nor a verified config names a base.
+    /// Quran Lab's model host.
     static let defaultBase = URL(string: "https://cdn.quranlab.ai/models")!
 
-    /// The app's own base wins, then the verified config's, then the default.
-    static func base(explicit: URL?, config: RemoteConfig?) -> URL { explicit ?? config?.modelBase ?? defaultBase }
+    /// Where the manifest is read: the app's own base (`CloudOptions.cdnURL`), else Quran Lab's. A base a config
+    /// names is never used (the 4.0 config names none; qlab-api f7c5d2a). The manifest is signed either way.
+    static func manifestBase(explicit: URL?) -> URL { explicit ?? defaultBase }
 
     /// A bare CDN host, the shape of older configurations: their files stay under `/hf`. A base with a path, such as
     /// `https://cdn.quranlab.ai/models`, is never one.

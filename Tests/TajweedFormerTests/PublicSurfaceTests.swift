@@ -14,6 +14,8 @@ final class PublicSurfaceTests: XCTestCase {
         "TajweedTokens", "TajweedCalibration", "TajweedReference", "TajweedClip",
         "TajweedSharing", "TajweedAnalytics", "TajweedDiagnosis",
         "TajweedError", "Microphone",
+        // SDK 4.0: the app's judgement passed to reportRecited
+        "TajweedRecitedOutcome",
     ]
     static let sharingUI: Set<String> = [
         "SharingTheme", "SharingConsentView", "SharingThanksView", "SharingSettingsView",
@@ -23,9 +25,9 @@ final class PublicSurfaceTests: XCTestCase {
     /// The value sets and records nested in those types (each is a member of a listed type, never a new concept).
     static let nested: Set<String> = [
         "TajweedBackend.Kind", "TajweedBackend.Stage", "TajweedHead.Kind", "TajweedEvent.Cause", "TajweedEvent.EndReason",
-        "TajweedSessionOptions.Backend", "TajweedSessionOptions.Pace", "TajweedClientOptions.Analytics",
-        "TajweedClientOptions.Audience", "TajweedDiagnosis.Key", "TajweedDiagnosis.Model", "TajweedDiagnosis.StoredModel",
-        "TajweedDiagnosis.Storage", "TajweedSharing.Item", "TajweedSharing.Summary",
+        "TajweedSessionOptions.Backend", "TajweedSessionOptions.Pace",
+        "TajweedDiagnosis.Key", "TajweedDiagnosis.Model", "TajweedDiagnosis.StoredModel",
+        "TajweedDiagnosis.Storage", "TajweedDiagnosis.Protected", "TajweedSharing.Item", "TajweedSharing.Summary",
     ]
 
     static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -120,19 +122,126 @@ final class PublicSurfaceTests: XCTestCase {
         for name in Self.named { XCTAssertTrue(api.contains("\n## \(name)\n"), "docs/api.md has no section for \(name)") }
     }
 
+    // MARK: one sheet for every app
+
+    /// The identifiers 26.4 says the public API of 4.0 has none of, as a member, parameter, enum, case or constant.
+    static let removedNames = ["audience", "Audience", "children", "guardian", "guardianConfirmed"]
+
+    /// The identifiers of a declaration's text that are one of `removedNames`, or contain `audience` or `guardian` in
+    /// any case (`guardianConfirmed`, `isGuardian`, `Audience`).
+    static func removedIdentifiers(_ text: String) -> [String] {
+        let word = try! NSRegularExpression(pattern: #"[A-Za-z_][A-Za-z0-9_]*"#)
+        return word.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { m -> String? in
+            guard let r = Range(m.range, in: text) else { return nil }
+            let id = String(text[r])
+            let lower = id.lowercased()
+            if removedNames.contains(id) || lower.contains("audience") || lower.contains("guardian") || lower == "children" { return id }
+            return nil
+        }
+    }
+
+    /// SDK 4.0 (26.1, 26.4): no audience option and no guardian variant, removed and not deprecated. No public
+    /// declaration of the library (each joined over its lines up to its body), no case of a public enum and no
+    /// declaration docs/api.md lists names `audience`, `Audience`, `children`, `guardian` or `guardianConfirmed`;
+    /// `TajweedClientOptions` holds no such field. The scan itself flags the 3.x declarations it is meant to catch.
+    func testNoAudienceOrGuardianInThePublicAPI() throws {
+        // the 3.x declarations are caught
+        XCTAssertEqual(Self.removedIdentifiers("public init(appId: String? = nil, storage: URL? = nil, audience: Audience = .general)"),
+                       ["audience", "Audience"])
+        XCTAssertEqual(Self.removedIdentifiers("public func setOn(_ on: Bool, guardianConfirmed: Bool = false) async throws(TajweedError)"),
+                       ["guardianConfirmed"])
+        XCTAssertEqual(Self.removedIdentifiers("case children"), ["children"])
+        XCTAssertEqual(Self.removedIdentifiers("public func setOn(_ on: Bool) async throws(TajweedError)"), [])
+
+        let publicDecl = try NSRegularExpression(pattern: #"^\s*(@\w+(\([^)]*\))?\s+)*public\s"#)
+        let enumDecl = try NSRegularExpression(pattern: #"^( *)(@\w+(\([^)]*\))? +)*public +(indirect +)?enum "#)
+        var scanned = 0
+        for f in try sourceFiles() {
+            let lines = f.text.components(separatedBy: "\n")
+            var publicEnumIndent: Int?
+            for (i, line) in lines.enumerated() {
+                let range = NSRange(line.startIndex..., in: line)
+                let indent = line.prefix { $0 == " " }.count
+                // the cases of a public enum are public without the word: its lines one level in, until it closes
+                if let enumIndent = publicEnumIndent {
+                    if line.trimmingCharacters(in: .whitespaces) == "}" && indent == enumIndent {
+                        publicEnumIndent = nil
+                    } else if indent == enumIndent + 4, line.trimmingCharacters(in: .whitespaces).hasPrefix("case ") {
+                        XCTAssertEqual(Self.removedIdentifiers(line), [], "\(f.name): \(line.trimmingCharacters(in: .whitespaces))")
+                        scanned += 1
+                    }
+                }
+                if enumDecl.firstMatch(in: line, range: range) != nil, !line.contains("}") { publicEnumIndent = indent }
+                guard publicDecl.firstMatch(in: line, range: range) != nil else { continue }
+                // the declaration over its continuation lines, up to its body
+                var text = line
+                var depth = line.filter { $0 == "(" }.count - line.filter { $0 == ")" }.count
+                var j = i
+                while depth > 0 && j + 1 < lines.count {
+                    j += 1
+                    text += " " + lines[j]
+                    depth += lines[j].filter { $0 == "(" }.count - lines[j].filter { $0 == ")" }.count
+                }
+                if let body = text.range(of: " {") { text = String(text[..<body.lowerBound]) }
+                XCTAssertEqual(Self.removedIdentifiers(text), [], "\(f.name): \(text.trimmingCharacters(in: .whitespaces))")
+                scanned += 1
+            }
+        }
+        XCTAssertGreaterThan(scanned, 150, "the public declarations were scanned")
+
+        // docs/api.md: every declaration it lists (the first code span of each list line, and each type's signature)
+        let url = Self.sources.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("docs/api.md")
+        if let api = try? String(contentsOf: url, encoding: .utf8).replacingOccurrences(of: "\r\n", with: "\n") {
+            var listed = 0
+            var inSwift = false
+            for line in api.components(separatedBy: "\n") {
+                if line.hasPrefix("```") {
+                    inSwift = line == "```swift"
+                    continue
+                }
+                var found: String?
+                if inSwift {
+                    found = line
+                } else if line.hasPrefix("- `"), let end = line.dropFirst(3).firstIndex(of: "`") {
+                    found = String(line[line.index(line.startIndex, offsetBy: 3)..<end])
+                }
+                guard let decl = found else { continue }
+                XCTAssertEqual(Self.removedIdentifiers(decl), [], "docs/api.md: \(decl)")
+                listed += 1
+            }
+            XCTAssertGreaterThan(listed, 150, "docs/api.md's declarations were scanned")
+        }
+
+        // the options as a value: no such field
+        let fields = Mirror(reflecting: TajweedClientOptions()).children.compactMap { $0.label }
+        XCTAssertEqual(fields.flatMap { Self.removedIdentifiers($0) }, [], "TajweedClientOptions: \(fields)")
+        XCTAssertEqual(Set(fields), ["appId", "appVersion", "storage"])
+    }
+
     // MARK: the error catalogue
 
-    /// The SHA-256 of the contract's errors.json this package embeds (sdk_3.0.0/errors.json, version 1.7.0 of the
-    /// shared files: 26 codes, the reasons of `server_rejected` with the two of a model request, the fix of
-    /// `model_missing` without a folder to open, docs on sdk.quranlab.ai). Recorded when the copy was made; the copy
-    /// is never edited.
-    static let catalogueSHA256 = "04b264b9d820f865a0bfd4d695e17a07b2ae6b1be318324c91f3177d322cd510"
+    /// The SHA-256 of the contract's errors.json this package embeds (sdk_3.0.0/errors.json at quranlab-contract
+    /// sdk-4.0.0-protected 3c62bf3: 26 codes, the reasons of `server_rejected` with the two of a model request, the fix
+    /// of `model_missing` without a folder to open, docs on sdk.quranlab.ai, and the fix of `sharing_unavailable` that
+    /// names Quran Lab's switch for a platform or for everyone, never one app). Recorded when the copy was made; the
+    /// copy is never edited.
+    static let catalogueSHA256 = "923da8f3d66e765a34574c4e12cbce5ae963688f407a07106f46dcd865fad3bd"
 
     func embedded() throws -> Data { try Data(contentsOf: try XCTUnwrap(ErrorCatalogue.resource)) }
 
     func testTheEmbeddedCatalogueHasTheRecordedHash() throws {
         let sha = SHA256.hash(data: try embedded()).map { String(format: "%02x", $0) }.joined()
         XCTAssertEqual(sha, Self.catalogueSHA256)
+    }
+
+    /// The catalogue of 3c62bf3: the fix of `sharing_unavailable` names Quran Lab's switch (a platform not offered
+    /// yet, or sharing paused for everyone), never a decision about one app; its code and message are as before.
+    func testTheFixOfSharingUnavailableNamesQuranLabsSwitch() {
+        let e = TajweedError(.sharingUnavailable)
+        XCTAssertEqual(e.code, "sharing_unavailable")
+        XCTAssertEqual(e.message, "Sharing is not available for this app.")
+        XCTAssertEqual(e.fix, "Nothing to call: sharing is not offered on this platform yet, or Quran Lab has paused it for everyone; "
+                       + "check client.sharing.isAvailable before showing sharing settings.")
     }
 
     /// Byte for byte the contract's file, where the contract is on this machine (TAJWEED_CONTRACT names its folder);

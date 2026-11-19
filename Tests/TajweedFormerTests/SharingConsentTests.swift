@@ -3,61 +3,74 @@ import Foundation
 import XCTest
 @testable import TajweedFormer
 
-/// The sharing state machine every TajweedFormer SDK follows: never before a finished session with feedback, the
-/// sheet shown at most three times per install (the first ask plus re-asks 7 sessions apart after "Not now"), the
-/// count kept across launches and the upgrade from 2.0.0; a yes or settings off ends asking; the guardian variant; the
-/// thank-you once; the bundled copy deck and its disclosure lines.
+/// The sharing state machine every TajweedFormer SDK follows: never before a completed take, at most three asks per
+/// install (SDK 4.0: the sheet, then cards after "Not now", each when it is due; the timing itself is pinned by the
+/// contract's vectors in ShareAskTests), the count kept across launches and the upgrade from 2.0.0; a yes or settings
+/// off ends asking; one sheet for every app (SDK 4.0); the thank-you once; the bundled copy deck and its disclosure lines.
 final class SharingConsentTests: XCTestCase {
-    func configure(contributions: Bool = true, audience: Audience = .general, flags: [String: Any]? = [:],
-                   storage: URL = Fixtures.storage()) {
+    func configure(contributions: Bool = true, flags: [String: Any]? = [:], storage: URL = Fixtures.storage()) {
         if let flags { CloudFixtures.seedConfig(storage: storage, flags: flags) }
-        var o = CloudFixtures.options(contributions: contributions, storage: storage)
-        o.audience = audience
+        let o = CloudFixtures.options(contributions: contributions, storage: storage)
         let cloud = CloudFixtures.cloud(storage: storage, options: o)
         QuranLab.configure(key: CloudFixtures.key, options: o, cloud: cloud)
     }
 
     override func tearDown() { QuranLab.configure(key: nil, options: .init(cloud: nil), cloud: nil) }
 
-    func testAskOnceThenTwoReasksSevenSessionsApartThenNever() {
+    func testAskOnceThenTwoReasksThenNever() {
         let storage = Fixtures.storage()
         configure(storage: storage)
-        XCTAssertNil(Contributions.sessionCompleted(feedback: false), "no feedback, no ask")
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        XCTAssertNil(Contributions.sessionCompleted(feedback: false), "no speech, no ask")
+        XCTAssertNil(Contributions.sessionCompleted(feedback: true), "not in the install's first 24 hours")
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
         Contributions.answer(share: false)
         XCTAssertEqual(Contributions.consent, .declined)
-        var asks: [Int] = []
-        for i in 3...40 {
-            if case .ask(let reask, _)? = Contributions.sessionCompleted(feedback: true) {
-                XCTAssertTrue(reask)
-                asks.append(i)
-                Contributions.answer(share: false)
-            }
+        XCTAssertEqual(Contributions.state().asks, 1)
+        for _ in 0..<10 { XCTAssertNil(Contributions.sessionCompleted(feedback: true), "not again soon") }
+        for i in 2...3 {
+            Contributions.makeAskDue()
+            XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .card, "re-ask \(i) is a card")
+            Contributions.answer(share: false)
+            XCTAssertEqual(Contributions.state().asks, i)
         }
-        XCTAssertEqual(asks, [9, 16], "re-asks at least 7 sessions apart, at most twice")
         XCTAssertEqual(Contributions.consent, .final)
-        XCTAssertEqual(Contributions.state().asks, 3, "three sheets in all")
+        XCTAssertEqual(Contributions.state().asks, 3, "three asks in all")
         XCTAssertFalse(Contributions.isActive)
-        XCTAssertNil(Contributions.askNow(), "no fourth sheet at the app's own timing")
+        Contributions.makeAskDue()
+        XCTAssertNil(Contributions.sessionCompleted(feedback: true), "no fourth ask")
+        XCTAssertNil(Contributions.askNow(), "no fourth ask at the app's own timing")
         // a restart: the count is read back from disk
         configure(storage: storage)
         XCTAssertEqual(Contributions.state().asks, 3)
-        for i in 0..<30 { XCTAssertNil(Contributions.sessionCompleted(feedback: true), "no fourth sheet after a restart (\(i))") }
+        Contributions.makeAskDue()
+        for i in 0..<30 { XCTAssertNil(Contributions.sessionCompleted(feedback: true), "no fourth ask after a restart (\(i))") }
         XCTAssertNil(Contributions.askNow())
     }
 
-    /// The third "Not now" ends asking even when the asks came from the app's own timing; a sheet closed without an
-    /// answer counts as shown.
-    func testThreeShowingsInAllWhateverTheTiming() {
+    /// The third "Not now" ends asking also when the asks came at the app's own timing (`ask()`: due by the same rules,
+    /// without the 60 seconds, after a completed take); a sheet closed without an answer is a "Not now".
+    func testThreeAsksInAllWhateverTheTiming() {
         let storage = Fixtures.storage()
         configure(storage: storage)
-        XCTAssertEqual(Contributions.askNow(), .ask(reask: false, guardian: false))
-        XCTAssertNil(Contributions.sessionCompleted(feedback: true), "closed without an answer: the re-ask waits 7 sessions")
-        XCTAssertEqual(Contributions.askNow(), .ask(reask: true, guardian: false))
-        Contributions.answer(share: false)
-        XCTAssertEqual(Contributions.askNow(), .ask(reask: true, guardian: false))
-        Contributions.answer(share: false)
+        Contributions.makeAskDue()
+        XCTAssertNil(Contributions.askNow(), "not before a completed take in this app session")
+        XCTAssertNil(Contributions.takeEnded(.normal, speechMs: 10_000), "a short take: not the SDK's own moment")
+        XCTAssertEqual(Contributions.askNow(), .ask(reask: false))
+        Contributions.sheetClosed()
+        XCTAssertEqual(Contributions.consent, .declined, "closed without an answer: Not now")
+        XCTAssertEqual(Contributions.state().asks, 1)
+        XCTAssertNil(Contributions.askNow(), "one ask per app session")
+        for i in 2...3 {
+            Contributions.makeAskDue()
+            XCTAssertNil(Contributions.takeEnded(.normal, speechMs: 10_000))
+            XCTAssertEqual(Contributions.askNow(), .card, "re-ask \(i)")
+            Contributions.answer(share: false)
+        }
         XCTAssertEqual(Contributions.consent, .final)
+        XCTAssertEqual(Contributions.state().asks, 3)
+        Contributions.makeAskDue()
+        XCTAssertNil(Contributions.takeEnded(.normal, speechMs: 10_000))
         XCTAssertNil(Contributions.askNow())
         configure(storage: storage)
         for _ in 0..<30 { XCTAssertNil(Contributions.sessionCompleted(feedback: true)) }
@@ -73,8 +86,9 @@ final class SharingConsentTests: XCTestCase {
         configure(storage: storage)
         XCTAssertEqual(Contributions.consent, .declined)
         XCTAssertEqual(Contributions.state().asks, 2)
-        for _ in 13...16 { XCTAssertNil(Contributions.sessionCompleted(feedback: true), "7 sessions after the last ask") }
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: true, guardian: false), "the third and last")
+        for _ in 13...16 { XCTAssertNil(Contributions.sessionCompleted(feedback: true), "the clocks of an upgrade start at the upgrade") }
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .card, "the third and last")
         Contributions.answer(share: false)
         XCTAssertEqual(Contributions.consent, .final)
         for _ in 0..<30 { XCTAssertNil(Contributions.sessionCompleted(feedback: true)) }
@@ -112,7 +126,8 @@ final class SharingConsentTests: XCTestCase {
     func testAYesEndsAsking() {
         let storage = Fixtures.storage()
         configure(storage: storage)
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
         Contributions.answer(share: true)
         for _ in 0..<30 { XCTAssertNil(Contributions.sessionCompleted(feedback: true)) }
         XCTAssertNil(Contributions.askNow())
@@ -121,22 +136,32 @@ final class SharingConsentTests: XCTestCase {
         for _ in 0..<30 { XCTAssertNil(Contributions.sessionCompleted(feedback: true)) }
     }
 
-    func testChildrenNeedTheGuardian() {
-        configure(audience: .children)
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: true))
-        Contributions.answer(share: true, guardianConfirmed: false)
-        XCTAssertNotEqual(Contributions.consent, .granted, "no grant without the guardian's confirmation")
-        Contributions.answer(share: true, guardianConfirmed: true)
-        XCTAssertEqual(Contributions.consent, .granted)
+    /// SDK 4.0: every app shows the same sheet, and the learner's own tap on "Share" is the
+    /// yes, recorded at once with the deck's consent version; nothing else is asked for.
+    func testOneSheetForEveryAppAndTheLearnersTapIsTheYes() throws {
+        let storage = Fixtures.storage()
+        configure(storage: storage)
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
+        Contributions.answer(share: true)
+        XCTAssertEqual(Contributions.consent, .granted, "the learner's tap is the yes")
+        XCTAssertEqual(Contributions.state().consentVersion, "share-2026-11-09")
+        XCTAssertTrue(Contributions.isActive)
+        // a state that 4.0 began has no `guardian` field (26.1 item 4: only a 3.x state's is passed through)
+        let saved = try UnreadableStateTests.saved(storage)
+        XCTAssertEqual(saved["consent"] as? String, "granted")
+        XCTAssertNil(saved["guardian"], "a state begun by 4.0 has no guardian field")
     }
 
     func testTheBackendDecidesWhetherTheSheetIsOffered() async {
-        // 2.0.1: the signed config decides; the app's option neither vetoes nor forces it
+        // 2.0.1: Quran Lab's incident switch in the signed config decides; the app's option neither vetoes nor forces it
         configure(contributions: false)
         XCTAssertTrue(Contributions.isEnabled)
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false), "offered by the config")
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false), "offered by the config")
         XCTAssertFalse(Contributions.isActive, "offered is not consent")
         configure(contributions: true, flags: ["contributions": false])
+        Contributions.makeAskDue()
         XCTAssertNil(Contributions.sessionCompleted(feedback: true), "the config says no: the option cannot force it")
         StubProtocol.reset { _ in StubProtocol.Reply(status: 503) }
         configure(contributions: true, flags: nil)
@@ -154,12 +179,13 @@ final class SharingConsentTests: XCTestCase {
     func testTheBundledDeck() throws {
         let c = try XCTUnwrap(SharingCopy.bundled("en"))
         XCTAssertEqual(c.consentVersion, "share-2026-11-09")
-        XCTAssertEqual(c.version, "2026-11-13.1")
+        XCTAssertEqual(c.version, "2026-11-19.1")
         XCTAssertEqual(c.deleteDays, 0, "deletion is immediate")
         for k in ["sheet.title", "sheet.what", "sheet.who", "sheet.control", "sheet.share", "sheet.not_now", "thanks",
                   "settings.toggle", "settings.what", "settings.delete", "what.detail", "delete.confirm", "reask",
-                  "sheet.guardian.confirm", "delete.failed.title", "delete.failed.network", "delete.retry", "recovery.reveal",
-                  "recovery.copy", "recovery.copied", "recovery.keep", "recovery.used", "recovery.invalid", "recovery.hint"] {
+                  "delete.failed.title", "delete.failed.network", "delete.retry", "recovery.reveal",
+                  "recovery.copy", "recovery.copied", "recovery.keep", "recovery.used", "recovery.invalid", "recovery.hint",
+                  "card.line", "card.open", "card.not_now"] {
             XCTAssertFalse(c.string(k).isEmpty, k)
             XCTAssertFalse(c.string(k).contains("\u{2014}") || c.string(k).contains("\u{2013}"), "no em or en dash: \(k)")
         }

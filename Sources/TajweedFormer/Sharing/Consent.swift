@@ -1,17 +1,15 @@
 import Foundation
 
-/// Who the app is for. With `.children`, the SDK's consent sheet addresses the parent or guardian and needs their
-/// confirmation before it can share.
-enum Audience: String, Sendable, Hashable, Codable {
-    case general
-    case children
-}
-
-/// What the app should show now, if anything (the SDK's `SharingConsentView` shows it for you).
+/// What the app should show now, if anything (the SDK's `SharingConsentView` shows it for you). SDK 4.0 (contract
+/// section 26): every app shows the same sheet.
 enum SharingMoment: Sendable, Hashable {
-    /// The consent sheet: the first ask, or a gentle re-ask after "Not now" (the sheet is shown at most three times per
-    /// install). `guardian`: the children's variant.
-    case ask(reask: Bool, guardian: Bool)
+    /// The consent sheet: the first ask, or the full sheet a card opened into. SDK 4.0 hands over every sheet with
+    /// `reask` false: a re-ask is the card (the `reask` line stays for `SharingConsentView(reask:)`, which an app may
+    /// present itself, and for SDKs before 4.0). At most three asks per install.
+    case ask(reask: Bool)
+    /// SDK 4.0 (20.6): a re-ask after "Not now", as a small card at the bottom of the window, not modal: the card's
+    /// line, "See how it helps" (the full sheet, where consent is given) and "Not now". One of the three asks.
+    case card
     /// The thank-you line with its du'a, once, after the first shared session.
     case thanks
 }
@@ -22,7 +20,8 @@ enum SharingConsent: String, Sendable, Hashable, Codable {
     case unknown
     /// Shares every session in full while the SDK listens.
     case granted
-    /// "Not now": may be asked again, at least 7 sessions later, until the sheet was shown three times in all.
+    /// "Not now": may be asked again (SDK 4.0, 20.1: after 14 days and 7 completed sessions, then 30 days and 10),
+    /// until three asks were shown in all.
     case declined
     /// Declined after the third showing, or turned off in settings: never asked again (only the settings switch turns
     /// sharing on).
@@ -31,19 +30,24 @@ enum SharingConsent: String, Sendable, Hashable, Codable {
 
 /// The SDK's sharing state machine, persisted per install (the same machine in every TajweedFormer SDK), in
 /// `cloud/sharing-state.json`. 2.0.0 wrote the same JSON object without `consentTextSHA256`; it is read as it is.
-struct SharingState: Codable, Equatable {
+struct SharingState: Codable, Equatable, Sendable {
     var v = 1
     var consent: SharingConsent = .unknown
-    /// The sheets shown (or asks handed to the app's own UI) on this install, ever: at most three.
+    /// The asks shown (the sheet or a card, or asks handed to the app's own UI) on this install, ever: at most three.
     var asks = 0
+    /// `sessions` when the last ask went on screen.
     var lastAskSession = 0
+    /// Completed sessions, ever (SDK 4.0: takes that ended normally, with speech).
     var sessions = 0
     var thanked = false
     var decidedAt: Double?
     var consentVersion: String?
     /// The hash of the app's own wording the learner agreed to (2.0.1); nil for the deck's words.
     var consentTextSHA256: String?
-    var guardian = false
+    /// A field of the state SDK 3.x wrote: SDK 4.0 never reads it and writes it back exactly
+    /// as it was read; nil (left out of the file) in a state that 4.0 began. Whatever it holds, a stored grant is a
+    /// grant like any other: the learner is never asked again and sharing goes on.
+    var guardian: Bool?
     /// A shared session finished since the grant (the thank-you is due).
     var sharedOnce = false
     /// The count of the learner's changes of mind (3.0.1, rule R5): it goes up when sharing is turned off, when a
@@ -54,8 +58,16 @@ struct SharingState: Codable, Equatable {
     /// of its own (`DeletionMark`), and this field is never set: it is read from a state an earlier SDK stored,
     /// where it becomes the mark at the first read, and it is written as false.
     var deleting = false
+    /// SDK 4.0 (20.4): Unix ms of the first launch with SDK 4.0 or later (an install's first launch; for an older
+    /// install, the upgrade). Absent in a state of an earlier SDK: the first decision sets it (`ShareAsk.normalize`).
+    var installedAt: Int64?
+    /// SDK 4.0 (20.4): Unix ms when the last ask went on screen; nil before the first. A state of an earlier SDK
+    /// with an ask shown gets the time of its first decision under 4.0.
+    var lastAskAt: Int64?
+    /// SDK 4.0 (20.4): the calendar day of `lastAskAt` in the device's time zone at that moment (20.2).
+    var lastAskDay: Int?
 
-    /// The most sheets an install is ever shown.
+    /// The most asks an install is ever shown.
     static let maxAsks = 3
     /// The consent version of the deck 2.0.0 bundled on Apple platforms: a 2.0.0 grant without a recorded version
     /// agreed to it.
@@ -63,11 +75,12 @@ struct SharingState: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case v, consent, asks, lastAskSession, sessions, thanked, decidedAt, consentVersion, consentTextSHA256, guardian,
-             sharedOnce, consentCount, deleting
+             sharedOnce, consentCount, deleting, installedAt, lastAskAt, lastAskDay
     }
 
     /// A grant keeps the version it was given; an older state that lacks a field gets its default (a declined state
-    /// without an ask count was asked once).
+    /// without an ask count was asked once). The ask's clocks of 4.0 need the time and are set at the first decision
+    /// (`ShareAsk.normalize`), not here.
     mutating func upgrade() {
         if consent == .granted && (consentVersion ?? "").isEmpty { consentVersion = Self.version200 }
         if consent == .declined && asks < 1 { asks = 1 }
@@ -88,27 +101,36 @@ extension SharingState {
         decidedAt = (try? c.decodeIfPresent(Double.self, forKey: .decidedAt)) ?? nil
         consentVersion = (try? c.decodeIfPresent(String.self, forKey: .consentVersion)) ?? nil
         consentTextSHA256 = (try? c.decodeIfPresent(String.self, forKey: .consentTextSHA256)) ?? nil
-        guardian = (try? c.decodeIfPresent(Bool.self, forKey: .guardian)) ?? false
+        // passed through, never read (26.1 item 4): written back as it came, and left out when it was absent
+        guardian = (try? c.decodeIfPresent(Bool.self, forKey: .guardian)) ?? nil
         sharedOnce = (try? c.decodeIfPresent(Bool.self, forKey: .sharedOnce)) ?? false
         consentCount = (try? c.decodeIfPresent(Int.self, forKey: .consentCount)) ?? 0
         deleting = (try? c.decodeIfPresent(Bool.self, forKey: .deleting)) ?? false
+        // SDK 4.0 (20.4): absent in a state of an earlier SDK, and anything that is not a whole number is absent too
+        installedAt = (try? c.decodeIfPresent(Int64.self, forKey: .installedAt)) ?? nil
+        lastAskAt = (try? c.decodeIfPresent(Int64.self, forKey: .lastAskAt)) ?? nil
+        lastAskDay = (try? c.decodeIfPresent(Int.self, forKey: .lastAskDay)) ?? nil
         upgrade()
     }
 }
 
-/// Recording sharing, one switch for the developer (`QuranLab.Options.contributions`) and one tap for the learner.
+/// Recording sharing: every learner is asked, in every app, under the same rules, and the choice is theirs. The
+/// developer switches nothing on or off (`QuranLab.Options.contributions` is ignored since 2.0.1); the signed config's
+/// `flags.contributions` is Quran Lab's incident switch, which stops all asking and sharing.
 ///
-/// With the option on (and the signed config allowing it on this platform), the SDK asks the learner at the right
-/// moment with its own consent sheet: never on first launch; after a finished session with feedback
-/// (`TajweedRecognizer.endSession(feedback:)`); "Not now" re-asks at least 7 sessions later, until the sheet was shown
-/// three times on the install in all; then never again. A yes ends asking for good: the grant keeps the consent
-/// version the learner agreed to across copy decks, the app's wording and SDK upgrades (2.0.0's grants included), and
-/// turning sharing off after it never brings the sheet back. Only the settings switch (`setSharing(_:)`) turns sharing
-/// on or off after asking has ended. Children's apps (`audience: .children`) get the guardian variant. Apps may change
-/// WHEN the sheet appears (`askNow()`), never what it discloses.
+/// While that switch is on for this platform, the SDK asks the learner at the right moment (SDK 4.0,
+/// contract section 20, `ShareAsk`): the first ask is the full sheet, never in the first 24 hours of the install or
+/// before its 3rd completed session, and only at the end of a good session (ended normally, a minute of recitation in
+/// this app session); after "Not now" a small card asks again once 14 days and 7 completed sessions have passed, then
+/// 30 days and 10; never two asks in one app session or one day; three asks in all, then never again. A yes ends
+/// asking for good: the grant keeps the consent version the learner agreed to across copy decks, the app's wording
+/// and SDK upgrades (2.0.0's grants included), and turning sharing off after it never brings the sheet back. Only the
+/// settings switch (`setSharing(_:)`) turns sharing on or off after asking has ended. Every app shows the same
+/// sheet (SDK 4.0, contract section 26). Apps may change WHEN the ask appears (`askNow()`, only when it is due), never
+/// what it discloses.
 ///
 /// 2.0.1: the app may show its own UI instead of the SDK's sheet (`setPresenter(_:)`: the SDK hands it each moment, the
-/// app shows the deck's strings from `copy` and reports the learner's tap with `answer(share:guardianConfirmed:)`), and
+/// app shows the deck's strings from `copy` and reports the learner's tap with `answer(share:)`), and
 /// may replace any string of the deck with its own words (`setWording(_:)`): a learner who agrees from then on agrees
 /// to those words, under a consent version derived from them (`custom-...`), and every session they share carries
 /// their hash.
@@ -279,7 +301,8 @@ enum Contributions {
     /// consent: the device never holds the new answer with the old count.
     /// While the stored answer cannot be read, nothing is changed and nothing is written (3.1.4): a write would go
     /// over the stored answer. `body` is not called then, and a blank state comes back.
-    static func update(_ body: (inout SharingState) -> Void) -> SharingState {
+    /// `onlyIfChanged` (SDK 4.0, 20.4, the ask's events): the state is written only when `body` changed it.
+    static func update(onlyIfChanged: Bool = false, _ body: (inout SharingState) -> Void) -> SharingState {
         let f = file()
         return lock.withLock { s -> SharingState in
             var v: SharingState
@@ -291,10 +314,11 @@ enum Contributions {
             }
             v.upgrade()
             let had = v.consent == .granted
+            let before = v
             body(&v)
             if (v.consent == .granted) != had { v.consentCount += 1 }
             s = v
-            store(v, f)
+            if !onlyIfChanged || v != before { store(v, f) }
             return v
         }
     }
@@ -307,6 +331,8 @@ enum Contributions {
         lock.withLock { $0 = nil }
         unsaved.withLock { $0 = nil }
         foundMark.withLock { $0 = false }
+        // SDK 4.0 (20.4): the app session's part of the ask belongs to the configuration
+        resetAsk()
     }
 
     /// The copy deck in force (the app's locale, else English), with the app's own wording applied.
@@ -352,17 +378,20 @@ enum Contributions {
 
     /// Your own UI instead of the SDK's sheet: the SDK hands each moment (the consent ask, the thank-you) to `handler`
     /// on the main actor and shows nothing itself. Show the deck's strings from `copy` (the app's own wording applied),
-    /// buttons of equal weight, and report the learner's own tap with `answer(share:guardianConfirmed:)`. The SDK
-    /// picks the moments and counts the asks as for its own sheet. Nil goes back to the SDK's sheet.
+    /// buttons of equal weight, and report the learner's own tap with `answer(share:)`. The SDK
+    /// picks the moments and counts the asks as for its own sheet: an ask counts as it is handed over (20.6). A card
+    /// (`.card`) shows `card.line` and two equal answers; "See how it helps" is `cardOpened()`, then the full sheet;
+    /// "Not now" is `cardDismissed()`. Nil goes back to the SDK's sheet.
     static func setPresenter(_ handler: (@MainActor @Sendable (SharingMoment) -> Void)?) {
         SharingPresenter.shared.set(handler)
     }
 
-    /// Quran Lab's signed config offers sharing to this app on this platform (flag `contributions`, decided per app on
-    /// the server, and the upload trust tier). Since 2.0.1 the app's `Options.contributions` does not decide it, and
-    /// without a verified config in force nothing is offered (2.0.0 offered it before the first config arrived). When
-    /// false, the SDK never asks and never uploads; the learner's answer is kept. Offered is never consent: capture and
-    /// upload also need the learner's grant (`isActive`).
+    /// Quran Lab's signed config has sharing on for this platform: `flags.contributions`, Quran Lab's incident switch
+    /// (for everyone, or for a platform not offered yet; never a decision about one app), and the platform's upload
+    /// trust tier. Since 2.0.1 the app's `Options.contributions` does not decide it, and without a verified config in
+    /// force nothing is asked (2.0.0 asked before the first config arrived). When false, the SDK never asks and never
+    /// uploads; the learner's answer is kept. Being asked is never consent: capture and upload also need the learner's
+    /// grant (`isActive`).
     static var isEnabled: Bool {
         guard QuranLab.configuration.options.cloud != nil, let cfg = QuranLab.cloud?.currentConfig else { return false }
         if !cfg.flags.contributions { return false }
@@ -394,75 +423,21 @@ enum Contributions {
         return s.consentTextSHA256
     }
 
-    /// A finished session: counts it, and says whether this is the moment to ask (or thank). `feedback`: the learner
-    /// was shown the model's feedback for the session.
-    @discardableResult
-    static func sessionCompleted(feedback: Bool) -> SharingMoment? {
-        let enabled = isEnabled
-        var moment: SharingMoment?
-        _ = update { s in
-            s.sessions += 1
-            guard enabled else { return }
-            if s.consent == .granted && s.sharedOnce && !s.thanked {
-                s.thanked = true
-                moment = .thanks
-                return
-            }
-            // never after a grant or settings off; the first ask, then "Not now" (or a sheet closed without an answer)
-            // asks again at least 7 sessions later, until the sheet was shown three times in all
-            guard feedback, s.asks < SharingState.maxAsks, s.consent == .unknown || s.consent == .declined else { return }
-            if s.asks == 0 || s.sessions - s.lastAskSession >= 7 {
-                moment = .ask(reask: s.asks > 0, guardian: QuranLab.configuration.options.audience == .children)
-                s.asks += 1
-                s.lastAskSession = s.sessions
-            }
-        }
-        if case .ask(_, _)? = moment { QuranLab.count(.shareAsked) }
-        if let moment { SharingPresenter.shared.present(moment) }
-        return moment
-    }
+    // SDK 4.0: the end of a take, the app's `askNow()` and the learner's `answer(share:)` go through the ask's
+    // decision (`ShareAsk`, the extension in ShareAsk.swift), which replaces the 3.x `sessionCompleted`.
 
-    /// The app's own timing: the sheet now, whatever the session count, when the learner has not agreed or turned
-    /// sharing off and the sheet was shown fewer than three times (it counts as one of the three).
+    /// Records a decision of the settings switch (the sheet's answers go through `answer`); true when it is a grant.
     @discardableResult
-    static func askNow() -> SharingMoment? {
-        guard isEnabled else { return nil }
-        var moment: SharingMoment?
-        _ = update { s in
-            guard s.asks < SharingState.maxAsks, s.consent == .unknown || s.consent == .declined else { return }
-            moment = .ask(reask: s.asks > 0, guardian: QuranLab.configuration.options.audience == .children)
-            s.asks += 1
-            s.lastAskSession = s.sessions
-        }
-        if moment != nil { QuranLab.count(.shareAsked) }
-        if let moment { SharingPresenter.shared.present(moment) }
-        return moment
-    }
-
-    /// The learner's answer on the sheet (the SDK's, or the app's own UI from `setPresenter(_:)`), only from the
-    /// learner's own tap. `guardianConfirmed` must be true for a grant in a children's app. The grant is to the
-    /// consent version in force (the app's own wording included).
-    static func answer(share: Bool, guardianConfirmed: Bool = false) {
-        // the stored answer cannot be read: no answer is recorded over it, and none is counted
-        guard isReadable else { return }
-        let granted = decide(share: share, guardianConfirmed: guardianConfirmed)
-        QuranLab.count(granted ? .shareYes : .shareNo)
-    }
-
-    /// Records a decision; true when it is a grant.
-    @discardableResult
-    static func decide(share: Bool, guardianConfirmed: Bool) -> Bool {
-        let children = QuranLab.configuration.options.audience == .children
+    static func decide(share: Bool) -> Bool {
         let c = copy
         let version = c.consentVersion, hash = c.consentTextSHA256
         var granted = false
         _ = update { s in
-            if share && (!children || guardianConfirmed) {
+            if share {
                 s.consent = .granted
                 s.decidedAt = Date().timeIntervalSince1970.rounded()
                 s.consentVersion = version
                 s.consentTextSHA256 = hash
-                s.guardian = children
                 granted = true
             } else {
                 s.consent = s.asks >= SharingState.maxAsks ? .final : .declined
@@ -472,11 +447,12 @@ enum Contributions {
         return granted
     }
 
-    /// The settings switch (not a sheet answer). On: granted, to the consent version in force at that moment (a
-    /// children's app needs the guardian's confirmation); already on, nothing changes (the learner keeps the version
-    /// they agreed to). Off: final, never asked again, and every queued upload stops at once (the unsent queue is
-    /// deleted, and a request in flight is cancelled: no byte of audio leaves the device after this returns); it
-    /// works whatever version the learner agreed to, and returns within 3 s whatever the network does.
+    /// The settings switch (not a sheet answer). On: granted, to the consent version in force at that moment; already
+    /// on, nothing changes (the learner keeps the version they agreed to). Off: final, never asked again, and every
+    /// queued upload stops at once (the unsent queue is deleted, and a request in flight is cancelled: once this
+    /// returns the SDK hands no more audio to the system; what the system had already taken into its send buffer may
+    /// still go out, at most the segment being sent); it works whatever version the learner agreed to, and returns
+    /// within 3 s whatever the network does.
     ///
     /// A stored answer that is damaged (3.1.4) is not written over by anything the SDK does by itself, but this
     /// switch is the learner's own act: a new answer is begun first (`startAfresh`), and the switch then works on
@@ -488,7 +464,7 @@ enum Contributions {
     /// in this process or the next, applies the off and removes the mark. When the mark cannot be written either,
     /// the call throws `storageFailed`, and this process shares nothing more: the off is applied in it as soon as
     /// the answer reads.
-    static func switchSharing(_ on: Bool, guardianConfirmed: Bool = false) async throws(RecognizerError) {
+    static func switchSharing(_ on: Bool) async throws(RecognizerError) {
         if isDamaged {
             let begun = await startAfresh()
             if !begun { throw .storageFailed("the learner's stored answer is damaged and a new one could not be begun; nothing was changed") }
@@ -509,14 +485,17 @@ enum Contributions {
             }
             return
         }
+        // SDK 4.0 (20.5 `setting`): any ask in hand goes, and a card leaves the screen
         if on {
             if state().consent == .granted { return }
-            decide(share: true, guardianConfirmed: guardianConfirmed)
+            decide(share: true)
+            askDropped()
         } else {
             _ = update { s in
                 s.consent = .final
                 s.decidedAt = Date().timeIntervalSince1970.rounded()
             }
+            askDropped()
             // the open recording ends at once, in a take or waiting for the next one
             recorder.stop()
             await QuranLab.cloud?.outbox.cancelQueued()
@@ -525,8 +504,8 @@ enum Contributions {
 
     /// `switchSharing` for the SDK's own callers that have nowhere to show an error (its settings view shows the
     /// switch's state after the call).
-    static func setSharing(_ on: Bool, guardianConfirmed: Bool = false) async {
-        _ = try? await switchSharing(on, guardianConfirmed: guardianConfirmed)
+    static func setSharing(_ on: Bool) async {
+        _ = try? await switchSharing(on)
     }
 
     /// Whether the stored answer was read and is not an answer (damaged), as against one the system does not give.
@@ -927,8 +906,8 @@ enum UploadTrust {
     }
 }
 
-/// Hands moments to the app's own UI (`Contributions.setPresenter(_:)`), else to the SDK's sheet (`.quranLabSharing()`,
-/// else over the front view controller on iOS), on the main actor.
+/// Hands moments to the app's own UI (`Contributions.setPresenter(_:)`), else to the SDK's sheet or card
+/// (`.quranLabSharing()`, else over the front view controller on iOS), on the main actor.
 final class SharingPresenter: @unchecked Sendable {
     static let shared = SharingPresenter()
     private let lock = NSLock()
@@ -938,21 +917,46 @@ final class SharingPresenter: @unchecked Sendable {
         lock.lock(); handler = h; lock.unlock()
     }
 
-    func present(_ m: SharingMoment) {
+    /// SDK 4.0 (20.6): an ask goes through `Contributions.goingOnScreen` right before it appears, where it is
+    /// counted, and appears only when that gives it; `opened` is the full sheet a card opened into, already on
+    /// screen as the same ask. An ask with nowhere to appear is withdrawn: it never reached the screen, so it is none.
+    func present(_ m: SharingMoment, opened: Bool = false) {
         lock.lock(); let h = handler; lock.unlock()
+        let token = Contributions.askToken
         Task { @MainActor in
+            // an event since (a take start, the background, a launch, a new configuration) took the ask back
+            if m.isAsk && !opened && Contributions.askToken != token { return }
+            let show = { () -> SharingMoment? in opened ? m : Contributions.goingOnScreen(m) }
             // the app's own UI takes over: the SDK shows nothing itself
-            if let h { h(m); return }
-            var shown = false
+            if let h {
+                if let shown = show() { h(shown) }
+                return
+            }
             #if canImport(SwiftUI)
-            if SharingPromptModel.shared.installed { SharingPromptModel.shared.moment = m; shown = true }
+            if SharingPromptModel.shared.installed {
+                if let shown = show() { SharingPromptModel.shared.moment = shown }
+                return
+            }
             #endif
-            // 2.0.1: the backend decides whether the sheet is offered, so an app that never added
+            // 2.0.1: every learner is asked whatever the app does, so an app that never added
             // `.quranLabSharing()` still gets the SDK's own sheet (iOS: over the front view controller)
             #if canImport(SwiftUI) && canImport(UIKit) && !os(watchOS) && !os(tvOS)
-            if !shown { SharingFallbackPresenter.present(m) }
+            SharingFallbackPresenter.present(m, show: show)
             #else
-            _ = shown
+            if m.isAsk && !opened { Contributions.askWithdrawn() }
+            #endif
+        }
+    }
+
+    /// A card that went by itself (a take started, the app left the foreground, the settings switch): it leaves the
+    /// screen.
+    func cardGone() {
+        Task { @MainActor in
+            #if canImport(SwiftUI)
+            SharingPromptModel.shared.cardGone()
+            #endif
+            #if canImport(SwiftUI) && canImport(UIKit) && !os(watchOS) && !os(tvOS)
+            SharingFallbackPresenter.removeCard()
             #endif
         }
     }

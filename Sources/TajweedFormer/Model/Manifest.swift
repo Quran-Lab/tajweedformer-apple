@@ -160,7 +160,8 @@ struct ModelManifest: Sendable, Hashable {
         /// coreml, coreml-keeps (and any role a later writer adds).
         let role: String
         let need: Need
-        /// `identity` or `gzip`.
+        /// `identity`, `gzip`, or `qle1` (SDK 4.0: the encrypted container, contract 18.2; stored as the decoded path
+        /// followed by `.qle`).
         let encoding: String
         let decoded: Decoded?
 
@@ -169,6 +170,16 @@ struct ModelManifest: Sendable, Hashable {
         var localSize: Int64 { decoded?.size ?? size }
         var localSHA256: String { (decoded?.sha256 ?? sha256).lowercased() }
         var isGzip: Bool { encoding == "gzip" }
+        /// The file is a QLE1 container: the SDK stores its CDN form only until the Core has installed it, and keeps
+        /// the Core's device form, never a plaintext.
+        var isEncrypted: Bool { encoding == "qle1" }
+
+        /// The size of the device form the Core writes (18.2.2, 18.2.3: a version 2 header of 1024 bytes, the raw
+        /// payload, a 16-byte tag per record of 1 MiB).
+        var deviceFormSize: Int64 {
+            let n = max(Int64(1), (localSize + (1 << 20) - 1) >> 20)
+            return 1024 + localSize + 16 * n
+        }
 
         func isFor(platform: String) -> Bool { platforms.contains("*") || platforms.contains(platform) }
 
@@ -190,6 +201,13 @@ struct ModelManifest: Sendable, Hashable {
     static let supportedCoreMLFormats = 1...9
     static let platformOrder = ["android", "apple", "web", "native"]
 
+    /// The `encryption` field of a protected build (18.2.5): scheme `qle1`, the build's key id (32 lower-case hex) and
+    /// the root version (1 to 9). Signed as the line `encryption qle1 <key_id> <root>`.
+    struct Encryption: Sendable, Hashable {
+        let keyID: String
+        let root: Int
+    }
+
     let modelID: String
     let family: String
     let revision: String
@@ -204,6 +222,8 @@ struct ModelManifest: Sendable, Hashable {
     /// The model's version, `4.0.0`; empty when the manifest names none (a 2.x build, which SDK 3.0.0 refuses).
     var version = ""
     var signature: String?
+    /// Nil for a build that is not encrypted (SDK 4.0 runs encrypted builds only).
+    var encryption: Encryption?
     /// The bytes this manifest was parsed from: what is written to disk, so that a folder's manifest.json is the
     /// signed file byte for byte and its SHA-256 is the build id. Nil for a manifest made in memory.
     var raw: Data?
@@ -290,14 +310,14 @@ struct ModelManifest: Sendable, Hashable {
             guard let soc = e["soc"] as? String, !soc.isEmpty, let context = e["context"] as? String, !context.isEmpty else {
                 throw .manifestInvalid("\(path): soc or context missing")
             }
-            guard let encoding = e["encoding"] as? String, encoding == "identity" || encoding == "gzip" else {
+            guard let encoding = e["encoding"] as? String, ["identity", "gzip", "qle1"].contains(encoding) else {
                 throw .manifestInvalid("\(path): encoding")
             }
             var decoded: Decoded?
-            if encoding == "gzip" {
+            if encoding == "gzip" || encoding == "qle1" {
                 guard let d = e["decoded"] as? [String: Any], let dp = d["path"] as? String,
                       let ds = integer(d["size"]), let dh = d["sha256"] as? String, isHex64(dh) else {
-                    throw .manifestInvalid("\(path): gzip without its decoded path, size and sha256")
+                    throw .manifestInvalid("\(path): \(encoding) without its decoded path, size and sha256")
                 }
                 decoded = Decoded(path: dp, size: ds, sha256: dh.lowercased())
             }
@@ -314,6 +334,20 @@ struct ModelManifest: Sendable, Hashable {
         if let v = o["version"] {
             guard let s = v as? String, ModelVersion.isVersion(s) else { throw .manifestInvalid("version is not x.y.z") }
             m.version = s
+        }
+        if let e = o["encryption"] {
+            guard let x = e as? [String: Any], Set(x.keys) == ["scheme", "key_id", "root"], x["scheme"] as? String == "qle1",
+                  let kid = x["key_id"] as? String, kid.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil,
+                  let root = integer(x["root"]), (1...9).contains(root) else {
+                throw .manifestInvalid("encryption is not {scheme: qle1, key_id, root}")
+            }
+            m.encryption = Encryption(keyID: kid, root: Int(root))
+        }
+        if m.encryption == nil, files.contains(where: { $0.isEncrypted }) {
+            throw .manifestInvalid("a qle1 file in a manifest without encryption")
+        }
+        for f in files where f.isEncrypted && f.path != f.localPath + ".qle" {
+            throw .manifestInvalid("\(f.path): a qle1 file is stored as its decoded path followed by .qle")
         }
         if let t = o["golden_tolerance"] { m.goldenToleranceField = JSONValue(any: t) }
         if let t = o["golden_raw_tolerance"] { m.goldenRawField = JSONValue(any: t) }
@@ -340,6 +374,7 @@ struct ModelManifest: Sendable, Hashable {
                                 "default_context": defaultContext, "contexts": contexts, "files": list]
         if !version.isEmpty { o["version"] = version }
         if let signature { o["signature"] = signature }
+        if let e = encryption { o["encryption"] = ["scheme": "qle1", "key_id": e.keyID, "root": e.root] as [String: Any] }
         if let t = goldenToleranceField { o["golden_tolerance"] = t.any }
         if let t = goldenRawField { o["golden_raw_tolerance"] = t.any }
         return (try? JSONSerialization.data(withJSONObject: o, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])) ?? Data()
@@ -379,6 +414,7 @@ struct ModelManifest: Sendable, Hashable {
     ///     tokens_sha256 <hex>
     ///     default_context c16_l64
     ///     contexts c16_l64,c24_l72,c24_l256
+    ///     encryption qle1 <key_id> <root>                 SDK 4.0: only when the manifest has the field
     ///     golden_tolerance <build> <token_diffs> <site_flag_diffs> <word_flag_diffs>      2.x; one per build
     ///     golden_raw <build> <head> token_edits=<int> lp_mean=<num> lp_p99=<num>          one per build and CTC head
     ///     golden_raw <build> attr p_mean=<num>
@@ -393,10 +429,11 @@ struct ModelManifest: Sendable, Hashable {
         s += "min_sdk_version \(minSDKVersion)\n"
         s += "engine_format \(engineFormat)\ncoreml_format \(coremlFormat)\ntokens \(tokens)\ntokens_sha256 \(tokensSHA256)\n"
         s += "default_context \(defaultContext)\ncontexts \(contexts.joined(separator: ","))\n"
+        if let e = encryption { s += "encryption qle1 \(e.keyID) \(e.root)\n" }
         if tolerance { for line in GoldenRawTolerance.legacyLines(goldenToleranceField) { s += line + "\n" } }
         if raw { for line in GoldenRawTolerance.parse(goldenRawField).lines { s += line + "\n" } }
         for f in files.sorted(by: { Array($0.path.utf8).lexicographicallyPrecedes(Array($1.path.utf8)) }) {
-            let d = f.isGzip ? f.decoded : nil
+            let d = f.isGzip || f.isEncrypted ? f.decoded : nil
             s += "file \(f.sha256) \(f.size) \(f.path) \(Self.platformField(f.platforms)) \(f.soc) \(f.context) "
             s += "\(f.role) \(f.need.rawValue) \(f.encoding) \(d?.sha256 ?? "-") \(d.map { String($0.size) } ?? "-") \(d?.path ?? "-")\n"
         }
@@ -429,6 +466,15 @@ struct ModelManifest: Sendable, Hashable {
         }
     }
 
+    /// SDK 4.0 (18.4.5): the signed config names each encrypted build's key id beside its build; the build's own signed
+    /// manifest must name the same one, else the build is not the one the config chose.
+    func checkKeyID(_ configured: String?) throws(RecognizerError) {
+        guard let configured, !configured.isEmpty else { return }
+        guard let kid = encryption?.keyID, kid == configured.lowercased() else {
+            throw .manifestInvalid("the build's key id \(encryption?.keyID ?? "(none)") is not the one the config names (\(configured))")
+        }
+    }
+
     /// Whether `version` is at or above `minimum`; false when either is not a version.
     static func version(_ version: String, isAtLeast minimum: String) -> Bool {
         guard let a = ModelVersion(version), let b = ModelVersion(minimum) else { return false }
@@ -448,6 +494,10 @@ struct ModelManifest: Sendable, Hashable {
             throw .modelIncompatible("engine format \(engineFormat) is not the one this SDK reads (\(Self.engineFormat))")
         }
         guard family == "tajweedformer" else { throw .modelIncompatible("family \(family) is not TajweedFormer") }
+        // SDK 4.0 has no plaintext loader: only an encrypted build opens, through the Core
+        guard encryption != nil else {
+            throw .modelIncompatible("\(modelID) \(version) is not an encrypted build; SDK 4.0 runs protected builds only")
+        }
     }
 
     /// What SDK 3.0.0 does with a manifest.json, in this order (the first check that fails decides the error):

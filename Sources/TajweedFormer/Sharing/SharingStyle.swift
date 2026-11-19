@@ -214,12 +214,12 @@ enum SheetRole: Sendable {
     /// The place of a deck line on the sheet.
     static func of(_ key: String) -> SheetRole {
         switch key {
-        case "sheet.title", "sheet.guardian.title": return .title
-        case "sheet.what", "sheet.who", "sheet.control", "sheet.guardian.confirm": return .row
+        case "sheet.title": return .title
+        case "sheet.what", "sheet.who", "sheet.control": return .row
         case "sheet.hadith": return .hadith
         case "sheet.hadith_ref": return .reference
         case "sheet.mistakes": return .mistakes
-        case "sheet.share", "sheet.guardian.share", "sheet.not_now": return .button
+        case "sheet.share", "sheet.not_now": return .button
         default: return .body
         }
     }
@@ -488,8 +488,6 @@ struct SheetRender {
     var textSize: DynamicTypeSize?
     var boldText: Bool?
     var scrolledToEnd = false
-    /// The guardian's switch starts on.
-    var confirmed = false
     /// The bottom safe area of the device drawn (a phone with a home indicator: 34).
     var bottomInset: CGFloat?
     var showsIndicators = true

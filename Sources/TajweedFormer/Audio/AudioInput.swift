@@ -1,6 +1,6 @@
 @preconcurrency import AVFoundation
 import Foundation
-import TajweedFormerCore
+import QuranLabCore
 
 /// Audio into the model's format: 16 kHz, mono, Float in -1...1.
 enum AudioFormat {
@@ -89,10 +89,9 @@ enum AudioFormat {
     }
 }
 
-/// Converts one session's audio to 16 kHz with the engine's deterministic resampler
-/// (zf_resampler_*, a rational polyphase FIR in plain scalar IEEE arithmetic): the same samples on
-/// every device and OS version, like the rest of the pipeline, and the same bits however the audio
-/// is split into pieces. 16 kHz passes through untouched. Rates: 8000, 11025, 16000, 22050, 24000,
+/// Converts one session's audio to 16 kHz with the Core's deterministic resampler (`qlc_resampler_*`, R8: the 3.x
+/// engine's rational polyphase FIR in plain scalar IEEE arithmetic): the same samples on every device and OS version,
+/// like the rest of the pipeline, and the same bits however the audio is split into pieces. 16 kHz passes through untouched. Rates: 8000, 11025, 16000, 22050, 24000,
 /// 32000, 44100 and 48000 Hz.
 final class SampleRateConverter {
     static let rates: Set<Int> = [8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000]
@@ -110,20 +109,20 @@ final class SampleRateConverter {
         if r == 16_000 {
             resampler = nil
         } else {
-            guard let p = zf_resampler_create(Int32(r)) else { throw .unsupportedAudioFormat("\(r) Hz") }
+            guard let p = qlc_resampler_create(Int32(r)) else { throw .unsupportedAudioFormat("\(r) Hz") }
             resampler = p
         }
     }
 
-    deinit { if let resampler { zf_resampler_destroy(resampler) } }
+    deinit { if let resampler { qlc_resampler_destroy(resampler) } }
 
     /// Samples at `inputRate` in, samples at 16 kHz out.
     func process(_ samples: [Float]) -> [Float] {
         guard let resampler else { return samples }
-        let cap = Int(zf_resampler_max_out(resampler, Int32(samples.count)))
+        let cap = Int(qlc_resampler_max_out(resampler, Int32(samples.count)))
         if out.count < cap { out = [Float](repeating: 0, count: cap) }
         let n = samples.withUnsafeBufferPointer { i in
-            out.withUnsafeMutableBufferPointer { zf_resampler_push(resampler, i.baseAddress, Int32(i.count), $0.baseAddress, Int32(cap)) }
+            out.withUnsafeMutableBufferPointer { qlc_resampler_push(resampler, i.baseAddress, Int32(i.count), $0.baseAddress, Int32(cap)) }
         }
         return n > 0 ? Array(out[0..<Int(n)]) : []
     }
@@ -131,10 +130,10 @@ final class SampleRateConverter {
     /// The end of the stream: whatever the filter still holds.
     func flush() -> [Float] {
         guard let resampler else { return [] }
-        let cap = Int(zf_resampler_max_out(resampler, 0))
+        let cap = Int(qlc_resampler_max_out(resampler, 0))
         if out.count < cap { out = [Float](repeating: 0, count: cap) }
-        let n = out.withUnsafeMutableBufferPointer { zf_resampler_finish(resampler, $0.baseAddress, Int32(cap)) }
-        zf_resampler_reset(resampler)
+        let n = out.withUnsafeMutableBufferPointer { qlc_resampler_finish(resampler, $0.baseAddress, Int32(cap)) }
+        qlc_resampler_reset(resampler)
         return n > 0 ? Array(out[0..<Int(n)]) : []
     }
 }

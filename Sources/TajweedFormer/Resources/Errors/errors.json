@@ -40,6 +40,6 @@
     {"code": "microphone_denied", "message": "The microphone permission was refused.", "fix": "Explain why the app listens and send the learner to the system settings; listen() asks again only where the platform allows it."},
     {"code": "microphone_unavailable", "message": "No microphone can be opened: {detail}.", "fix": "Check that the device has an input and no other app holds it, then call listen() again."},
     {"code": "interrupted", "message": "The take ended on an interruption: {detail}.", "fix": "Start a new session when the app has the audio again; what was heard so far is in the last chunk."},
-    {"code": "sharing_unavailable", "message": "Sharing is not available for this app.", "fix": "Nothing to call: Quran Lab switches sharing on per app; check client.sharing.isAvailable before showing sharing settings."}
+    {"code": "sharing_unavailable", "message": "Sharing is not available for this app.", "fix": "Nothing to call: sharing is not offered on this platform yet, or Quran Lab has paused it for everyone; check client.sharing.isAvailable before showing sharing settings."}
   ]
 }

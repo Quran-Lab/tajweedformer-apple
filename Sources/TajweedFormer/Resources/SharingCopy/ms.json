@@ -1,6 +1,6 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-13.1",
+ "version": "2026-11-19.1",
  "lang": "ms",
  "dir": "ltr",
  "source_lang": "en",
@@ -18,10 +18,6 @@
   "sheet.control": "Anda boleh berhenti pada bila-bila masa dan memadam apa yang telah dikongsi melalui tetapan.",
   "sheet.share": "Kongsi bacaan saya",
   "sheet.not_now": "Bukan sekarang",
-  "sheet.guardian.title": "Pertanyaan untuk ibu bapa atau penjaga",
-  "sheet.guardian.body": "Aplikasi ini direka untuk kanak-kanak. Sila baca ini bersama anak anda: perkongsian ini akan menghantar audio bacaan mereka kepada Quran Lab untuk membantu pembelajar lain. Hanya ibu bapa atau penjaga yang boleh mengaktifkannya.",
-  "sheet.guardian.confirm": "Saya ibu bapa atau penjaga kepada anak ini, dan saya bersetuju untuk berkongsi bacaan mereka.",
-  "sheet.guardian.share": "Kongsi sebagai penjaga",
   "thanks": "Jazakallahu khairan. Bacaan anda kini membantu pembelajar lain. Semoga Allah menerimanya daripada anda.",
   "settings.toggle": "Kongsi bacaan saya",
   "settings.what": "Maklumat yang dikongsi",
@@ -42,6 +38,9 @@
   "recovery.used": "Kod pemulihan ini sudah digunakan.",
   "recovery.invalid": "Kod ini tidak sah. Semak perkataan dan cuba lagi.",
   "reask": "Bacaan anda hari ini mungkin dapat membantu pembelajar lain esok. Sudikah anda berkongsinya?",
+  "card.line": "Bacaan anda hari ini mungkin dapat membantu pembelajar lain esok.",
+  "card.open": "Cara ia membantu",
+  "card.not_now": "Bukan sekarang",
   "impact.minutes": {
    "other": "Anda telah berkongsi {minutes} minit bacaan. Semoga Allah membalas kebaikan anda."
   }
@@ -66,10 +65,6 @@
    "sheet.control": "You can stop at any time and delete what has been shared through settings.",
    "sheet.share": "Share my recitation",
    "sheet.not_now": "Not now",
-   "sheet.guardian.title": "Question for parents or guardians",
-   "sheet.guardian.body": "This app is designed for children. Please read this with your child: this sharing will send their recitation audio to Quran Lab to help other learners. Only a parent or guardian can activate it.",
-   "sheet.guardian.confirm": "I am a parent or guardian of this child, and I agree to share their recitation.",
-   "sheet.guardian.share": "Share as guardian",
    "thanks": "Jazakallahu khairan. Your recitation is now helping other learners. May Allah accept it from you.",
    "settings.toggle": "Share my recitation",
    "settings.what": "Information that is shared",
@@ -80,6 +75,9 @@
    "delete.cancel": "Cancel",
    "delete.done": "Done. What you shared has been deleted from Quran Lab servers. Copies already used to train models will not be included in future training.",
    "reask": "Your recitation today might be able to help other learners tomorrow. Would you be willing to share it?",
+   "card.line": "Your recitation today may be able to help other learners tomorrow.",
+   "card.open": "How it helps",
+   "card.not_now": "Not now",
    "impact.minutes": {
     "other": "You have shared {minutes} minutes of recitation. May Allah reward your goodness."
    },
@@ -105,6 +103,17 @@
     "version": "2026-11-13.1",
     "change": "the sentence added in 2026-11-12.1 is removed from sheet.who and what.detail; every string is the 2026-11-09.1 string again",
     "method": "built from the archived 2026-11-09.1 deck: no string was edited"
+   },
+   {
+    "version": "2026-11-15.1",
+    "change": "added card.line, card.open and card.not_now, the re-ask card of SDK 4.0 (sdk_4.0.0/SHARE_ASK_40.md 20.7); every other string is the 2026-11-13.1 string; consent_version unchanged (the card takes no consent)",
+    "method": "card.line and card.open translated by the Quran Lab router (ag/gemini-3.8-flash-high) from the English source with a translator brief (warm, humble, the deck's own voice and form of address, card.line as the reviewed reask's first sentence where it stands alone, card.open no longer than sheet.share and never a consent word), then back-translated to English in a separate call that did not see the English (ag/gemini-3.8-flash-high; ag/gemini-3.8-flash answered 403 that day); card.not_now is this deck's sheet.not_now word for word",
+    "found": "card.open reads back \"How it helps\": \"See\" is not said (\"Lihat cara ia membantu\" is 22 characters, over the 18 of sheet.share); the meaning is kept"
+   },
+   {
+    "version": "2026-11-19.1",
+    "change": "removed sheet.guardian.title, sheet.guardian.body, sheet.guardian.confirm and sheet.guardian.share (owner, 2026-11-19: no children's variant; every app shows the same sheet, sdk_4.0.0/ONE_SHEET_40.md); every other string is the 2026-11-15.1 string; consent_version unchanged",
+    "method": "keys removed from the 2026-11-15.1 deck; no string was edited"
    }
   ],
   "translator_model": "ag/gemini-3.8-flash-high (Quran Lab router); back-translation ag/gemini-3.8-flash"

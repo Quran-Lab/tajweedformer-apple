@@ -1,0 +1,4001 @@
+{
+ "format": "quranlab.errors-40/1",
+ "about": "ERRORS_40.md (section 24): error reports. Made by tools/errors40.py --write; do not edit by hand.",
+ "stages": [
+  "config",
+  "register",
+  "attest",
+  "lease",
+  "manifest",
+  "download",
+  "verify",
+  "storage",
+  "runtime",
+  "model_open",
+  "accelerator",
+  "audio",
+  "session",
+  "sharing",
+  "events"
+ ],
+ "reasons": {
+  "config": [
+   "network",
+   "timeout",
+   "http",
+   "rate_limited",
+   "refused",
+   "redirect",
+   "signature",
+   "expired",
+   "clock",
+   "parse",
+   "unavailable"
+  ],
+  "register": [
+   "network",
+   "timeout",
+   "http",
+   "rate_limited",
+   "refused"
+  ],
+  "attest": [
+   "network",
+   "timeout",
+   "http",
+   "rate_limited",
+   "refused",
+   "unsupported",
+   "attestation_failed",
+   "integrity_failed",
+   "turnstile"
+  ],
+  "lease": [
+   "network",
+   "timeout",
+   "http",
+   "rate_limited",
+   "refused",
+   "unsupported",
+   "attestation_failed",
+   "integrity_failed",
+   "turnstile",
+   "stopped",
+   "expired",
+   "clock",
+   "invalid",
+   "grace",
+   "lease_unavailable"
+  ],
+  "manifest": [
+   "network",
+   "timeout",
+   "http",
+   "rate_limited",
+   "refused",
+   "redirect",
+   "invalid_answer",
+   "signature",
+   "parse",
+   "incompatible"
+  ],
+  "download": [
+   "network",
+   "timeout",
+   "http",
+   "rate_limited",
+   "refused",
+   "redirect",
+   "invalid_answer",
+   "hash",
+   "signature",
+   "storage",
+   "quota",
+   "aborted"
+  ],
+  "verify": [
+   "hash",
+   "signature",
+   "missing",
+   "invalid",
+   "incompatible",
+   "record"
+  ],
+  "storage": [
+   "unavailable",
+   "quota",
+   "read",
+   "write",
+   "corrupt",
+   "evicted"
+  ],
+  "runtime": [
+   "wasm_unsupported",
+   "wasm_fetch",
+   "wasm_compile",
+   "wasm_instantiate",
+   "memory",
+   "simd",
+   "threads",
+   "webcrypto",
+   "ed25519",
+   "worker",
+   "native_library",
+   "core"
+  ],
+  "model_open": [
+   "memory",
+   "incompatible",
+   "invalid",
+   "missing",
+   "decrypt",
+   "timeout",
+   "engine"
+  ],
+  "accelerator": [
+   "unavailable",
+   "compile",
+   "load",
+   "timeout",
+   "other"
+  ],
+  "audio": [
+   "permission_denied",
+   "unavailable",
+   "busy",
+   "insecure_context",
+   "context",
+   "worklet",
+   "sample_rate",
+   "interrupted"
+  ],
+  "session": [
+   "engine",
+   "memory",
+   "deadline",
+   "non_finite"
+  ],
+  "sharing": [
+   "network",
+   "http",
+   "rate_limited",
+   "refused",
+   "quota",
+   "storage",
+   "encoder"
+  ],
+  "events": [
+   "http",
+   "expired"
+  ]
+ },
+ "codes_not_reported": [
+  "invalid_argument",
+  "client_exists",
+  "session_open",
+  "session_closed",
+  "cancelled"
+ ],
+ "limits": {
+  "daily_signatures": 16,
+  "queue_max": 32,
+  "reported_max": 64,
+  "first_again_days": 90,
+  "keep_days": 7,
+  "count_max": 100000
+ },
+ "signatures": [
+  {
+   "stage": "runtime",
+   "reason": "memory",
+   "code": "engine_failed",
+   "http_status": null,
+   "string": "error\nruntime\nmemory\nengine_failed\n0",
+   "hex": "864d2b8cf586e44e58d6daa34a4b09b0"
+  },
+  {
+   "stage": "download",
+   "reason": "http",
+   "code": "download_failed",
+   "http_status": 503,
+   "string": "error\ndownload\nhttp\ndownload_failed\n503",
+   "hex": "f37f1ecf06891913e3396de2eb8ac61f"
+  },
+  {
+   "stage": "config",
+   "reason": "network",
+   "code": "needs_connection",
+   "http_status": null,
+   "string": "error\nconfig\nnetwork\nneeds_connection\n0",
+   "hex": "34d77d7ea69ca1dbd97acc32da9abecf"
+  },
+  {
+   "stage": "storage",
+   "reason": "unavailable",
+   "code": "none",
+   "http_status": null,
+   "string": "error\nstorage\nunavailable\nnone\n0",
+   "hex": "434d2885a634d312d1a3a7ffaa113445"
+  },
+  {
+   "stage": "download",
+   "reason": "refused",
+   "code": "server_rejected",
+   "http_status": 403,
+   "string": "error\ndownload\nrefused\nserver_rejected\n403",
+   "hex": "36390b6e53434a5b6cf80c90e2408d84"
+  },
+  {
+   "stage": "audio",
+   "reason": "permission_denied",
+   "code": "microphone_denied",
+   "http_status": null,
+   "string": "error\naudio\npermission_denied\nmicrophone_denied\n0",
+   "hex": "0c5537e54b9d546fcc941591848824f2"
+  }
+ ],
+ "bodies": [
+  {
+   "name": "the smallest: stage and reason",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory"
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "web, every field",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "3.1.7",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "error_name": "RangeError",
+     "count": 2,
+     "retries": 0,
+     "first_launch": true,
+     "first_report": true,
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "web": {
+      "browser": "chrome",
+      "browser_major": 131,
+      "os": "android",
+      "mobile": true,
+      "coi": false,
+      "simd": true,
+      "threads": false,
+      "sab": false,
+      "webcrypto": true,
+      "ed25519": true,
+      "worklet": true,
+      "worker": true,
+      "cache_api": true,
+      "idb": true,
+      "online": true,
+      "device_memory": "4",
+      "storage_free": "lt_1g"
+     }
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "a download answered 503",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "download",
+     "reason": "http",
+     "http_status": 503,
+     "retries": 5,
+     "count": 3
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "a refusal with the server error",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "server_rejected",
+    "error": {
+     "stage": "download",
+     "reason": "refused",
+     "http_status": 403,
+     "error_code": "origin_not_allowed"
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "a silent failure",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "none",
+    "error": {
+     "stage": "storage",
+     "reason": "unavailable",
+     "error_name": "SecurityError"
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "a reason the server does not know yet",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "gpu_lost_2027"
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "Android, native fields",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "android",
+    "sdk_version": "3.1.6",
+    "app_version": "2.4.0",
+    "os_version": "14",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "storage_full",
+    "error": {
+     "stage": "download",
+     "reason": "quota",
+     "device_model": "SM-A155F",
+     "ram_tier": "2_4",
+     "storage_free": "lt_100m",
+     "abi": "armeabi-v7a",
+     "error_name": "java.io.IOException",
+     "first_launch": false
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "Apple, an NSError",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "3.1.5",
+    "app_version": "2.4.0",
+    "os_version": "17.4",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "manifest",
+     "reason": "timeout",
+     "error_name": "NSURLErrorDomain",
+     "error_code": "-1001",
+     "device_model": "iPhone16,2",
+     "abi": "arm64"
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "no revision known",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "kind": "error",
+    "code": "needs_connection",
+    "error": {
+     "stage": "config",
+     "reason": "network"
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "an older kind, unchanged",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "model_load",
+    "code": "load:1"
+   },
+   "accepted": true
+  },
+  {
+   "name": "an older kind with frames",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "other",
+    "code": "bad_request:events",
+    "frames": [
+     "client.js:12"
+    ]
+   },
+   "accepted": true
+  },
+  {
+   "name": "kind error without error",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed"
+   },
+   "accepted": false,
+   "field": "error"
+  },
+  {
+   "name": "error on another kind",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "model_load",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory"
+    }
+   },
+   "accepted": false,
+   "field": "error"
+  },
+  {
+   "name": "a message on kind error",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory"
+    },
+    "message": "out of memory"
+   },
+   "accepted": false,
+   "field": "message"
+  },
+  {
+   "name": "frames on kind error",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory"
+    },
+    "frames": [
+     "a.js:1"
+    ]
+   },
+   "accepted": false,
+   "field": "frames"
+  },
+  {
+   "name": "detail on kind error",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory"
+    },
+    "detail": {
+     "stage": "download",
+     "cause": "network"
+    }
+   },
+   "accepted": false,
+   "field": "detail"
+  },
+  {
+   "name": "no stage",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "reason": "memory"
+    }
+   },
+   "accepted": false,
+   "field": "error.stage"
+  },
+  {
+   "name": "no reason",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime"
+    }
+   },
+   "accepted": false,
+   "field": "error.reason"
+  },
+  {
+   "name": "an unknown stage",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "compile",
+     "reason": "memory"
+    }
+   },
+   "accepted": false,
+   "field": "error.stage"
+  },
+  {
+   "name": "a reason that is not a token",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "Out of memory"
+    }
+   },
+   "accepted": false,
+   "field": "error.reason"
+  },
+  {
+   "name": "a status below 100",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "download",
+     "reason": "http",
+     "http_status": 99
+    }
+   },
+   "accepted": false,
+   "field": "error.http_status"
+  },
+  {
+   "name": "a count of 0",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "count": 0
+    }
+   },
+   "accepted": false,
+   "field": "error.count"
+  },
+  {
+   "name": "a count above the cap",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "count": 100001
+    }
+   },
+   "accepted": false,
+   "field": "error.count"
+  },
+  {
+   "name": "an unknown field in error",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "url": "https://a.example/x"
+    }
+   },
+   "accepted": false,
+   "field": "error.url"
+  },
+  {
+   "name": "an error name with a space (a message)",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "error_name": "could not allocate"
+    }
+   },
+   "accepted": false,
+   "field": "error.error_name"
+  },
+  {
+   "name": "an error code with a path",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "storage",
+     "reason": "write",
+     "error_code": "/data/x"
+    }
+   },
+   "accepted": false,
+   "field": "error.error_code"
+  },
+  {
+   "name": "an unknown field in web",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "web": {
+      "user_agent": "Mozilla/5.0"
+     }
+    }
+   },
+   "accepted": false,
+   "field": "error.web.user_agent"
+  },
+  {
+   "name": "a browser not in the list",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "web": {
+      "browser": "netscape"
+     }
+    }
+   },
+   "accepted": false,
+   "field": "error.web.browser"
+  },
+  {
+   "name": "a device memory not of the six",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "web": {
+      "device_memory": "3"
+     }
+    }
+   },
+   "accepted": false,
+   "field": "error.web.device_memory"
+  },
+  {
+   "name": "a storage bucket not of the five",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "web": {
+      "storage_free": "2g"
+     }
+    }
+   },
+   "accepted": false,
+   "field": "error.web.storage_free"
+  },
+  {
+   "name": "a web flag that is not a bool",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "web": {
+      "simd": 1
+     }
+    }
+   },
+   "accepted": false,
+   "field": "error.web.simd"
+  },
+  {
+   "name": "a device model with a space (a name)",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "device_model": "Ali's phone"
+    }
+   },
+   "accepted": false,
+   "field": "error.device_model"
+  },
+  {
+   "name": "a build that is not 40 hex",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "memory",
+     "build": "abc"
+    }
+   },
+   "accepted": false,
+   "field": "error.build"
+  }
+ ],
+ "codes": [
+  {
+   "stage": "config",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "needs_connection",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "none",
+   "reported": false
+  },
+  {
+   "stage": "config",
+   "reason": "http",
+   "http_status": 503,
+   "on_device": "none",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "http",
+   "http_status": 503,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "signature",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "expired",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "unavailable",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "model_unavailable",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "complete",
+   "error_code": "app_blocked",
+   "code": "server_rejected",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "refused",
+   "http_status": 401,
+   "on_device": "none",
+   "error_code": "key_revoked",
+   "code": "invalid_key",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "none",
+   "error_code": "sdk_too_old",
+   "code": "sdk_too_old",
+   "reported": true
+  },
+  {
+   "stage": "register",
+   "reason": "http",
+   "http_status": 500,
+   "on_device": "none",
+   "error_code": null,
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "register",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "none",
+   "reported": false
+  },
+  {
+   "stage": "attest",
+   "reason": "attestation_failed",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "manifest",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "needs_connection",
+   "reported": true
+  },
+  {
+   "stage": "manifest",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "none",
+   "reported": false
+  },
+  {
+   "stage": "manifest",
+   "reason": "http",
+   "http_status": 502,
+   "on_device": "none",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "manifest",
+   "reason": "signature",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "signature_invalid",
+   "reported": true
+  },
+  {
+   "stage": "manifest",
+   "reason": "rate_limited",
+   "http_status": 429,
+   "on_device": "none",
+   "error_code": "model_limit",
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "needs_connection",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "partial",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "timeout",
+   "http_status": null,
+   "on_device": "partial",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "http",
+   "http_status": 503,
+   "on_device": "partial",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "invalid_answer",
+   "http_status": 200,
+   "on_device": "none",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "redirect",
+   "http_status": 302,
+   "on_device": "none",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "hash",
+   "http_status": null,
+   "on_device": "partial",
+   "error_code": null,
+   "code": "checksum_mismatch",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "quota",
+   "http_status": null,
+   "on_device": "partial",
+   "error_code": null,
+   "code": "storage_full",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "storage",
+   "http_status": null,
+   "on_device": "partial",
+   "error_code": null,
+   "code": "storage_failed",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "none",
+   "error_code": "model_attestation_required",
+   "code": "server_rejected",
+   "reported": true
+  },
+  {
+   "stage": "verify",
+   "reason": "hash",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "checksum_mismatch",
+   "reported": true
+  },
+  {
+   "stage": "verify",
+   "reason": "record",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "storage",
+   "reason": "unavailable",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "storage",
+   "reason": "evicted",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "storage",
+   "reason": "quota",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "storage_full",
+   "reported": true
+  },
+  {
+   "stage": "storage",
+   "reason": "write",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "storage_failed",
+   "reported": true
+  },
+  {
+   "stage": "runtime",
+   "reason": "simd",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "runtime_unsupported",
+   "reported": true
+  },
+  {
+   "stage": "runtime",
+   "reason": "webcrypto",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "runtime_unsupported",
+   "reported": true
+  },
+  {
+   "stage": "runtime",
+   "reason": "memory",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "runtime",
+   "reason": "wasm_fetch",
+   "http_status": 404,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "runtime",
+   "reason": "wasm_compile",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "runtime",
+   "reason": "worker",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "model_open",
+   "reason": "memory",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "model_open",
+   "reason": "incompatible",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "model_incompatible",
+   "reported": true
+  },
+  {
+   "stage": "audio",
+   "reason": "permission_denied",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "microphone_denied",
+   "reported": true
+  },
+  {
+   "stage": "audio",
+   "reason": "context",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "microphone_unavailable",
+   "reported": true
+  },
+  {
+   "stage": "audio",
+   "reason": "interrupted",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "interrupted",
+   "reported": true
+  },
+  {
+   "stage": "session",
+   "reason": "deadline",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "sharing",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "complete",
+   "error_code": "segment_cap",
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "sharing",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "none",
+   "reported": false
+  },
+  {
+   "stage": "events",
+   "reason": "http",
+   "http_status": 400,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "attest",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_code": null,
+   "code": "needs_connection",
+   "reported": true
+  },
+  {
+   "stage": "attest",
+   "reason": "http",
+   "http_status": 503,
+   "on_device": "none",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "attest",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "none",
+   "reported": false
+  },
+  {
+   "stage": "lease",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "needs_connection",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "expired",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "needs_connection",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "http",
+   "http_status": 503,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "rate_limited",
+   "http_status": 429,
+   "on_device": "complete",
+   "error_code": null,
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "refused",
+   "http_status": 401,
+   "on_device": "complete",
+   "error_code": "key_revoked",
+   "code": "server_rejected",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "stopped",
+   "http_status": 401,
+   "on_device": "complete",
+   "error_code": "key_revoked",
+   "code": "invalid_key",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "stopped",
+   "http_status": 403,
+   "on_device": "complete",
+   "error_code": "app_blocked",
+   "code": "server_rejected",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "none",
+   "error_code": "sdk_too_old",
+   "code": "sdk_too_old",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "integrity_failed",
+   "http_status": 403,
+   "on_device": "none",
+   "error_code": "lease_integrity_failed",
+   "code": "server_rejected",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "grace",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": "network",
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "grace",
+   "http_status": 503,
+   "on_device": "complete",
+   "error_code": "http",
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "grace",
+   "http_status": 429,
+   "on_device": "complete",
+   "error_code": "rate_limited",
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "lease_unavailable",
+   "http_status": 503,
+   "on_device": "complete",
+   "error_code": "lease_unavailable",
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "grace",
+   "http_status": 503,
+   "on_device": "complete",
+   "error_code": "lease_unavailable",
+   "code": "none",
+   "reported": true
+  }
+ ],
+ "queue": [
+  {
+   "name": "a burst is one report with its count",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": true,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 3,
+        "first_report": true,
+        "first_launch": true,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "after it was accepted, the same day makes no report",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "the next day: a new report, not the first",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-19",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "no answer keeps it, and the count goes on",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      null
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": null
+       }
+      ]
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 2,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "a 5xx stops the send point",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "a",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "b",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      503
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "a",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 503
+       }
+      ]
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202,
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "a",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "b",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "a 400 drops it for good",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      400
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 400
+       }
+      ]
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "at most 16 signatures a day",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r00",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r01",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r02",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r03",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r04",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r05",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r06",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r07",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r08",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r09",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r10",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r11",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r12",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r13",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r14",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r15",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r16",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r00",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r01",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r02",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r03",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r04",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r05",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r06",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r07",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r08",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r09",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r10",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r11",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r12",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r13",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r14",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r15",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "at most 32 in the queue, the oldest go first",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r00",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r01",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r02",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r03",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r04",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r05",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r06",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r07",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r08",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r09",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r10",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "r11",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r00",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r01",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r02",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r03",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r04",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r05",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r06",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r07",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r08",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r09",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r10",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "r11",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r00",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r01",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r02",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r03",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r04",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r05",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r06",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r07",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r08",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r09",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r10",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-20",
+     "stage": "runtime",
+     "reason": "r11",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-20",
+     "answers": [
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202,
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r04",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r05",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r06",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r07",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r08",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r09",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r10",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "r11",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r00",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r01",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r02",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r03",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r04",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r05",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r06",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r07",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r08",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r09",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r10",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "r11",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r00",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r01",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r02",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r03",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r04",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r05",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r06",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r07",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r08",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r09",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r10",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-20",
+        "stage": "runtime",
+        "reason": "r11",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "older than 7 days is dropped",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-26",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": []
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-26",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-26",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-26",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "two days queued: only the first is the first report",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-19",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-19",
+     "answers": [
+      202,
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-19",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "first again after 90 days",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2027-02-15",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2027-02-15",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2027-02-15",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": false,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2027-05-19",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2027-05-19",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2027-05-19",
+        "stage": "runtime",
+        "reason": "memory",
+        "code": "engine_failed",
+        "http_status": null,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "flags.issues false drops the queue and records nothing",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "memory",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "issues_off",
+     "expect": {}
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "runtime",
+     "reason": "b",
+     "code": "engine_failed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "a plain network failure that reached nothing is not reported",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "config",
+     "reason": "network",
+     "code": "none",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "the app misusing the API is not reported",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "session",
+     "reason": "engine",
+     "code": "session_closed",
+     "http_status": null,
+     "first_launch": false,
+     "expect": {
+      "made": false
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202
+     ],
+     "expect": {
+      "requests": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "a status is part of the signature",
+   "steps": [
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "download",
+     "reason": "http",
+     "code": "download_failed",
+     "http_status": 503,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "occur",
+     "day": "2026-11-18",
+     "stage": "download",
+     "reason": "http",
+     "code": "download_failed",
+     "http_status": 404,
+     "first_launch": false,
+     "expect": {
+      "made": true
+     }
+    },
+    {
+     "op": "send",
+     "day": "2026-11-18",
+     "answers": [
+      202,
+      202
+     ],
+     "expect": {
+      "requests": [
+       {
+        "day": "2026-11-18",
+        "stage": "download",
+        "reason": "http",
+        "code": "download_failed",
+        "http_status": 503,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       },
+       {
+        "day": "2026-11-18",
+        "stage": "download",
+        "reason": "http",
+        "code": "download_failed",
+        "http_status": 404,
+        "count": 1,
+        "first_report": true,
+        "first_launch": false,
+        "answer": 202
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "web": {
+  "user_agents": [
+   {
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+    "user_agent_data": {
+     "brands": [
+      {
+       "brand": "Chromium",
+       "version": "131"
+      },
+      {
+       "brand": "Google Chrome",
+       "version": "131"
+      },
+      {
+       "brand": "Not_A Brand",
+       "version": "24"
+      }
+     ],
+     "platform": "Android",
+     "mobile": true
+    },
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "chrome",
+     "browser_major": 131,
+     "os": "android",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Mobile Safari/537.36",
+    "user_agent_data": null,
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "chrome",
+     "browser_major": 109,
+     "os": "android",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Linux; Android 13; SM-A135F; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.230 Mobile Safari/537.36",
+    "user_agent_data": null,
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "webview",
+     "browser_major": 120,
+     "os": "android",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+    "user_agent_data": {
+     "brands": [
+      {
+       "brand": "Android WebView",
+       "version": "131"
+      },
+      {
+       "brand": "Chromium",
+       "version": "131"
+      }
+     ],
+     "platform": "Android",
+     "mobile": true
+    },
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "webview",
+     "browser_major": 131,
+     "os": "android",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/23.0 Chrome/115.0.0.0 Mobile Safari/537.36",
+    "user_agent_data": null,
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "samsung",
+     "browser_major": 23,
+     "os": "android",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    "user_agent_data": {
+     "brands": [
+      {
+       "brand": "Microsoft Edge",
+       "version": "131"
+      },
+      {
+       "brand": "Chromium",
+       "version": "131"
+      }
+     ],
+     "platform": "Windows",
+     "mobile": false
+    },
+    "max_touch_points": 0,
+    "expect": {
+     "browser": "edge",
+     "browser_major": 131,
+     "os": "windows",
+     "mobile": false
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+    "user_agent_data": null,
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "safari",
+     "browser_major": 17,
+     "os": "ios",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    "user_agent_data": null,
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "wkwebview",
+     "browser_major": 16,
+     "os": "ios",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1",
+    "user_agent_data": null,
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "chrome",
+     "browser_major": 131,
+     "os": "ios",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "user_agent_data": null,
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "safari",
+     "browser_major": 17,
+     "os": "ios",
+     "mobile": false
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+    "user_agent_data": null,
+    "max_touch_points": 0,
+    "expect": {
+     "browser": "safari",
+     "browser_major": 18,
+     "os": "macos",
+     "mobile": false
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Android 14; Mobile; rv:132.0) Gecko/132.0 Firefox/132.0",
+    "user_agent_data": null,
+    "max_touch_points": 5,
+    "expect": {
+     "browser": "firefox",
+     "browser_major": 132,
+     "os": "android",
+     "mobile": true
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+    "user_agent_data": null,
+    "max_touch_points": 0,
+    "expect": {
+     "browser": "firefox",
+     "browser_major": 128,
+     "os": "linux",
+     "mobile": false
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "user_agent_data": {
+     "brands": [
+      {
+       "brand": "Google Chrome",
+       "version": "120"
+      }
+     ],
+     "platform": "Chrome OS",
+     "mobile": false
+    },
+    "max_touch_points": 0,
+    "expect": {
+     "browser": "chrome",
+     "browser_major": 120,
+     "os": "chromeos",
+     "mobile": false
+    }
+   },
+   {
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 OPR/115.0.0.0",
+    "user_agent_data": null,
+    "max_touch_points": 0,
+    "expect": {
+     "browser": "opera",
+     "browser_major": 115,
+     "os": "windows",
+     "mobile": false
+    }
+   },
+   {
+    "user_agent": "SomethingElse/1.0",
+    "user_agent_data": null,
+    "max_touch_points": 0,
+    "expect": {
+     "browser": "other",
+     "browser_major": 0,
+     "os": "other",
+     "mobile": false
+    }
+   }
+  ],
+  "storage_free": [
+   {
+    "bytes": 0,
+    "storage_free": "lt_100m"
+   },
+   {
+    "bytes": 99999999,
+    "storage_free": "lt_100m"
+   },
+   {
+    "bytes": 100000000,
+    "storage_free": "lt_500m"
+   },
+   {
+    "bytes": 499999999,
+    "storage_free": "lt_500m"
+   },
+   {
+    "bytes": 500000000,
+    "storage_free": "lt_1g"
+   },
+   {
+    "bytes": 999999999,
+    "storage_free": "lt_1g"
+   },
+   {
+    "bytes": 1000000000,
+    "storage_free": "lt_5g"
+   },
+   {
+    "bytes": 4999999999,
+    "storage_free": "lt_5g"
+   },
+   {
+    "bytes": 5000000000,
+    "storage_free": "ge_5g"
+   }
+  ],
+  "simd_module": [
+   0,
+   97,
+   115,
+   109,
+   1,
+   0,
+   0,
+   0,
+   1,
+   5,
+   1,
+   96,
+   0,
+   1,
+   123,
+   3,
+   2,
+   1,
+   0,
+   10,
+   10,
+   1,
+   8,
+   0,
+   65,
+   0,
+   253,
+   15,
+   253,
+   98,
+   11
+  ],
+  "threads_module": [
+   0,
+   97,
+   115,
+   109,
+   1,
+   0,
+   0,
+   0,
+   1,
+   4,
+   1,
+   96,
+   0,
+   0,
+   3,
+   2,
+   1,
+   0,
+   5,
+   4,
+   1,
+   3,
+   1,
+   1,
+   10,
+   11,
+   1,
+   9,
+   0,
+   65,
+   0,
+   254,
+   16,
+   2,
+   0,
+   26,
+   11
+  ],
+  "device_memory": [
+   "0.25",
+   "0.5",
+   "1",
+   "2",
+   "4",
+   "8"
+  ]
+ },
+ "telemetry": [
+  {
+   "reason": "network",
+   "failure_reason": "network"
+  },
+  {
+   "reason": "timeout",
+   "failure_reason": "network"
+  },
+  {
+   "reason": "http",
+   "failure_reason": "http"
+  },
+  {
+   "reason": "rate_limited",
+   "failure_reason": "http"
+  },
+  {
+   "reason": "refused",
+   "failure_reason": "http"
+  },
+  {
+   "reason": "redirect",
+   "failure_reason": "http"
+  },
+  {
+   "reason": "invalid_answer",
+   "failure_reason": "http"
+  },
+  {
+   "reason": "hash",
+   "failure_reason": "hash_mismatch"
+  },
+  {
+   "reason": "signature",
+   "failure_reason": "signature"
+  },
+  {
+   "reason": "storage",
+   "failure_reason": "storage"
+  },
+  {
+   "reason": "quota",
+   "failure_reason": "storage"
+  },
+  {
+   "reason": "aborted",
+   "failure_reason": "other"
+  },
+  {
+   "reason": "parse",
+   "failure_reason": "other"
+  }
+ ]
+}

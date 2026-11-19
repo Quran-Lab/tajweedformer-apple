@@ -327,7 +327,9 @@ final class NamesVectorTests: XCTestCase {
         let backend = try XCTUnwrap(v["backend"] as? [String: Any])
         XCTAssertEqual(backend["kind"] as? [String], [TajweedBackend.Kind.cpu, .accelerator].map(\.rawValue))
         XCTAssertEqual(backend["stage"] as? [String], [TajweedBackend.Stage.cpu, .downloading, .compiling, .testing, .promoted, .demoted].map(\.rawValue))
-        XCTAssertEqual(backend["reason"] as? [String], PromotionReason.allCases.map(\.rawValue))
+        // the 14 of 3.x first, in their order; SDK 4.0 appends slower_than_cpu and interrupted (accel_40.json's order)
+        XCTAssertEqual(backend["reason"] as? [String], PromotionReason.allCases.prefix(14).map(\.rawValue))
+        XCTAssertEqual(PromotionReason.allCases.dropFirst(14).map(\.rawValue), ["slower_than_cpu", "interrupted"])
         let pattern = try XCTUnwrap(backend["name_pattern"] as? String)
         for name in ["cpu", "coreml", "coreml-compact"] { XCTAssertNotNil(name.range(of: pattern, options: .regularExpression), name) }
         let options = try XCTUnwrap(v["session_options"] as? [String: Any])
@@ -340,8 +342,15 @@ final class NamesVectorTests: XCTestCase {
         XCTAssertEqual(options["topK_default"] as? Int, TajweedSessionOptions().topK)
         XCTAssertNil(TajweedSessionOptions().endOnSilenceMs)
         let client = try XCTUnwrap(v["client_options"] as? [String: [String]])
-        XCTAssertEqual(client["analytics"], [TajweedClientOptions.Analytics.on, .off].map(\.rawValue))
-        XCTAssertEqual(client["audience"], [TajweedClientOptions.Audience.general, .children].map(\.rawValue))
+        // SDK 4.0 (owner decision 11-16): the 3.0 vector's `analytics` option is gone; anonymous analytics are always
+        // on and the signed config's flags.analytics is the only off switch
+        XCTAssertEqual(client["analytics"], ["on", "off"], "the 3.0 vector, unchanged")
+        XCTAssertFalse(Mirror(reflecting: TajweedClientOptions()).children.contains { $0.label == "analytics" })
+        // SDK 4.0: the 3.0 vector's `audience` option is 3.x only and is
+        // skipped here; every app shows the same sharing sheet. No other client option is in the vector.
+        XCTAssertEqual(client["audience"], ["general", "children"], "the 3.0 vector, unchanged")
+        XCTAssertFalse(Mirror(reflecting: TajweedClientOptions()).children.contains { $0.label == "audience" })
+        XCTAssertEqual(Set(client.keys), ["analytics", "audience"], "every client option of the vector is a 3.x one 4.0 removed")
         XCTAssertEqual(v["error_docs_base"] as? String, ErrorCatalogue.shared.docsBase)
         XCTAssertEqual(v["error_codes"] as? [String], ErrorCode.allCases.map(\.rawValue))
         XCTAssertEqual((v["error_codes"] as? [String])?.count, 26)

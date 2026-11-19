@@ -1,0 +1,450 @@
+{
+ "section": "PROTECTED_MODEL.md 18.6.7, 18.4.4 (core.piece), 18.4.5 (piece)",
+ "note": "Test keys only, made by protected40.py from fixed labels (stream(label, n): SHA-256 of the label and a 32-bit little-endian counter, concatenated). No SDK trusts them.",
+ "signer": {
+  "seed_hex": "50fb0388ef36ffc3f7f695f2c11c468e72f16bbcb66e45a21d0738badf94b5e3",
+  "public_hex": "3a83ab14c7129ea01912f2ec4db55d61570cb4ebd5be3f911f66aeb56b157059",
+  "kid_hex": "bae32b00126ed013"
+ },
+ "rule": "piece = 01 || id (u32 LE) || field count || (tag u8, length u16 LE, value)* || SHA-256(signer public key)[0:8] || Ed25519(signer, 'quranlab-piece 1\\n' || every byte before the key id)",
+ "bucket_rule": "u32 LE of SHA-256('quranlab-piece-stage 1\\n' || piece id (u32 LE) || install hash)[0:4], mod 100; current goes to an install whose bucket is below the stage",
+ "pieces": [
+  {
+   "name": "salt, decoy order 1 3, rate 64 and an unknown tag 9 (skipped)",
+   "id": 7,
+   "salt_hex": "3cb73ead29fc80a43b5a5d6c2992d61c",
+   "decoy": [
+    1,
+    3
+   ],
+   "rate": 64,
+   "extra": [
+    [
+     9,
+     "6c61746572"
+    ]
+   ],
+   "bytes_hex": "0107000000040110003cb73ead29fc80a43b5a5d6c2992d61c0202000103030100400905006c61746572bae32b00126ed01384da0ffb23f742cfbdb35e06348e992f3ac368c7b8e0c3dcc1392befa08cfb556fca347324efc75aa6a5852920119b0d65c588d221d8d70cf748b62421b04902",
+   "b64u": "AQcAAAAEARAAPLc-rSn8gKQ7Wl1sKZLWHAICAAEDAwEAQAkFAGxhdGVyuuMrABJu0BOE2g_7I_dCz72zXgY0jpkvOsNox7jgw9zBOSvvoIz7VW_KNHMk78dapqWFKSARmw1lxYjSIdjXDPdItiQhsEkC",
+   "expect": {
+    "id": 7,
+    "salt_hex": "3cb73ead29fc80a43b5a5d6c2992d61c",
+    "decoy": [
+     1,
+     3
+    ],
+    "rate": 64
+   }
+  },
+  {
+   "name": "salt only",
+   "id": 8,
+   "salt_hex": "e94dd24bfee3f547ee7d845a6877aba0",
+   "decoy": [],
+   "rate": 0,
+   "extra": [],
+   "bytes_hex": "010800000001011000e94dd24bfee3f547ee7d845a6877aba0bae32b00126ed013ecfc2ea76ddec6789830f0f3e9818f43bd6107a3c9d0ae3c6bb3a76b096b9773d235c1dbd7f237c9c01eda1b473119ddbf4d67c424703ca2d2c8c0c2ff757506",
+   "b64u": "AQgAAAABARAA6U3SS_7j9UfufYRaaHeroLrjKwASbtAT7Pwup23exniYMPDz6YGPQ71hB6PJ0K48a7Onawlrl3PSNcHb1_I3ycAe2htHMRndv01nxCRwPKLSyMDC_3V1Bg",
+   "expect": {
+    "id": 8,
+    "salt_hex": "e94dd24bfee3f547ee7d845a6877aba0",
+    "decoy": [],
+    "rate": 0
+   }
+  },
+  {
+   "name": "salt and every field at its bound (8 decoys, rate 128)",
+   "id": 9,
+   "salt_hex": "91ab2d5215b4f4bb2019188c69b949ec",
+   "decoy": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    5,
+    0
+   ],
+   "rate": 128,
+   "extra": [],
+   "bytes_hex": "01090000000301100091ab2d5215b4f4bb2019188c69b949ec020800000102030405050003010080bae32b00126ed013f3aa77314a41afe867825c69f7f2b3cacd4ab49bb5ecfed62986b40b362ad06e5f1b686b250a6133111a24d6fb734b667c9fede53ad2e5c39b725e59448b430a",
+   "b64u": "AQkAAAADARAAkastUhW09LsgGRiMablJ7AIIAAABAgMEBQUAAwEAgLrjKwASbtAT86p3MUpBr-hnglxp9_Kzys1KtJu17P7WKYa0CzYq0G5fG2hrJQphMxEaJNb7c0tmfJ_t5TrS5cObcl5ZRItDCg",
+   "expect": {
+    "id": 9,
+    "salt_hex": "91ab2d5215b4f4bb2019188c69b949ec",
+    "decoy": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     5,
+     0
+    ],
+    "rate": 128
+   }
+  }
+ ],
+ "refused": [
+  {
+   "name": "one signature byte changed",
+   "bytes_hex": "0107000000030110003cb73ead29fc80a43b5a5d6c2992d61c020200010303010040bae32b00126ed013cccff56d33d33bc7e5009f418b6732e32d803cf80b807e3a0b55d7a5bc57d2bb36809a056d968210f56904f641593a8556c5bd293b98c4b4da3b70ce86d2450a",
+   "refused": "signature"
+  },
+  {
+   "name": "signed by a key that is not pinned",
+   "bytes_hex": "0107000000010110003cb73ead29fc80a43b5a5d6c2992d61caef5577ae6d8b2839c1b77e60a6afd0ac0dd2b1d3c3a7869d5b49643fa31f094694801bd99879b208793a3b81ca1be57ed9f3295dd25d948436d695c5e3335f524d950a0e58fd307",
+   "refused": "signature"
+  },
+  {
+   "name": "a decoy index past the release's six",
+   "bytes_hex": "010a000000020110003cb73ead29fc80a43b5a5d6c2992d61c02010006bae32b00126ed013337bd98653d4a12b66f1bddaaf22ba58545148c769be1b1600a2288141d7545cacc26c403a345d86ffcefb2d407ece07497fe7d5846604ea30339a421e10220c",
+   "refused": "field"
+  },
+  {
+   "name": "a check rate of 7",
+   "bytes_hex": "010b000000020110003cb73ead29fc80a43b5a5d6c2992d61c03010007bae32b00126ed013f9fcb3d53c5fa5b6db1892e73664204a5bdc9f52a1bebe23b2df5a256550c43469171f993fae321f04aa0af537c94589b01fd0a207be88c4a8b6ad66594bd100",
+   "refused": "field"
+  },
+  {
+   "name": "a salt of 15 bytes",
+   "bytes_hex": "010c00000001010f003cb73ead29fc80a43b5a5d6c2992d6bae32b00126ed013c0880d7db252f164869685935a831462a2aa8ee487216131d90d0306407b26a6400eae75156ded542a99b1455e4baab6c5ca100128b8343e7d7bf07d37722407",
+   "refused": "field"
+  },
+  {
+   "name": "version 2",
+   "bytes_hex": "020d000000010110003cb73ead29fc80a43b5a5d6c2992d61cbae32b00126ed013b29def2d6368b120cca62e2d221377c3718c3e9b8a19bd526c900546d2f8ef11c0cd09ad05757b38515ef906d36790b799d96848aba0ceb3c986b218924cfb0f",
+   "refused": "format"
+  },
+  {
+   "name": "shorter than the smallest piece",
+   "bytes_hex": "0107000000030110003cb73ead29fc80a43b5a5d6c2992d61c020200010303010040bae32b00126ed013cccff56d33d33bc7e5009f418b6732e32d803cf80b807e3a0b55d7a5bc57d2bb36809a",
+   "refused": "format"
+  }
+ ],
+ "stages": [
+  {
+   "piece_id": 8,
+   "install_hash_hex": "e46c214c3378e684b5fd582c46f17c1ab87565039d6bb945368a74e0815bcae2",
+   "bucket": 30,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "22eafac66506b971594241d052f38e9f098fb1c73055ff6d96edaf78e0ae3996",
+   "bucket": 46,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "5b0e3b773a864eecb8e31a265cb394a0de83521d03bb9d9841c6a24df576d0ab",
+   "bucket": 14,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "ed1cebc59ea06f90f3efd2086d6678e2d4e11d07c5ea3cb1b39f914f078a5d5c",
+   "bucket": 75,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "44305fa54ae789552221988b8d8009096f5f5cce253a88aa7ba83aad2ec48158",
+   "bucket": 16,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "e87ffbf7a012ba8c7658b8b337ab5112a4405752c1eefb0b3a40b7415e14784b",
+   "bucket": 11,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "0b9520c2e7a6b426dcc4738d3627478f6b103a15cc4943ea5f2483564c17ca15",
+   "bucket": 75,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "6e0b21661ed8398a87f0b5b2078d5a9e14109b55c69eebf6f820e5a3926e8781",
+   "bucket": 96,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "ae53b932394773fb403bd4ad0675565aeb11001187fb034811db738b8c0a2918",
+   "bucket": 95,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "26d227b8f70d41624bc5bdcedaebd09b09aec2ea84cc9e5145d47fa0fca778e7",
+   "bucket": 7,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": true,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "d05f980458a9075239ca36dede18a38fa4ceacdd95eded37db6fe829287d3812",
+   "bucket": 41,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  },
+  {
+   "piece_id": 8,
+   "install_hash_hex": "16fae0ba48d251c93b5c9cb5244d0589796b1c329d86c04608e020d2292c1674",
+   "bucket": 48,
+   "in_stage": {
+    "0": false,
+    "1": false,
+    "10": false,
+    "100": true
+   }
+  }
+ ],
+ "proof": {
+  "release": "4.0.0-c1",
+  "target": "android-arm64-v8a",
+  "release_salt_hex": "700d13226d29cd5724fca4c51f8ca6aa",
+  "regions_sha256_hex": "83211d40f9d0faec6856242ea9cc1e51990cee27aa4bc7b93360437f3b779adc",
+  "regions_rule": "regions = stream('quranlab-test-core-regions', 4096), standing for the Core's read-only regions",
+  "k_chal_hex": "dc899abed4e0da295b41688dbee293ceeae8041f31831a0e67e05839afd0b949",
+  "challenge": "c1.1790000400.AyDgSJh6IHC6i9WLAlku9w.-QiyeJf2t-WyD4Woc3ODJA",
+  "install_hash_hex": "0fcbaa4f5d91014151bd06019d3b14193059b7bc386015d3912cac5f25126a6d",
+  "cases": [
+   {
+    "piece": 0,
+    "piece_salt_hex": "00000000000000000000000000000000",
+    "integrity_digest_hex": "d59650cff5b8e29f9a45ffa18c237884aad90d0f2280b45eda9f8dd7bfa0f674",
+    "proof_b64u": "AfDCEcXdjfXOSeHVEhQ4Zw",
+    "core": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "proof": "AfDCEcXdjfXOSeHVEhQ4Zw",
+     "signals": 0,
+     "piece": 0
+    }
+   },
+   {
+    "piece": 7,
+    "piece_salt_hex": "3cb73ead29fc80a43b5a5d6c2992d61c",
+    "integrity_digest_hex": "df788e4faa0566f56974e92cd43bf16863c4befc2dee485308165c74293fe71f",
+    "proof_b64u": "f0Dqkh6AxifywfUI18tZXA",
+    "core": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "proof": "f0Dqkh6AxifywfUI18tZXA",
+     "signals": 0,
+     "piece": 7
+    }
+   },
+   {
+    "piece": 8,
+    "piece_salt_hex": "e94dd24bfee3f547ee7d845a6877aba0",
+    "integrity_digest_hex": "df6481dd4e3ccd58c7c1e79a757a4b4010607b84684dfe4f5349d8e8cf91214c",
+    "proof_b64u": "3l7RrBWM3D5w8ndywEJjwQ",
+    "core": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "proof": "3l7RrBWM3D5w8ndywEJjwQ",
+     "signals": 0,
+     "piece": 8
+    }
+   }
+  ]
+ },
+ "server": {
+  "releases": {
+   "4.0.0-c1": {
+    "status": "active",
+    "root": 1,
+    "targets": {
+     "android-arm64-v8a": "d59650cff5b8e29f9a45ffa18c237884aad90d0f2280b45eda9f8dd7bfa0f674",
+     "wasm32-simd": "95ba63449742f52b87297b472959395724a1739f52defb3882c1dc5a6916b159"
+    }
+   }
+  },
+  "pieces": {
+   "current": 8,
+   "stage": 10,
+   "previous": 7,
+   "pieces": {
+    "7": {
+     "piece": "AQcAAAAEARAAPLc-rSn8gKQ7Wl1sKZLWHAICAAEDAwEAQAkFAGxhdGVyuuMrABJu0BOE2g_7I_dCz72zXgY0jpkvOsNox7jgw9zBOSvvoIz7VW_KNHMk78dapqWFKSARmw1lxYjSIdjXDPdItiQhsEkC",
+     "digests": {
+      "4.0.0-c1": {
+       "android-arm64-v8a": "25836b3eb7bea920dbcf4b5389334a1ab31367cff11e7f03e8b721a5626ed2b0",
+       "wasm32-simd": "51c06086dbf9e0489512cd864734774f76d48eff6daec6dfca46b9121d939054"
+      }
+     }
+    },
+    "8": {
+     "piece": "AQgAAAABARAA6U3SS_7j9UfufYRaaHeroLrjKwASbtAT7Pwup23exniYMPDz6YGPQ71hB6PJ0K48a7Onawlrl3PSNcHb1_I3ycAe2htHMRndv01nxCRwPKLSyMDC_3V1Bg",
+     "digests": {
+      "4.0.0-c1": {
+       "android-arm64-v8a": "c6f287a7b61ae85583fa5bc0aed8cedef1971e94e17cbe7d1fffa59558ae426d"
+      }
+     }
+    }
+   }
+  },
+  "cases": [
+   {
+    "name": "no core.piece while a piece is served: 400 invalid_body",
+    "request": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "install_hash_hex": "26d227b8f70d41624bc5bdcedaebd09b09aec2ea84cc9e5145d47fa0fca778e7"
+    },
+    "expect": {
+     "refuse": "required"
+    }
+   },
+   {
+    "name": "piece 0: the release's own digest; inside the 10 % stage: the current piece",
+    "request": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "piece": 0,
+     "install_hash_hex": "26d227b8f70d41624bc5bdcedaebd09b09aec2ea84cc9e5145d47fa0fca778e7"
+    },
+    "expect": {
+     "digest_hex": "d59650cff5b8e29f9a45ffa18c237884aad90d0f2280b45eda9f8dd7bfa0f674",
+     "answer_piece": 8
+    }
+   },
+   {
+    "name": "piece 0, outside the stage: the previous piece",
+    "request": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "piece": 0,
+     "install_hash_hex": "e46c214c3378e684b5fd582c46f17c1ab87565039d6bb945368a74e0815bcae2"
+    },
+    "expect": {
+     "digest_hex": "d59650cff5b8e29f9a45ffa18c237884aad90d0f2280b45eda9f8dd7bfa0f674",
+     "answer_piece": 7
+    }
+   },
+   {
+    "name": "piece 7 (the last good one): its digest; inside the stage: piece 8",
+    "request": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "piece": 7,
+     "install_hash_hex": "26d227b8f70d41624bc5bdcedaebd09b09aec2ea84cc9e5145d47fa0fca778e7"
+    },
+    "expect": {
+     "digest_hex": "25836b3eb7bea920dbcf4b5389334a1ab31367cff11e7f03e8b721a5626ed2b0",
+     "answer_piece": 8
+    }
+   },
+   {
+    "name": "piece 8: its digest",
+    "request": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "piece": 8,
+     "install_hash_hex": "26d227b8f70d41624bc5bdcedaebd09b09aec2ea84cc9e5145d47fa0fca778e7"
+    },
+    "expect": {
+     "digest_hex": "c6f287a7b61ae85583fa5bc0aed8cedef1971e94e17cbe7d1fffa59558ae426d",
+     "answer_piece": 8
+    }
+   },
+   {
+    "name": "a target piece 8 has no digest for: it is never handed piece 8; piece 7 has one",
+    "request": {
+     "release": "4.0.0-c1",
+     "target": "wasm32-simd",
+     "piece": 7,
+     "install_hash_hex": "26d227b8f70d41624bc5bdcedaebd09b09aec2ea84cc9e5145d47fa0fca778e7"
+    },
+    "expect": {
+     "digest_hex": "51c06086dbf9e0489512cd864734774f76d48eff6daec6dfca46b9121d939054",
+     "answer_piece": 7
+    }
+   },
+   {
+    "name": "piece 8 named for a target it has no digest for: the proof cannot be checked",
+    "request": {
+     "release": "4.0.0-c1",
+     "target": "wasm32-simd",
+     "piece": 8,
+     "install_hash_hex": "26d227b8f70d41624bc5bdcedaebd09b09aec2ea84cc9e5145d47fa0fca778e7"
+    },
+    "expect": {
+     "refuse": "piece_digest"
+    }
+   },
+   {
+    "name": "a piece the server never made",
+    "request": {
+     "release": "4.0.0-c1",
+     "target": "android-arm64-v8a",
+     "piece": 99,
+     "install_hash_hex": "26d227b8f70d41624bc5bdcedaebd09b09aec2ea84cc9e5145d47fa0fca778e7"
+    },
+    "expect": {
+     "refuse": "piece_unknown"
+    }
+   }
+  ]
+ }
+}

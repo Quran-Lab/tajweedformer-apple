@@ -3,10 +3,17 @@ import Foundation
 
 /// The words the SDK shows when it asks to share recitations, thanks the learner, and lets them stop or delete
 /// (`quranlab.sharing-copy/1`, one deck per language, bundled in Resources/SharingCopy). Disclosure lines
-/// (`sheet.what`, `sheet.who`, `sheet.control`, `what.detail`, `delete.*`, the guardian lines) may be restyled, never
+/// (`sheet.what`, `sheet.who`, `sheet.control`, `what.detail`, `delete.*`) may be restyled, never
 /// reworded, shortened or hidden by the deck's own rules; an app that wants its own words sets them with
 /// `Contributions.setWording(_:)`, and the learner then agrees to those words under their own consent version. The
 /// hadith lines appear only from a deck whose hadith entry was verified (`hadith_source.verified_at`).
+///
+/// SDK 4.0 bundles deck `2026-11-19.1` (consent version `share-2026-11-09`), the contract's files byte for byte: the
+/// strings of `2026-11-13.1` and the re-ask card's `card.line`, `card.open` and `card.not_now` (SHARE_ASK_40 20.7,
+/// since `2026-11-15.1`); one sheet for every app, so a key the deck no longer has is not a key
+/// an app may give its own words for (`allKeys`). The SDK shows only its bundled decks; it takes none from the server
+/// (SPEC 3.0 11.9, where 20.7 refuses a served deck that lacks a key of the bundled one), so the card always has its
+/// lines.
 struct SharingCopy: Sendable, Hashable {
     let lang: String
     let version: String

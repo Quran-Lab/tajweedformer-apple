@@ -55,7 +55,7 @@ final class SharingTests: XCTestCase {
         /// `POST /v1/uploads/{id}/takes` as the server checks it: the token and `x-qlab-contributor`, the upload known
         /// under that contributor (404 `not_found` otherwise), a closed body `{"takes":[{"start_ms","gap_ms"}]}` of 2
         /// to 256 entries, the first `{0, 0}`, `start_ms` strictly increasing and no further than the received audio
-        /// plus 1000 ms, `gap_ms` 0 to 10000 in hundreds. The list replaces any earlier one; 204.
+        /// plus 1000 ms, `gap_ms` 0 to 60000 in hundreds (qlab-api 462b997; 10000 before). The list replaces any earlier one; 204.
         func takeList(_ s: StubProtocol.Seen) -> StubProtocol.Reply {
             func bad(_ why: String) -> StubProtocol.Reply { .json(["error": "invalid_body", "message": why], status: 400) }
             let id = String(s.path.dropFirst("/v1/uploads/".count).prefix(32))
@@ -76,7 +76,7 @@ final class SharingTests: XCTestCase {
                 if i == 0, !(0...5000).contains(at) || gap != 0 { return bad("json.takes[0]: start_ms 0 to 5000, gap_ms 0") }
                 if i > 0, at <= last { return bad("json.takes[\(i)].start_ms: not increasing") }
                 if at > received + 1000 { return bad("json.takes[\(i)].start_ms: past the received audio (\(received) ms)") }
-                if gap < 0 || gap > 10_000 || gap % 100 != 0 { return bad("json.takes[\(i)].gap_ms") }
+                if gap < 0 || gap > 60_000 || gap % 100 != 0 { return bad("json.takes[\(i)].gap_ms") }
                 last = at
                 out.append(["start_ms": at, "gap_ms": gap])
             }
@@ -436,8 +436,10 @@ final class SharingTests: XCTestCase {
         XCTAssertEqual(start.headers["authorization"], "Bearer qlt_v1.eyJ2IjoxfQ.att")
         XCTAssertEqual(start.headers["x-qlab-id"], item.id)
         let meta = try XCTUnwrap(start.json)
-        XCTAssertEqual(Set(meta.keys), ["format", "audio", "decode", "consent_version", "contributor", "day", "device_class", "os_major",
-                                        "contributor_key", "recovery_hash"])
+        // SDK 4.0: `device_model` (SHARING_40.md 19.2) wherever the system gives a model
+        XCTAssertEqual(Set(meta.keys).subtracting(["device_model"]), ["format", "audio", "decode", "consent_version", "contributor", "day",
+                                                                      "device_class", "os_major", "contributor_key", "recovery_hash"])
+        XCTAssertEqual(meta["device_model"] as? String, DeviceModel.current)
         XCTAssertEqual((meta["contributor_key"] as? String).flatMap { Data(base64URL: $0) }?.count, 65, "the device key's 65-byte point")
         XCTAssertEqual((meta["recovery_hash"] as? String)?.count, 64)
         XCTAssertEqual(meta["consent_version"] as? String, Contributions.copy.consentVersion)

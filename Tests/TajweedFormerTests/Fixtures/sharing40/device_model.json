@@ -1,0 +1,156 @@
+{
+  "about": "SHARING_40.md 19.2: device_model as each SDK makes it. Android passes Build.MANUFACTURER and Build.MODEL; iOS the hardware identifier (sysctl hw.machine, on a simulator SIMULATOR_MODEL_IDENTIFIER); macOS sysctl hw.model. Web, Windows and Linux send no device_model. null: the body leaves the field out. Every non-null output matches the server's pattern ^[A-Za-z0-9][A-Za-z0-9 _.,+()/-]{0,63}$.",
+  "pattern": "^[A-Za-z0-9][A-Za-z0-9 _.,+()/-]{0,63}$",
+  "cases": [
+    {
+      "platform": "android",
+      "parts": [
+        "samsung",
+        "SM-S921B"
+      ],
+      "what": "a Samsung code",
+      "device_model": "samsung SM-S921B"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "Google",
+        "Pixel 8a"
+      ],
+      "what": "a model with a space",
+      "device_model": "Google Pixel 8a"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "motorola",
+        "moto g(30)"
+      ],
+      "what": "parentheses",
+      "device_model": "motorola moto g(30)"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "samsung",
+        "SM-A515F/DSN"
+      ],
+      "what": "a slash",
+      "device_model": "samsung SM-A515F/DSN"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "HUAWEI",
+        "ELS-NX9"
+      ],
+      "what": "upper case maker",
+      "device_model": "HUAWEI ELS-NX9"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "OnePlus",
+        "OnePlus 9 Pro"
+      ],
+      "what": "the maker in the model is kept: no deduplication",
+      "device_model": "OnePlus OnePlus 9 Pro"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "Xiaomi",
+        "  2201117TG  "
+      ],
+      "what": "spaces around a part",
+      "device_model": "Xiaomi 2201117TG"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "Société",
+        "Modèle X ™"
+      ],
+      "what": "code points outside the set become _",
+      "device_model": "Soci_t_ Mod_le X _"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "",
+        "SM-G991B"
+      ],
+      "what": "no maker",
+      "device_model": "SM-G991B"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "unknown",
+        ""
+      ],
+      "what": "no model",
+      "device_model": "unknown"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "",
+        ""
+      ],
+      "what": "nothing: the field is left out",
+      "device_model": null
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "(none)",
+        "***"
+      ],
+      "what": "only characters outside the set and a parenthesis first: dropped to the first letter or digit",
+      "device_model": "none) ___"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "VeryLongManufacturerNameIncorporated",
+        "Model With A Long Name That Goes On And On 5G"
+      ],
+      "what": "cut to 64 characters, trailing space dropped",
+      "device_model": "VeryLongManufacturerNameIncorporated Model With A Long Name That"
+    },
+    {
+      "platform": "android",
+      "parts": [
+        "TECNO",
+        "TECNO  KF6i"
+      ],
+      "what": "a run of spaces is one",
+      "device_model": "TECNO TECNO KF6i"
+    },
+    {
+      "platform": "ios",
+      "parts": [
+        "iPhone16,1"
+      ],
+      "what": "the hardware identifier as sysctl hw.machine gives it",
+      "device_model": "iPhone16,1"
+    },
+    {
+      "platform": "ios",
+      "parts": [
+        "iPad13,18"
+      ],
+      "what": "an iPad",
+      "device_model": "iPad13,18"
+    },
+    {
+      "platform": "macos",
+      "parts": [
+        "Mac14,2"
+      ],
+      "what": "sysctl hw.model on a Mac",
+      "device_model": "Mac14,2"
+    }
+  ]
+}

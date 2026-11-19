@@ -990,8 +990,25 @@ final class SharingTakesTests: XCTestCase {
         let one = try await settle(cloud, apart)
         XCTAssertEqual(one.takes, 1)
 
-        // not a whole number from 0 to 10000: the default, 3000
-        let invalid: [Any] = ["5", 20_000, 2.5, true]
+        // SDK 4.0 (section 23): 15000, Quran Lab's window, joins a take 12 s later, and the take list the server takes
+        // (gaps up to 60000) carries the 12000
+        server.joinWindow.withLock { $0 = 15_000 }
+        _ = await cloud.refreshConfig()
+        XCTAssertEqual(cloud.currentConfig?.flags.share_join_ms, 15_000)
+        try take(noise(2.5))
+        advance(12_000)
+        try take(noise(2.5))
+        let long = try openID()
+        advance(15_001)
+        try take(noise(2.5))
+        XCTAssertNotEqual(try openID(), long, "15001 ms later: a new recording")
+        windowPasses(15_000)
+        let joined15 = try await settle(cloud, long)
+        XCTAssertEqual(joined15.takes, 2)
+        XCTAssertEqual(server.takes.withLock { $0[long] }, maps((0, 0), (2_500, 12_000)))
+
+        // not a whole number from 0 to 60000: the default, 3000
+        let invalid: [Any] = ["5", 60_001, 2.5, true]
         for bad in invalid {
             server.joinWindow.withLock { $0 = bad }
             _ = await cloud.refreshConfig()
@@ -1009,7 +1026,7 @@ final class SharingTakesTests: XCTestCase {
         XCTAssertEqual(last.takes, 2)
         XCTAssertEqual(server.takes.withLock { $0[third] }, maps((0, 0), (2_500, 3_000)))
         items = await cloud.outbox.items
-        XCTAssertEqual(items.count, 6)
+        XCTAssertEqual(items.count, 8)
     }
 
     /// What a recording is bound to, through the client: another input rate, model revision, consent version or

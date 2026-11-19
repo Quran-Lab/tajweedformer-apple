@@ -49,15 +49,13 @@ extension Contributions {
 }
 
 /// The consent sheet: why sharing helps, what is shared, who receives it, how to stop, and two buttons of equal
-/// weight. Nothing is pre-ticked; in a children's app the share button is enabled only after the parent or guardian
-/// confirms.
+/// weight. Nothing is pre-ticked. Every app shows this same sheet (SDK 4.0, contract section 26), and the learner's
+/// tap is the answer.
 public struct SharingConsentView: View {
     let reask: Bool
-    let guardian: Bool
     let theme: SharingTheme
     let render: SheetRender
     let onDone: @MainActor (Bool) -> Void
-    @State private var confirmed: Bool
     @Environment(\.self) private var environment
     private let copy = Contributions.copy
 
@@ -67,34 +65,30 @@ public struct SharingConsentView: View {
     ///   - onDone: called with the learner's answer once a button was tapped.
     public init(_ client: TajweedClient, reask: Bool = false, theme: SharingTheme = .standard,
                 onDone: @escaping @MainActor (Bool) -> Void = { _ in }) {
-        self.init(reask: reask, guardian: nil, theme: theme, onDone: onDone)
+        self.init(reask: reask, theme: theme, render: SheetRender(), onDone: onDone)
     }
 
-    init(reask: Bool = false, guardian: Bool? = nil, theme: SharingTheme = Contributions.theme, render: SheetRender = SheetRender(),
+    init(reask: Bool = false, theme: SharingTheme = Contributions.theme, render: SheetRender = SheetRender(),
          onDone: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.reask = reask
-        self.guardian = guardian ?? (QuranLab.configuration.options.audience == .children)
         self.theme = theme
         self.render = render
         self.onDone = onDone
-        _confirmed = State(initialValue: render.confirmed)
     }
 
     public var body: some View {
         let ctx = SheetContext(theme: theme, environment: environment, rightToLeft: copy.rightToLeft, render: render)
-        ConsentSheet(copy: copy, ctx: ctx, reask: reask, guardian: guardian, confirmed: $confirmed, render: render, onDone: onDone)
+        ConsentSheet(copy: copy, ctx: ctx, reask: reask, render: render, onDone: onDone)
     }
 }
 
 /// The sheet as drawn (the contract's sharing_copy/design/README.md): a grabber on a phone, one scrolling column (the
 /// header with the emblem and the name, the title, the re-ask line, the body, the disclosure card, the hadith, the
-/// mistakes line, the guardian's switch), and a bar at the bottom that does not scroll, with the two buttons.
+/// mistakes line), and a bar at the bottom that does not scroll, with the two buttons.
 private struct ConsentSheet: View {
     let copy: SharingCopy
     let ctx: SheetContext
     let reask: Bool
-    let guardian: Bool
-    @Binding var confirmed: Bool
     let render: SheetRender
     let onDone: @MainActor (Bool) -> Void
 
@@ -148,14 +142,13 @@ private struct ConsentSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 14) {
                         header
-                        line(guardian ? "sheet.guardian.title" : "sheet.title")
+                        line("sheet.title")
                     }
                     if reask { line("reask") }
-                    line(guardian ? "sheet.guardian.body" : "sheet.body")
+                    line("sheet.body")
                     disclosure
                     if copy.hadithVerified { hadith }
                     line("sheet.mistakes")
-                    if guardian { confirmation }
                 }
                 .padding(.top, ctx.layout == .phone ? 20 - Self.underGrabber : 20)
                 .padding(.horizontal, 24)
@@ -259,56 +252,27 @@ private struct ConsentSheet: View {
         .background(RoundedRectangle(cornerRadius: 18 * r, style: .continuous).fill(palette.softTint))
     }
 
-    /// The guardian's confirmation: a card with one row, the text and a switch at the trailing edge (at an
-    /// accessibility text size the switch goes under the text, so the text keeps the card's width). A screen reader
-    /// reads the text as the switch's label; a tap on the text turns the switch too.
-    private var confirmation: some View {
-        let words = copy.string("sheet.guardian.confirm")
-        let text = line("sheet.guardian.confirm")
-            .accessibilityHidden(true)
-            .contentShape(Rectangle())
-            .onTapGesture { confirmed.toggle() }
-        let toggle = Toggle(isOn: $confirmed) { Text(ctx.shown(words)) }
-            .labelsHidden()
-            .accessibilityLabel(Text(verbatim: words))
-            .toggleStyle(SwitchToggleStyle())
-            .tint(palette.accent)
-            .fixedSize()
-        return Group {
-            if ctx.textSize.isAccessibilitySize {
-                VStack(alignment: .trailing, spacing: 12) { text; toggle }
-            } else {
-                HStack(alignment: .center, spacing: 12) { text; toggle }
-            }
-        }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 16)
-        .background(RoundedRectangle(cornerRadius: 18 * r, style: .continuous).fill(palette.card))
-    }
-
     // MARK: the bar
 
-    /// The fixed bar: the share button (the accent) and "Not now" (the tint), the same size, shape and type.
+    /// The fixed bar: the share button (the accent) and "Not now" (the tint), the same size, shape and type. Both can
+    /// be tapped at once: the learner's tap is the answer.
     private func bar(inset: CGFloat) -> some View {
-        let share = copy.string(guardian ? "sheet.guardian.share" : "sheet.share")
+        let share = copy.string("sheet.share")
         let notNow = copy.string("sheet.not_now")
-        let enabled = !guardian || confirmed
-        SheetProbe.drew(guardian ? "sheet.guardian.share" : "sheet.share", share)
+        SheetProbe.drew("sheet.share", share)
         SheetProbe.drew("sheet.not_now", notNow)
-        SheetProbe.showed(guardian ? "sheet.guardian.share" : "sheet.share", ctx.shown(share))
+        SheetProbe.showed("sheet.share", ctx.shown(share))
         SheetProbe.showed("sheet.not_now", ctx.shown(notNow))
-        SheetProbe.state("share", enabled)
+        SheetProbe.state("share", true)
         SheetProbe.state("not_now", true)
         return VStack(spacing: 10) {
             Button {
-                Contributions.answer(share: true, guardianConfirmed: confirmed)
+                Contributions.answer(share: true)
                 onDone(true)
             } label: {
                 label(share, both: [share, notNow], color: palette.onAccent)
             }
             .buttonStyle(SheetButtonStyle(fill: palette.accent, radius: 14 * r))
-            .disabled(!enabled)
-            .opacity(enabled ? 1 : 0.45)
             .sheetProbe("share")
             Button {
                 Contributions.answer(share: false)
@@ -433,7 +397,7 @@ public struct SharingThanksView: View {
 }
 
 /// The sharing settings: the switch, "What is shared", "Delete what I shared" (with its confirmation), and the
-/// learner's recovery code for a lost device (revealed on tap, shown only here). Works whatever the developer flag says, so a learner can always stop and delete.
+/// learner's recovery code for a lost device (revealed on tap, shown only here). Works whatever Quran Lab's switch says, so a learner can always stop and delete.
 public struct SharingSettingsView: View {
     let theme: SharingTheme
     let render: SheetRender
@@ -444,11 +408,9 @@ public struct SharingSettingsView: View {
     @State private var confirmDelete = false
     @State private var deleted = false
     @State private var deleteFailed = false
-    @State private var confirmed = false
     @State private var showCode = false
     @Environment(\.self) private var environment
     private let copy = Contributions.copy
-    private let children = QuranLab.configuration.options.audience == .children
 
     public init(_ client: TajweedClient, theme: SharingTheme = .standard) { self.init(theme: theme) }
     init(theme: SharingTheme = Contributions.theme, render: SheetRender = SheetRender(), opaque: Bool = false) {
@@ -471,15 +433,10 @@ public struct SharingSettingsView: View {
         VStack(alignment: .leading, spacing: 16) {
             Toggle(isOn: Binding(get: { on }, set: { v in
                 on = v
-                Task { await Contributions.setSharing(v, guardianConfirmed: !children || confirmed) }
+                Task { await Contributions.setSharing(v) }
             })) { text(ctx, copy.string("settings.toggle"), .body, p.text) }
                 .toggleStyle(SwitchToggleStyle())
                 .tint(p.accent)
-            if children && !on {
-                Toggle(isOn: $confirmed) { text(ctx, copy.string("sheet.guardian.confirm"), .row, p.text) }
-                    .toggleStyle(SwitchToggleStyle())
-                    .tint(p.accent)
-            }
             Button { showWhat.toggle() } label: { text(ctx, copy.string("settings.what"), .button, p.accentText) }
                 .buttonStyle(.plain)
             if showWhat {
@@ -536,35 +493,206 @@ public struct SharingSettingsView: View {
     }
 }
 
-/// Shows the SDK's sheet and thank-you at the moments the SDK picks (after a finished take in which the model heard
-/// something). Put it once near the root of the app: `.quranLabSharing(client)`.
+/// Shows the SDK's sheet, card and thank-you at the moments the SDK picks (the end of a good take, once the moment has
+/// settled). Put it once near the root of the app: `.quranLabSharing(client)`.
 @MainActor
 final class SharingPromptModel: ObservableObject {
     static let shared = SharingPromptModel()
     @Published var moment: SharingMoment?
     var installed = false
+
+    /// The consent sheet or the thank-you is up (a card is an overlay of the app's view, not a sheet).
+    var sheetUp: Bool {
+        switch moment {
+        case .ask(_)?, .thanks?: return true
+        case .card?, nil: return false
+        }
+    }
+
+    /// The card is up.
+    var cardUp: Bool {
+        if case .card? = moment { return true }
+        return false
+    }
+
+    /// The sheet went without one of its buttons (swiped down): for an ask, "Not now" (20.6).
+    func sheetClosed() {
+        if case .ask(_)? = moment { Contributions.sheetClosed() }
+        moment = nil
+    }
+
+    /// The learner's choice on the card (20.6): "See how it helps" opens the full sheet for the same ask, without the
+    /// re-ask line (the card has just said it); "Not now", or the card swiped away, closes it.
+    func cardChosen(_ choice: SharingCardView.Choice) {
+        guard case .card? = moment else { return }
+        switch choice {
+        case .open:
+            moment = Contributions.cardOpened() ? .ask(reask: false) : nil
+        case .notNow:
+            moment = nil
+            Contributions.cardDismissed()
+        }
+    }
+
+    /// A card that went by itself (a take started, the app left the foreground, the settings switch).
+    func cardGone() {
+        if cardUp { moment = nil }
+    }
 }
 
 /// The modifier behind `.quranLabSharing(theme:)`.
 struct SharingPromptModifier: ViewModifier {
     let theme: SharingTheme
     @ObservedObject private var model = SharingPromptModel.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(theme: SharingTheme) { self.theme = theme }
 
     func body(content: Content) -> some View {
         content
             .onAppear { model.installed = true }
-            .sheet(isPresented: Binding(get: { model.moment != nil }, set: { if !$0 { model.moment = nil } })) {
+            // SDK 4.0 (20.6): a re-ask is a card at the bottom of the app's view, over it and not modal
+            .overlay(alignment: .bottom) {
+                ZStack {
+                    if model.cardUp {
+                        SharingCardView(theme: theme) { (choice: SharingCardView.Choice) in model.cardChosen(choice) }
+                            .transition(reduceMotion ? AnyTransition.identity : AnyTransition.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: model.cardUp)
+            }
+            .sheet(isPresented: Binding(get: { model.sheetUp }, set: { if !$0 { model.sheetClosed() } })) {
                 switch model.moment {
-                case .ask(let reask, let guardian)?:
-                    SharingConsentView(reask: reask, guardian: guardian, theme: theme) { _ in model.moment = nil }
+                case .ask(let reask)?:
+                    SharingConsentView(reask: reask, theme: theme) { _ in model.moment = nil }
                 case .thanks?:
                     SharingThanksView(theme: theme)
-                case nil:
+                case .card?, nil:
                     EmptyView()
                 }
             }
+    }
+}
+
+/// SDK 4.0 (20.6): the re-ask card. Not modal: no dim, no focus taken, the app stays usable around it; anchored at
+/// the bottom of the window above the safe area, at most 480 wide, in the sheet's tokens (background, accent, tint,
+/// corner radius 18, the type scale). The emblem, `card.line` (body style), and one row of two equal buttons,
+/// `card.open` (filled with the accent) and `card.not_now` (filled with the tint), the same size, shape and type as on
+/// the sheet. No timeout (timed content fails people who read slowly): it stays until the learner answers or swipes it
+/// away, a take starts, or the app leaves the foreground. A screen reader hears its line once, politely, and keeps its
+/// focus. No consent is given on it: "See how it helps" opens the full sheet.
+struct SharingCardView: View {
+    enum Choice: Sendable { case open, notNow }
+
+    let theme: SharingTheme
+    let render: SheetRender
+    let onChoice: @MainActor (Choice) -> Void
+    @Environment(\.self) private var environment
+    @State private var drag: CGFloat = 0
+    private let copy = Contributions.copy
+
+    init(theme: SharingTheme = Contributions.theme, render: SheetRender = SheetRender(),
+         onChoice: @escaping @MainActor (Choice) -> Void) {
+        self.theme = theme
+        self.render = render
+        self.onChoice = onChoice
+    }
+
+    var body: some View {
+        let ctx = SheetContext(theme: theme, environment: environment, rightToLeft: copy.rightToLeft, render: render)
+        let p = ctx.palette
+        let r = ctx.radius
+        // the deck's own lines (2026-11-15.1 and later: every bundled deck has them, SharingDeckTests)
+        let line = copy.string("card.line")
+        let open = copy.string("card.open")
+        let notNow = copy.string("card.not_now")
+        let icon = 22 * ctx.type.iconScale
+        let box = 40 * ctx.type.iconScale
+        for (key, text) in [("card.line", line), ("card.open", open), ("card.not_now", notNow)] {
+            SheetProbe.drew(key, text)
+            SheetProbe.showed(key, ctx.shown(text))
+        }
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12 * r, style: .continuous).fill(p.tint)
+                    SheetIcon(kind: .waveform, size: icon, stroke: 1.9, color: p.accentLabel)
+                }
+                .frame(width: box, height: box)
+                .accessibilityHidden(true)
+                .sheetProbe("card.emblem")
+                // as on the sheet: the deck's language (Urdu set in the system's Arabic face)
+                Text(ctx.shown(line)).sheetStyle(ctx.type.style(.body, line), color: p.text)
+                    .accessibilityLabel(Text(verbatim: line))
+                    .environment(\.locale, Locale(identifier: copy.lang == "ur" ? "ar" : copy.lang))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 10) {
+                Button { onChoice(.open) } label: {
+                    label(ctx, open, both: [open, notNow], color: p.onAccent)
+                }
+                .buttonStyle(SheetButtonStyle(fill: p.accent, radius: 14 * r))
+                .sheetProbe("card.open")
+                Button { onChoice(.notNow) } label: {
+                    label(ctx, notNow, both: [open, notNow], color: p.accentLabel)
+                }
+                .buttonStyle(SheetButtonStyle(fill: p.tint, radius: 14 * r))
+                .sheetProbe("card.not_now")
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 18 * r, style: .continuous).fill(p.background)
+            .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 4))
+        .frame(maxWidth: 480)
+        .sheetProbe("card")
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+        .offset(y: max(0, drag))
+        // swiped away: "Not now"
+        .gesture(DragGesture(minimumDistance: 12)
+            .onChanged { v in drag = v.translation.height }
+            .onEnded { v in
+                if v.translation.height > 60 { onChoice(.notNow) } else { drag = 0 }
+            })
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(.escape) { onChoice(.notNow) }
+        .modifier(SheetEnvironment(rightToLeft: copy.rightToLeft, textSize: ctx.textSize, boldText: ctx.boldText))
+        .onAppear { SharingAnnounce.politely(line) }
+    }
+
+    /// A button's label: both labels laid out, unseen, in each button, so the two buttons have the same size.
+    private func label(_ ctx: SheetContext, _ title: String, both: [String], color: Color) -> some View {
+        ZStack {
+            ForEach(0..<both.count, id: \.self) { i in
+                buttonText(ctx, both[i], color: .clear).hidden().accessibilityHidden(true)
+            }
+            buttonText(ctx, title, color: color)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func buttonText(_ ctx: SheetContext, _ title: String, color: Color) -> some View {
+        Text(ctx.shown(title)).sheetStyle(ctx.type.style(.button, title), color: color)
+            .accessibilityLabel(Text(verbatim: title))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A line read to a screen reader without moving its focus, queued behind what it is reading (a polite live region).
+@MainActor
+enum SharingAnnounce {
+    static func politely(_ text: String) {
+        guard !text.isEmpty else { return }
+        #if os(iOS)
+        let queued = NSAttributedString(string: text, attributes: [.accessibilitySpeechQueueAnnouncement: true])
+        UIAccessibility.post(notification: .announcement, argument: queued)
+        #elseif os(macOS)
+        guard let window = NSApp?.keyWindow ?? NSApp?.mainWindow else { return }
+        NSAccessibility.post(element: window, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        #endif
     }
 }
 
@@ -578,25 +706,98 @@ extension View {
 
 #if canImport(UIKit) && !os(watchOS) && !os(tvOS)
 /// The sheet when the app installed no presenter (no `.quranLabSharing()`, no handler): presented by the SDK over the
-/// front view controller of the foreground scene. Only the consent ask; the thank-you waits for the app's presenter.
+/// front view controller of the foreground scene, and the card (SDK 4.0, 20.6) at the bottom of its window. Only the
+/// consent ask; the thank-you waits for the app's presenter.
 @MainActor
 enum SharingFallbackPresenter {
-    static func present(_ m: SharingMoment) {
-        guard case let .ask(reask, guardian) = m else { return }
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
-              let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first,
-              var top = window.rootViewController else { return }
+    /// The card on screen, with its controller.
+    private static var card: UIHostingController<SharingCardView>?
+    /// Hears the sheet go without one of its buttons (swiped down).
+    private static let closing = SheetClosing()
+
+    /// `show` is `Contributions.goingOnScreen` (or the sheet a card opened into): called only once the SDK has
+    /// somewhere to show the ask. With nowhere to show it, the ask is withdrawn: it never reached the screen.
+    static func present(_ m: SharingMoment, show: () -> SharingMoment?) {
+        guard m.isAsk else { return }
+        guard let window = frontWindow(), var top = window.rootViewController else {
+            Contributions.askWithdrawn()
+            return
+        }
         while let next = top.presentedViewController { top = next }
-        let presenter = top
+        guard let shown = show() else { return }
+        switch shown {
+        case .ask(let reask): sheet(reask: reask, over: top)
+        case .card: showCard(in: window)
+        case .thanks: break
+        }
+    }
+
+    private static func frontWindow() -> UIWindow? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else { return nil }
+        return scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
+    }
+
+    private static func sheet(reask: Bool, over presenter: UIViewController) {
         let theme = Contributions.theme
-        let host = UIHostingController(rootView: SharingConsentView(reask: reask, guardian: guardian, theme: theme) { _ in
+        let host = UIHostingController(rootView: SharingConsentView(reask: reask, theme: theme) { _ in
             presenter.dismiss(animated: true)
         })
         #if os(iOS)
         SheetPresentation.configure(host, radius: 28 * max(0, theme.cornerRadius) / 14)
         #endif
+        host.presentationController?.delegate = closing
         presenter.present(host, animated: true)
+    }
+
+    /// The card over the window's content, at its bottom above the safe area, as tall as the card: the app stays
+    /// usable around it.
+    private static func showCard(in window: UIWindow) {
+        removeCard()
+        let host = UIHostingController(rootView: SharingCardView(theme: Contributions.theme) { (choice: SharingCardView.Choice) in
+            SharingFallbackPresenter.removeCard()
+            switch choice {
+            case .open:
+                // the full sheet for the same ask, without the re-ask line
+                if Contributions.cardOpened() { SharingPresenter.shared.present(.ask(reask: false), opened: true) }
+            case .notNow:
+                Contributions.cardDismissed()
+            }
+        })
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        window.addSubview(host.view)
+        let full = host.view.widthAnchor.constraint(equalTo: window.widthAnchor)
+        full.priority = .defaultHigh
+        var constraints = [
+            host.view.centerXAnchor.constraint(equalTo: window.centerXAnchor),
+            host.view.widthAnchor.constraint(lessThanOrEqualTo: window.widthAnchor),
+            host.view.widthAnchor.constraint(lessThanOrEqualToConstant: 504),
+            full,
+            host.view.bottomAnchor.constraint(equalTo: window.safeAreaLayoutGuide.bottomAnchor),
+        ]
+        if #available(iOS 16.0, *) {
+            host.sizingOptions = .intrinsicContentSize
+        } else {
+            let fits = host.sizeThatFits(in: CGSize(width: min(504, window.bounds.width), height: window.bounds.height))
+            constraints.append(host.view.heightAnchor.constraint(equalToConstant: fits.height))
+        }
+        NSLayoutConstraint.activate(constraints)
+        card = host
+    }
+
+    /// The card leaves the screen.
+    static func removeCard() {
+        card?.view.removeFromSuperview()
+        card = nil
+    }
+}
+
+/// The SDK's own sheet swiped down without one of its buttons: a "Not now" for the ask (20.6).
+@MainActor
+private final class SheetClosing: NSObject, UIAdaptivePresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        Contributions.sheetClosed()
     }
 }
 #endif

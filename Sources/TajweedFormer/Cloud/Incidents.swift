@@ -38,9 +38,13 @@ struct IncidentDetail: Codable, Equatable, Sendable {
     var attempt: Int?
     /// The model build (40 hex), next to the report's `revision`, which is the model version (SDK 3.0.0).
     var build: String?
+    /// A promotion stage the previous process did not finish (SDK 4.0): whether the app was in the foreground at its
+    /// last heartbeat, and what ended it (CrashDiagnostics.swift; the server's `CRASH`).
+    var foreground: Bool? = nil
+    var crash: CrashEvidence?
 
     enum CodingKeys: String, CodingKey {
-        case stage, cause, chunk, clip, divergence, chip, accelerator, context, thermal, attempt, build
+        case stage, cause, chunk, clip, divergence, chip, accelerator, context, thermal, attempt, build, foreground, crash
         case errorDomain = "error_domain", errorCode = "error_code", elapsedMs = "elapsed_ms", deadlineMs = "deadline_ms"
         case deviceModel = "device_model", osBuild = "os_build", computeUnits = "compute_units", lowPower = "low_power"
         case stallMs = "stall_ms"
@@ -200,7 +204,25 @@ extension QuranLabCloud {
             accelerator: "ane", computeUnits: "cpuAndNeuralEngine", context: i.context,
             thermal: i.thermal, lowPower: i.lowPower,
             stallMs: i.stallMs.map { Int(max(0, min(600_000, $0)).rounded()) },
-            attempt: i.attempt.map { max(1, min(100, $0)) }, build: build)
+            attempt: i.attempt.map { max(1, min(100, $0)) }, build: build,
+            foreground: i.kind == .promotionFailed && i.cause == "crash_on_last_run" ? i.foreground : nil,
+            crash: i.crash?.bounded)
+        return fitted(r)
+    }
+
+    /// The server takes an issue body of at most 4,096 bytes: a report with a crash's frames over 3,900 loses its
+    /// outermost frames first, then its images, until it fits (nothing else in a report comes near the limit).
+    static func fitted(_ r0: IssueReport, limit: Int = 3_900) -> IssueReport {
+        var r = r0
+        let enc = JSONEncoder()
+        enc.outputFormatting = .sortedKeys
+        func size(_ x: IssueReport) -> Int { (try? enc.encode(x).count) ?? 0 }
+        while size(r) > limit, var c = r.detail?.crash {
+            if let f = c.frames, !f.isEmpty { c.frames = f.count > 1 ? Array(f.dropLast()) : nil }
+            else if let im = c.images, !im.isEmpty { c.images = im.count > 1 ? Array(im.dropLast()) : nil }
+            else { break }
+            r.detail?.crash = c
+        }
         return r
     }
 

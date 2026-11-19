@@ -1,6 +1,6 @@
 {
  "format": "quranlab.sharing-copy/1",
- "version": "2026-11-13.1",
+ "version": "2026-11-19.1",
  "lang": "en",
  "dir": "ltr",
  "source_lang": "en",
@@ -18,10 +18,6 @@
   "sheet.control": "You can stop at any time and delete what you shared from the settings.",
   "sheet.share": "Share my recitations",
   "sheet.not_now": "Not now",
-  "sheet.guardian.title": "A question for a parent or guardian",
-  "sheet.guardian.body": "This app is made for children. Please read this with your child: sharing sends the audio of their recitations to Quran Lab to help other learners. Only a parent or guardian can turn it on.",
-  "sheet.guardian.confirm": "I am this child's parent or guardian, and I agree to share their recitations.",
-  "sheet.guardian.share": "Share as parent or guardian",
   "thanks": "Jazak Allahu khayran. Your recitation is now helping other learners. May Allah accept it from you.",
   "settings.toggle": "Share my recitations",
   "settings.what": "What is shared",
@@ -42,6 +38,9 @@
   "recovery.used": "This recovery code was already used.",
   "recovery.invalid": "This code is not valid. Check the words and try again.",
   "reask": "Your recitation today could help another learner tomorrow. Would you like to share it?",
+  "card.line": "Your recitation today could help another learner tomorrow.",
+  "card.open": "See how it helps",
+  "card.not_now": "Not now",
   "impact.minutes": {
    "one": "You have shared {minutes} minute of recitation. May Allah reward you.",
    "other": "You have shared {minutes} minutes of recitation. May Allah reward you."
@@ -69,6 +68,16 @@
     "version": "2026-11-13.1",
     "change": "the sentence added in 2026-11-12.1 is removed from sheet.who and what.detail; every string is the 2026-11-09.1 string again",
     "method": "built from the archived 2026-11-09.1 deck: no string was edited"
+   },
+   {
+    "version": "2026-11-15.1",
+    "change": "added card.line, card.open and card.not_now, the re-ask card of SDK 4.0 (sdk_4.0.0/SHARE_ASK_40.md 20.7); every other string is the 2026-11-13.1 string; consent_version unchanged (the card takes no consent)",
+    "method": "the English source of SHARE_ASK_40.md 20.7"
+   },
+   {
+    "version": "2026-11-19.1",
+    "change": "removed sheet.guardian.title, sheet.guardian.body, sheet.guardian.confirm and sheet.guardian.share (owner, 2026-11-19: no children's variant; every app shows the same sheet, sdk_4.0.0/ONE_SHEET_40.md); every other string is the 2026-11-15.1 string; consent_version unchanged",
+    "method": "keys removed from the 2026-11-15.1 deck; no string was edited"
    }
   ],
   "translator_model": null

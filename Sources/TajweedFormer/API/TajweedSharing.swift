@@ -1,9 +1,12 @@
 import Foundation
 
-/// Sharing recitations with Quran Lab, reached through `client.sharing`. Quran Lab decides per app whether learners
-/// are asked (the signed config); the developer switches nothing on. The SDK asks with its own sheet after a finished
-/// take, at most three times per install; a yes is never asked again. Once the learner said yes, every take the SDK
-/// listens to is shared in full, and takes that follow one another within a few seconds are one recording.
+/// Sharing recitations with Quran Lab, reached through `client.sharing`. Every learner is asked, in every app, under
+/// the same rules, and the choice is theirs: "Not now", or a yes they can take back, and they can delete what they
+/// shared at any time. The developer switches nothing on or off; Quran Lab's signed config keeps an incident switch
+/// (`flags.contributions`) that stops all asking and sharing. The SDK asks with its own sheet at the end of a
+/// good take, and after "Not now" with a small card, at most three times per install; a yes is never asked again.
+/// Once the learner said yes, every take the SDK listens to is shared in full, and takes that follow one another
+/// within a few seconds are one recording.
 ///
 /// The SDK's sheet and settings view are `SharingConsentView`, `SharingSettingsView` and the view modifier
 /// `.quranLabSharing(_:)`; an app with its own settings screen uses the members here.
@@ -36,29 +39,43 @@ public final class TajweedSharing: Sendable {
 
     init() {}
 
-    /// Quran Lab's config allows sharing for this app on this platform. False until a verified config says so.
+    /// Quran Lab's signed config has sharing on: its incident switch (`flags.contributions`) is on and this platform
+    /// may upload. False until a verified config says so.
     public var isAvailable: Bool { Contributions.isEnabled }
+
+    /// The look of the sheets the SDK presents by itself: the ask at the end of a good take, `ask()`'s, and the card
+    /// with the sheet it opens. Colours, corner radius and fonts only: the words, the structure and the consent version
+    /// never change. The views and `.quranLabSharing()` take their own `theme` argument. Before 4.0 the SDK's own sheet
+    /// always used `SharingTheme.standard` (the Flutter port, 11-18: an app's theme never reached it).
+    public var theme: SharingTheme {
+        get { Contributions.theme }
+        set { Contributions.theme = newValue }
+    }
 
     /// The learner said yes.
     public var isOn: Bool { Contributions.consent == .granted }
 
-    /// The settings switch. On records the learner's yes (a children's app needs `guardianConfirmed`); off stops
-    /// uploads at once and deletes the unsent queue. Throws `sharing_unavailable` when turned on while Quran Lab's
-    /// config does not allow sharing for this app; off always works, with one exception: when the device gives
+    /// The settings switch. On records the learner's yes; off stops uploads at once and deletes the unsent queue.
+    /// Throws `sharing_unavailable` when turned on while Quran Lab's incident switch has sharing off (`isAvailable`
+    /// is false); off always works, with one exception: when the device gives
     /// neither the learner's stored answer nor a place to write the off down, it throws `storage_failed`, and the
     /// SDK then records and uploads nothing more in this process. On throws `storage_failed`, and changes nothing,
     /// while the learner's stored answer cannot be read.
-    public func setOn(_ on: Bool, guardianConfirmed: Bool = false) async throws(TajweedError) {
+    public func setOn(_ on: Bool) async throws(TajweedError) {
         if on && !isAvailable { throw TajweedError(.sharingUnavailable) }
         do throws(RecognizerError) {
-            try await Contributions.switchSharing(on, guardianConfirmed: guardianConfirmed)
+            try await Contributions.switchSharing(on)
         } catch {
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "sharing")
         }
     }
 
-    /// Asks now with the SDK's sheet, when an ask is still allowed (at most three per install, never after a yes or
-    /// after sharing was turned off). True when the sheet is shown. The SDK also asks by itself after a finished take.
+    /// Asks now, at a point of the app's own flow, when an ask is due by the SDK's rules: the sheet the first time, a
+    /// card after "Not now" (at most three asks per install, never after a yes or after sharing was turned off, never
+    /// two in one app session or one day, the first not in the first 24 hours or before the 3rd completed take, a
+    /// re-ask only 14 days and 7 completed takes after the last). Never at launch or during a take: only after a
+    /// completed take in this app session and with no take open. True when the ask is due and goes on screen now;
+    /// false, with nothing shown, when it is not due. The SDK also asks by itself at the end of a good take.
     @discardableResult
     public func ask() -> Bool { Contributions.askNow() != nil }
 
@@ -99,7 +116,7 @@ public final class TajweedSharing: Sendable {
         do throws(RecognizerError) {
             try await Contributions.deleteShared()
         } catch {
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "sharing")
         }
     }
 
@@ -114,7 +131,7 @@ public final class TajweedSharing: Sendable {
         do throws(RecognizerError) {
             try Contributions.setWording(overrides)
         } catch {
-            throw TajweedError(from: error)
+            throw TajweedError(from: error, stage: "sharing")
         }
     }
 }

@@ -1,10 +1,10 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// TajweedFormer SDK 3.1.4: TajweedFormer V4 on iPhone and Mac, as a pure inference engine (every head of the
-// network and the decoded layer). Two backends behind one API: the exact CPU engine (the same bits on every
-// device, always there) and, once promoted, the CoreML build on the Neural Engine (iOS 18, macOS 15), both from
-// one signed model folder.
+// TajweedFormer SDK 4.0.0: TajweedFormer on iPhone and Mac, on Quran Lab's closed Core. The model is encrypted end
+// to end: the SDK downloads ciphertext, the Core installs it to this device's form and opens it from a lease, and no
+// plaintext model file is ever written. The SDK holds the public parts: the API, audio, networking, the install's
+// key store, the consent sheet and sharing.
 let package = Package(
     name: "TajweedFormer",
     platforms: [.iOS(.v15), .macOS(.v12)],
@@ -12,9 +12,10 @@ let package = Package(
         .library(name: "TajweedFormer", targets: ["TajweedFormer"]),
     ],
     targets: [
-        // Built by scripts/build_xcframework.sh from the pinned engine (engine/), with ZF_RELEASE on: the exact
-        // engine, the V4 tajweed library, inference only (zf_tajweed.h), and the CoreML sidecar rebuild (zf/zfs.h).
-        .binaryTarget(name: "TajweedFormerCore", path: "TajweedFormerCore.xcframework"),
+        // The Core (quranlab-core), a dynamic framework per slice (ios-arm64, ios-arm64-simulator, macos-arm64) that
+        // exports only the functions of qlcore.h. Published with each release;
+        // SwiftPM checks it against the checksum below.
+        .binaryTarget(name: "QuranLabCore", url: "https://cdn.quranlab.ai/sdk/apple/4.0.0/QuranLabCore.xcframework.zip", checksum: "5a3bfa4223c8887f04d544e8e5c73b6ad74c9b947d8fa0c70df151f49c42d797"),
         // libopus 1.6.1 for sharing, compiled from its source like any other target (scripts/opus/vendor_opus.sh).
         .target(
             name: "COpus",
@@ -27,9 +28,9 @@ let package = Package(
         ),
         .target(
             name: "TajweedFormer",
-            dependencies: ["TajweedFormerCore", "COpus"],
+            dependencies: ["QuranLabCore", "COpus"],
             resources: [.copy("Resources/SelfTest"), .copy("Resources/SharingCopy"), .copy("Resources/Errors"),
-                        .copy("Resources/PrivacyInfo.xcprivacy")]
+                        .copy("Resources/Vocabulary"), .copy("Resources/PrivacyInfo.xcprivacy")]
         ),
         .testTarget(name: "TajweedFormerTests", dependencies: ["TajweedFormer", "COpus"],
                     resources: [.copy("Fixtures")]),

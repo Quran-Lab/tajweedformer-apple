@@ -102,7 +102,7 @@ enum Contributor {
 /// qlab-api's sharing routes and the PUTs to R2.
 ///
 /// `POST /v1/uploads` (the session JSON, `x-qlab-id`) answers with presigned PUT URLs for segments
-/// 1 to 20, each for its own key `v1/{id}/seg-NNNNN.opus`, signed by the Worker (content-type
+/// 1 to 20, each for its own key `v1/{id}/seg-NNNNN.opus` (`.oga` for a FLAC session, 4.0), signed by the Worker (content-type
 /// `audio/ogg` signed, valid 7 days); `POST /v1/uploads/{id}/urls?from=n` answers the next batch, or
 /// fresh URLs for the same numbers. The segments go straight to R2 as plain PUTs to those URLs. That
 /// is all: nothing is sent at the end.
@@ -175,30 +175,39 @@ struct ContributionClient: Sendable {
         return r
     }
 
-    /// The session JSON sent at the start. `audio.sample_rate` is the coded rate (always 48 kHz);
-    /// `input_sample_rate` the capture rate (the SDK resamples anything else to 48 kHz first), and
+    /// The session JSON sent at the start. `audio.sample_rate` is the coded rate (48 kHz for Opus);
+    /// `input_sample_rate` the capture rate (Opus resamples anything else to 48 kHz first), and
     /// `input_route` the kind of input (`AudioRoute`, no device names). A session has one input
     /// rate: the recognizer ends a session whose input rate changes, so no mixed-rate field.
     /// `consentTextSHA256`: the hash of the app's own consent wording the learner agreed to (2.0.1); sent only then,
     /// next to `consent_version` (a server before 2.0.1 refuses unknown fields).
+    /// SDK 4.0 (SHARING_40.md 19.5): `flac`, a recording in the lossless form: its `audio` is
+    /// `{"codec":"flac","container":"ogg","sample_rate":<the capture rate>,"channels":1,"bits_per_sample":16,
+    /// "input_sample_rate":<the same>,"input_route"}`; and `device_model` (19.2, `DeviceModel`), when there is one.
     static func session(modelRevision: String?, backend: String, weightsSHA256: String?, consentVersion: String?,
                         contributor: String, day: String, inputSampleRate: Int, inputRoute: String,
                         contributorKey: String? = nil, recoveryHash: String? = nil, consentTextSHA256: String? = nil,
-                        modelBuild: String? = nil, takeSeq: Int? = nil, gapMsPrev: Int? = nil) -> Data {
+                        modelBuild: String? = nil, takeSeq: Int? = nil, gapMsPrev: Int? = nil, flac: Bool = false,
+                        deviceModel: String? = DeviceModel.current) -> Data {
         // SDK 3.0.0: `model_revision` is the model version, with the build id (40 hex) next to it
         var decode: [String: Any] = ["model_revision": modelRevision.map { String($0.prefix(64)) as Any } ?? NSNull(), "backend": backend,
                                      "weights_sha256": weightsSHA256.map { $0 as Any } ?? NSNull(), "sdk_version": SDKInfo.version]
         if let modelBuild, modelBuild.range(of: "^[0-9a-f]{40}$", options: .regularExpression) != nil { decode["model_build"] = modelBuild }
+        let audio: [String: Any] = flac
+            ? ["codec": "flac", "container": "ogg", "sample_rate": inputSampleRate, "channels": 1, "bits_per_sample": 16,
+               "input_sample_rate": inputSampleRate, "input_route": inputRoute]
+            : ["codec": "opus", "container": "ogg", "sample_rate": Int(OggOpusWriter.rate), "channels": 1,
+               "input_sample_rate": inputSampleRate, "input_route": inputRoute]
         var o: [String: Any] = [
             "format": 1,
-            "audio": ["codec": "opus", "container": "ogg", "sample_rate": Int(OggOpusWriter.rate), "channels": 1,
-                      "input_sample_rate": inputSampleRate, "input_route": inputRoute],
+            "audio": audio,
             "decode": decode,
             "contributor": contributor,
             "day": day,
             "device_class": DeviceContext.deviceClass,
             "os_major": DeviceContext.osMajor,
         ]
+        if let deviceModel { o["device_model"] = deviceModel }
         if let consentVersion { o["consent_version"] = consentVersion }
         if let consentTextSHA256, consentVersion?.hasPrefix("custom-") == true { o["consent_text_sha256"] = consentTextSHA256 }
         // the learner's deletion credential: the device key's public half and the hash of the
@@ -229,14 +238,23 @@ enum ShareFiles {
     static let stampFile = "stamp.json"
     static func name(_ n: Int) -> String { String(format: "seg-%05d", n) }
 
+    /// The audio file of segment `n`: `seg-NNNNN.opus`, or `seg-NNNNN.oga` in an Ogg FLAC recording (SDK 4.0).
+    static func audioName(_ n: Int, flac: Bool) -> String { name(n) + (flac ? ".oga" : ".opus") }
+
     /// A closed segment: its size and hash, where the stream stood, and the bitrate it was encoded at (absent in
-    /// markers of SDKs before 2.0.1, which encoded at 192000).
+    /// markers of SDKs before 2.0.1, which encoded at 192000; 0 for FLAC).
     struct Marker: Codable, Sendable {
         var n: Int
         var bytes: Int64
         var sha256: String
         var granule: Int64
         var bitrate: Int?
+        /// SDK 4.0: the rate of an Ogg FLAC segment, whose granule counts samples at that rate (absent: Opus, whose
+        /// granule counts 48 kHz samples).
+        var rate: Int?
+
+        /// The segment's audio file in its folder.
+        var audioFile: String { ShareFiles.audioName(n, flac: rate != nil) }
     }
 
     struct End: Codable, Sendable {
@@ -250,6 +268,8 @@ enum ShareFiles {
         var preSkip: Int
         /// The bitrate of each segment opened so far, in order.
         var bitrates: [Int]?
+        /// SDK 4.0: the capture rate of an Ogg FLAC recording (its segments are `.oga`); absent for Opus.
+        var rate: Int?
     }
 
     /// `stamp.json`.
@@ -294,7 +314,7 @@ enum ShareFiles {
 
     /// The takes of a recording in three results. `.value(nil)`: it has one take (no file), or the file was read
     /// and is not a take list: the first entry with gap 0, starting after its pre-roll (0 without one, at most the
-    /// ring's second; SDK 3.0.0), `start_ms` strictly increasing, each gap 0 to 10000, at most `TakeJoin.maxTakes`
+    /// ring's second; SDK 3.0.0), `start_ms` strictly increasing, each gap 0 to 60000, at most `TakeJoin.maxTakes`
     /// entries. A file the system does not give is `unreadable` (3.1.4): the list is neither sent nor dropped then.
     static func storedTakes(_ folder: URL) -> StoredRead<[ShareTake]?> {
         switch StorageSeam.read(folder.appendingPathComponent(takesFile)) {
@@ -362,29 +382,40 @@ enum ShareFiles {
         stored(t, url).takingUnreadableAsMissing
     }
 
-    /// Closes segment `n`: its marker, from the files as they are on disk.
-    static func mark(_ folder: URL, n: Int, granule: Int64, bitrate: Int?) throws {
+    /// Closes segment `n`: its marker, from the files as they are on disk. `rate`: a FLAC segment's (4.0).
+    static func mark(_ folder: URL, n: Int, granule: Int64, bitrate: Int?, rate: Int? = nil) throws {
         let base = folder.appendingPathComponent(name(n))
-        guard let (bytes, sha) = sha256(base.appendingPathExtension("opus")) else { throw CocoaError(.fileReadNoSuchFile) }
-        try write(Marker(n: n, bytes: bytes, sha256: sha, granule: granule, bitrate: bitrate), base.appendingPathExtension("json"))
+        guard let (bytes, sha) = sha256(folder.appendingPathComponent(audioName(n, flac: rate != nil))) else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        try write(Marker(n: n, bytes: bytes, sha256: sha, granule: granule, bitrate: bitrate, rate: rate),
+                  base.appendingPathExtension("json"))
     }
 
     /// Seconds of audio in closed segments not uploaded yet, over every session under `root` (an uploaded segment's
-    /// audio file is gone, its marker stays): segment n lasts (granule n - granule n-1) / 48000, segment 1 from 0.
+    /// audio file is gone, its marker stays): segment n lasts (granule n - granule n-1) / 48000, segment 1 from 0; a
+    /// FLAC segment's (4.0) over its own rate.
     static func backlogSeconds(root: URL) -> Double {
         let fm = FileManager.default
         let names = (try? fm.contentsOfDirectory(atPath: root.path)) ?? []
         var samples: Int64 = 0
+        var flacSeconds = 0.0
         for id in names where id.count == 32 {
             let folder = root.appendingPathComponent(id, isDirectory: true)
             var previous: Int64 = 0
             for m in markers(folder) {
-                let audio = folder.appendingPathComponent(name(m.n)).appendingPathExtension("opus")
-                if fm.fileExists(atPath: audio.path) { samples += max(0, m.granule - previous) }
+                let audio = folder.appendingPathComponent(m.audioFile)
+                if fm.fileExists(atPath: audio.path) {
+                    if let rate = m.rate, rate > 0 {
+                        flacSeconds += Double(max(0, m.granule - previous)) / Double(rate)
+                    } else {
+                        samples += max(0, m.granule - previous)
+                    }
+                }
                 previous = m.granule
             }
         }
-        return Double(samples) / 48_000
+        return Double(samples) / 48_000 + flacSeconds
     }
 
     static func markers(_ folder: URL) -> [Marker] {
@@ -445,24 +476,27 @@ enum ShareFiles {
         }
         guard case .value(let before) = closed(folder), !storedTakes(folder).isUnreadable else { return .unreadable }
         var marks = before
+        // a FLAC recording's segments are `.oga` (4.0)
+        let flacRate = cap.rate.flatMap { (r: Int) -> Int? in r > 0 ? r : nil }
+        let suffix = flacRate == nil ? ".opus" : ".oga"
         let names = (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
-        let open = names.filter { $0.hasSuffix(".opus") }.compactMap { Int($0.dropFirst(4).dropLast(5)) }
+        let open = names.filter { $0.hasSuffix(suffix) }.compactMap { Int($0.dropFirst(4).dropLast(suffix.count)) }
             .filter { n in !marks.contains { $0.n == n } }.sorted()
         // every open segment's audio is read before anything is changed
         var audioOf: [Int: Data] = [:]
         for n in open {
-            switch StorageSeam.read(folder.appendingPathComponent(name(n)).appendingPathExtension("opus")) {
+            switch StorageSeam.read(folder.appendingPathComponent(audioName(n, flac: flacRate != nil))) {
             case .value(let d): audioOf[n] = d
             case .unreadable: return .unreadable
             case .missing: continue
             }
         }
         for n in open {
-            let base = folder.appendingPathComponent(name(n))
-            let audio = base.appendingPathExtension("opus")
+            let audio = folder.appendingPathComponent(audioName(n, flac: flacRate != nil))
             guard let d = audioOf[n] else { continue }
             let (keep, granule) = wholePages(d)
-            if keep == 0 {
+            // a FLAC segment whose whole pages hold no frame (only the header pages, granule 0) is not a segment
+            if keep == 0 || (flacRate != nil && granule == 0) {
                 try? fm.removeItem(at: audio)
                 continue
             }
@@ -470,8 +504,10 @@ enum ShareFiles {
                 try? h.truncate(atOffset: UInt64(keep))
                 try? h.close()
             }
-            let bitrate: Int? = cap.bitrates.flatMap { (b: [Int]) -> Int? in n >= 1 && n <= b.count ? b[n - 1] : nil }
-            try? mark(folder, n: n, granule: granule, bitrate: bitrate)
+            // a FLAC segment has no bitrate (0)
+            let bitrate: Int? = flacRate != nil ? 0
+                : cap.bitrates.flatMap { (b: [Int]) -> Int? in n >= 1 && n <= b.count ? b[n - 1] : nil }
+            try? mark(folder, n: n, granule: granule, bitrate: bitrate, rate: flacRate)
         }
         guard case .value(let after) = closed(folder) else { return .unreadable }
         marks = after
@@ -479,7 +515,9 @@ enum ShareFiles {
             try? fm.removeItem(at: folder)
             return .nothing
         }
-        let ms = Int(max(0, last.granule - Int64(cap.preSkip)) / 48)
+        // a FLAC granule counts samples at the capture rate, and FLAC has no pre-skip
+        let ms = flacRate.map { (r: Int) -> Int in Int(max(0, last.granule) * 1000 / Int64(r)) }
+            ?? Int(max(0, last.granule - Int64(cap.preSkip)) / 48)
         trimTakes(folder, durationMs: ms)
         try? write(End(durationMs: ms, completed: false), folder.appendingPathComponent(end))
         return .recovered
@@ -514,7 +552,8 @@ struct SHA256Hasher {
     var hex: String { h.finalize().map { String(format: "%02x", $0) }.joined() }
 }
 
-/// One recording being shared: Ogg Opus segments written as it runs, into its folder in the outbox, each closed
+/// One recording being shared: Ogg Opus segments (SDK 4.0: Ogg FLAC at the capture rate when `ShareCodec` says so,
+/// `.oga` files) written as it runs, into its folder in the outbox, each closed
 /// segment handed to the outbox at once. Since 2.0.3 it outlives a take: the process's `ShareRecorder` owns it and
 /// calls it under its lock (the capture itself is not thread safe), takes in a row append to the same writer, so the
 /// stream, the encoder, the resampler and the segment plan run on across them, and `takes(_:)` keeps their boundaries
@@ -530,12 +569,14 @@ final class ShareCapture: ShareRecording {
     private let outbox: ContributionOutbox
     /// The count of the learner's changes of mind the recording begins under: its stamp.
     private let consentCount: Int
-    /// The session JSON, given the input rate and route (known at the first audio), `take_seq` and `gap_ms_prev`.
-    private let session: (Int, String, Int?, Int?) -> Data
+    /// The session JSON, given the input rate and route (known at the first audio), `take_seq`, `gap_ms_prev` and
+    /// whether the recording is FLAC (4.0).
+    private let session: (Int, String, Int?, Int?, Bool) -> Data
     /// The recording's place in the install's count of recordings (`begin`), nil when none is kept.
     private var takeSeq: Int?
     private var gapMsPrev: Int?
-    private var writer: OggOpusWriter?
+    /// Ogg Opus, or Ogg FLAC for a capture that is not at 48 kHz while `flags.share_flac` is on (4.0, `ShareCodec`).
+    private var writer: (any ShareSegmentWriter)?
     private var segments = 0
     private var failed = false
     /// The bitrate of each segment opened so far (the capture file keeps them for recovery).
@@ -562,11 +603,12 @@ final class ShareCapture: ShareRecording {
         let contributor = Contributor.id(storage: outbox.storage)
         let key = ContributorKey.key(storage: outbox.storage)?.contributorKey
         let recovery = ContributorKey.recoveryCode(storage: outbox.storage).flatMap { RecoveryCode.hash($0) }
-        session = { rate, route, seq, gap in
+        session = { rate, route, seq, gap, flac in
             ContributionClient.session(modelRevision: modelRevision, backend: backend, weightsSHA256: weights,
                                        consentVersion: consentVersion, contributor: contributor ?? "", day: day,
                                        inputSampleRate: rate, inputRoute: route, contributorKey: key, recoveryHash: recovery,
-                                       consentTextSHA256: consentTextSHA256, modelBuild: modelBuild, takeSeq: seq, gapMsPrev: gap)
+                                       consentTextSHA256: consentTextSHA256, modelBuild: modelBuild, takeSeq: seq, gapMsPrev: gap,
+                                       flac: flac)
         }
         guard contributor != nil, key != nil, recovery != nil else {
             // not alive: nothing is written for it, and no take joins it
@@ -596,25 +638,36 @@ final class ShareCapture: ShareRecording {
         guard !failed, !ended else { return }
         guard Contributions.isActive else { return abandon() }
         if writer == nil {
+            // SDK 4.0 (19.3): the form is decided here, at the recording's first audio, for the whole recording
+            let flac = ShareCodec.flac(rate: rate, shareFlac: ShareCodec.shareFlac)
             do {
                 try StorageProtection.makeFolder(folder)
                 // the stamp before anything else is in the folder: a recording without one reads as begun under count 0
                 try ShareFiles.write(ShareFiles.Stamp(count: consentCount), folder.appendingPathComponent(ShareFiles.stampFile))
-                try session(Int(rate.rounded()), AudioRoute.current(), takeSeq, gapMsPrev)
+                try session(Int(rate.rounded()), AudioRoute.current(), takeSeq, gapMsPrev, flac)
                     .write(to: folder.appendingPathComponent(ShareFiles.session), options: StorageProtection.inPlace)
             } catch {
                 throw .storageFailed("cannot create \(folder.lastPathComponent): \(error.localizedDescription)")
             }
             let folder = self.folder
-            let w = try OggOpusWriter(segmentURL: { n in folder.appendingPathComponent(ShareFiles.name(n)).appendingPathExtension("opus") },
-                                      plan: SegmentPlan.seconds, inputRate: rate) { [unowned self] seg in self.closed(seg) }
-            // 2.0.1: each segment opens at the ladder's bitrate in force then
-            let ladder = outbox.ladder
-            w.bitrateForSegment = { (_: Int) -> Int in ladder.bitrate }
-            w.onSegmentOpen = { [unowned self] (n: Int, bps: Int) in self.opened(n, bitrate: bps) }
-            preSkip = w.preSkip
-            try? ShareFiles.write(ShareFiles.Capture(preSkip: w.preSkip, bitrates: []), folder.appendingPathComponent(ShareFiles.capture))
-            writer = w
+            if flac {
+                // lossless at the capture rate: no resampling, no bitrate ladder, no pre-skip
+                let w = try OggFlacWriter(segmentURL: { n in folder.appendingPathComponent(ShareFiles.audioName(n, flac: true)) },
+                                          plan: SegmentPlan.seconds, inputRate: rate) { [unowned self] seg in self.closed(seg) }
+                try? ShareFiles.write(ShareFiles.Capture(preSkip: 0, bitrates: nil, rate: w.rate),
+                                      folder.appendingPathComponent(ShareFiles.capture))
+                writer = w
+            } else {
+                let w = try OggOpusWriter(segmentURL: { n in folder.appendingPathComponent(ShareFiles.name(n)).appendingPathExtension("opus") },
+                                          plan: SegmentPlan.seconds, inputRate: rate) { [unowned self] seg in self.closed(seg) }
+                // 2.0.1: each segment opens at the ladder's bitrate in force then
+                let ladder = outbox.ladder
+                w.bitrateForSegment = { (_: Int) -> Int in ladder.bitrate }
+                w.onSegmentOpen = { [unowned self] (n: Int, bps: Int) in self.opened(n, bitrate: bps) }
+                preSkip = w.preSkip
+                try? ShareFiles.write(ShareFiles.Capture(preSkip: w.preSkip, bitrates: []), folder.appendingPathComponent(ShareFiles.capture))
+                writer = w
+            }
         }
         guard writer?.inputRate == rate else { return }
         try writer?.append(mono)
@@ -631,7 +684,7 @@ final class ShareCapture: ShareRecording {
     private func closed(_ seg: OggSegment) {
         segments = seg.n
         do {
-            try ShareFiles.mark(folder, n: seg.n, granule: seg.granule, bitrate: seg.bitrate)
+            try ShareFiles.mark(folder, n: seg.n, granule: seg.granule, bitrate: seg.bitrate, rate: seg.rate)
         } catch {
             failed = true
             return

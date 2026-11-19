@@ -6,8 +6,11 @@ import XCTest
 /// clock: no model, no CoreML, no Neural Engine. Every stage succeeding; every failure at every stage with its reason;
 /// a restart in the middle of each stage (a new controller on the same record, the crash sentinel); OS build and
 /// revision changes; backoff and its cap; deterministic failures never retried; conditions that wait without
-/// counting; a session during the golden test; a slower build promoted; failover demotion; telemetry.
+/// counting; a session during the golden test; a build slower than the CPU kept off (4.0); failover demotion; telemetry.
 final class PromotionTests: XCTestCase {
+    /// The telemetry cohort of these tests (it was the retired 3.x AcceleratorTests' own).
+    static let cohort = TelemetryCohort(revision: "4.0.0", build: "", context: "c16_l64", backend: "cpu")
+
     final class Harness: @unchecked Sendable {
         let storage = Fixtures.storage()
         let now = Locked(Date(timeIntervalSince1970: 1_800_000_000))
@@ -22,6 +25,9 @@ final class PromotionTests: XCTestCase {
         let denied = Locked<String?>(nil)
         let slowCompile = Locked<Double>(0)
         let goldenTimes = Locked<(acc: [Double], cpu: [Double])>(([0.002, 0.003, 0.002], [0.008, 0.009, 0.008]))
+        /// The signed config's `flags.accel_min_speedup`, and this SDK's version.
+        let minSpeedup = Locked<Double?>(nil)
+        let sdk = Locked("4.0.0")
 
         func env(revision: String = "r1", os: String = "23A100", device: String = "iPhone17,1", launch: String = "L1",
                  timeouts: AcceleratorController.Timeouts = .init()) -> AcceleratorController.Environment {
@@ -32,8 +38,13 @@ final class PromotionTests: XCTestCase {
                 conditions: { _ in cond.withLock { $0 } }, maxConditionWaits: 2,
                 thermal: { .nominal }, denied: { den.withLock { $0 } },
                 record: { e in ev.withLock { $0.append(e) } }, incident: { i in inc.withLock { $0.append(i) } },
-                cohort: { AcceleratorTests.cohort })
+                cohort: { PromotionTests.cohort })
             e.timeouts = timeouts
+            // no MetricKit in tests: the evidence is what the sentinel says, at once
+            e.crashEvidence = { s in CrashDiagnostics.evidence(s, nil, app: nil) }
+            let ms = self.minSpeedup
+            e.minSpeedup = { ms.withLock { $0 } }
+            e.sdkVersion = sdk.withLock { $0 }
             return e
         }
 
@@ -118,19 +129,97 @@ final class PromotionTests: XCTestCase {
         print("v4-promotion success: stages \(h.calls.withLock { $0 }), speedup \(speedup ?? 0)")
     }
 
-    /// Quran Lab (11-10): a build that passes the golden test is promoted whatever its speed.
-    func testASlowerBuildIsPromoted() async {
+    /// SDK 4.0 (as Android, after a device lab's NPU path that matched exactly at a tenth of the CPU's speed): a build
+    /// that passes the golden test but is slower than the CPU engine on this device stays off. The CPU engine runs, the
+    /// attempt is `slower_than_cpu` with both medians in the telemetry, and the retry budget is not used.
+    func testABuildSlowerThanTheCPUIsNotPromoted() async throws {
         h.goldenTimes.withLock { $0 = ([0.030, 0.040, 0.035], [0.008, 0.009, 0.008]) }
         let c = h.controller()
         await c.run(h.stages())
-        XCTAssertEqual(c.state, .ready)
-        XCTAssertLessThan(c.record?.speedup ?? 9, 1)
-        let store = AnalyticsStore(storage: h.storage, enabled: true, context: .init(platform: "ios", sdkVersion: "2.0.1", appVersion: "1",
+        guard case .disabled = c.state else { return XCTFail("\(c.state)") }
+        XCTAssertNil(c.leaseForSession(), "the CPU engine runs")
+        let r = try XCTUnwrap(c.record)
+        XCTAssertEqual(r.status, .retry)
+        XCTAssertEqual(r.lastReason, .slowerThanCPU)
+        XCTAssertEqual(r.lastStage, .measure)
+        XCTAssertEqual(r.failures, 0, "not a failure of the build")
+        XCTAssertEqual(r.slowerSDK, "4.0.0")
+        XCTAssertEqual(r.notBefore, h.now.withLock { $0 }.addingTimeInterval(PromotionPolicy.slowerRetry))
+        XCTAssertEqual(r.acceleratorMedianMs ?? 0, 35, accuracy: 0.001)
+        XCTAssertEqual(r.cpuMedianMs ?? 0, 8, accuracy: 0.001)
+        guard case .slowerThanCPU(let acc, let cpu, _)? = h.promotions.last?.kind else { return XCTFail("\(h.promotions)") }
+        XCTAssertEqual(acc, 35, accuracy: 0.001)
+        XCTAssertEqual(cpu, 8, accuracy: 0.001)
+        let store = AnalyticsStore(storage: h.storage, enabled: true, context: .init(platform: "ios", sdkVersion: "4.0.0", appVersion: "1",
                                                                                      deviceClass: "phone", soc: nil, osMajor: 18, ramTier: "6gb"))
         for p in h.promotions { store.record(.promotion(p)) }
-        let entry = AnalyticsStore.promotions(store.pending.first!.promotions).first!
-        XCTAssertEqual(entry["promoted"] as? Int, 1)
+        let entry = try XCTUnwrap(AnalyticsStore.promotions(try XCTUnwrap(store.pending.first).promotions).first)
+        XCTAssertNil(entry["promoted"])
+        XCTAssertEqual(entry["attempts"] as? Int, 1)
+        XCTAssertEqual(entry["reasons"] as? [String: Int], ["slower_than_cpu": 1])
         XCTAssertEqual(entry["speedup"] as? [String: Int], ["lt_0_5": 1])
+        XCTAssertEqual(entry["slower_than_cpu"] as? [[String: Double]], [["accelerator_ms": 35, "cpu_ms": 8]])
+    }
+
+    /// Not slower is enough: an accelerator as fast as the CPU engine is promoted.
+    func testABuildAsFastAsTheCPUIsPromoted() async {
+        h.goldenTimes.withLock { $0 = ([0.008, 0.008, 0.008], [0.008, 0.008, 0.008]) }
+        let c = h.controller()
+        await c.run(h.stages())
+        XCTAssertEqual(c.state, .ready)
+    }
+
+    /// The signed config can ask for more than 1.0, never less.
+    func testTheConfigsMinimumSpeedupHasAFloorOfOne() async {
+        XCTAssertEqual(PromotionPolicy.minSpeedup(nil), 1)
+        XCTAssertEqual(PromotionPolicy.minSpeedup(0.5), 1)
+        XCTAssertEqual(PromotionPolicy.minSpeedup(.nan), 1)
+        XCTAssertEqual(PromotionPolicy.minSpeedup(.infinity), 1)
+        XCTAssertEqual(PromotionPolicy.minSpeedup(1.5), 1.5)
+        // 1.33 times faster: promoted by default, kept off with 1.5
+        h.goldenTimes.withLock { $0 = ([0.006, 0.006, 0.006], [0.008, 0.008, 0.008]) }
+        h.minSpeedup.withLock { $0 = 1.5 }
+        let c = h.controller()
+        await c.run(h.stages())
+        XCTAssertEqual(c.record?.lastReason, .slowerThanCPU)
+        // a config below 1.0 cannot let a slower build through
+        h = Harness()
+        h.goldenTimes.withLock { $0 = ([0.010, 0.010, 0.010], [0.008, 0.008, 0.008]) }
+        h.minSpeedup.withLock { $0 = 0.5 }
+        let d = h.controller()
+        await d.run(h.stages())
+        XCTAssertEqual(d.record?.lastReason, .slowerThanCPU)
+    }
+
+    /// Transient: the same key is tried again after 30 days, or at once by another SDK version; an OS update or a new
+    /// build is a new key with its own attempt.
+    func testASlowerVerdictIsRetriedAfterAnUpdateOrThirtyDays() async {
+        h.goldenTimes.withLock { $0 = ([0.030, 0.040, 0.035], [0.008, 0.009, 0.008]) }
+        await h.controller().run(h.stages())
+        h.resetCalls()
+        // the next launch, the same SDK, a day later: nothing runs
+        h.advance(86_400)
+        await h.controller(launch: "L2").run(h.stages())
+        XCTAssertEqual(h.calls.withLock { $0 }, [])
+        // another SDK version: tried again at once (and, as fast as the CPU now, promoted)
+        h.sdk.withLock { $0 = "4.0.1" }
+        h.goldenTimes.withLock { $0 = ([0.008, 0.008, 0.008], [0.008, 0.008, 0.008]) }
+        let c = h.controller(launch: "L3")
+        await c.run(h.stages())
+        XCTAssertEqual(h.calls.withLock { $0 }, ["download", "compile", "warmup", "golden"])
+        XCTAssertEqual(c.state, .ready)
+        // the same SDK after 30 days
+        h = Harness()
+        h.goldenTimes.withLock { $0 = ([0.030, 0.040, 0.035], [0.008, 0.009, 0.008]) }
+        await h.controller().run(h.stages())
+        h.resetCalls()
+        h.advance(PromotionPolicy.slowerRetry + 60)
+        await h.controller(launch: "L2").run(h.stages())
+        XCTAssertEqual(h.calls.withLock { $0 }, ["download", "compile", "warmup", "golden"])
+        // an OS update is a new key: its own attempt at once
+        h.resetCalls()
+        await h.controller(os: "23B200", launch: "L3").run(h.stages())
+        XCTAssertEqual(h.calls.withLock { $0 }, ["download", "compile", "warmup", "golden"])
     }
 
     // MARK: failures at every stage
@@ -210,7 +299,10 @@ final class PromotionTests: XCTestCase {
     }
 
     /// A process death inside a stage: the sentinel is found at the next launch and that attempt ends with reason
-    /// crash at that stage (deterministic: never again for the key).
+    /// crash at that stage. At the golden test it is deterministic (never again for the key); at the compile and
+    /// the warm-up, before the model ran on the accelerator, it takes the retry budget (3.1.5: the sentinel here
+    /// says nothing of the foreground, as on a Mac, and a stop then takes the foreground rule;
+    /// PreparationStopTests has the rest).
     func testTheCrashSentinelEndsTheAttemptAtItsStage() async {
         for (i, stage) in [PromotionStage.compile, .warmup, .golden].enumerated() {
             h = Harness()
@@ -221,19 +313,113 @@ final class PromotionTests: XCTestCase {
             c.store.save(r)
             c.store.writeSentinel(c.key, stage)
             let next = h.controller(revision: "c\(i)", launch: "L2")
+            await next.lastLaunchReport?.value
             XCTAssertNil(next.store.sentinel(), "read once")
             XCTAssertEqual(next.record?.lastReason, .crash)
             XCTAssertEqual(next.record?.lastStage, stage)
-            XCTAssertEqual(next.record?.status, .failed)
+            XCTAssertEqual(next.record?.status, stage.isPreparation ? .retry : .failed, "\(stage)")
             guard case .disabled = next.state else { XCTFail("\(next.state)"); continue }
             await next.run(h.stages())
-            XCTAssertEqual(h.calls.withLock { $0 }, [], "never again for the key")
+            XCTAssertEqual(h.calls.withLock { $0 }, [], "not now: never again at the golden test, not before the retry time at the compile and the warm-up")
             XCTAssertEqual(h.incidents.withLock { $0 }.last?.code, "\(stage.rawValue):crash_on_last_run")
             // another OS build may try again
             let updated = h.controller(revision: "c\(i)", os: "23B9", launch: "L3")
             await updated.run(h.stages())
             XCTAssertEqual(updated.state, .ready)
         }
+    }
+
+    /// SDK 4.0: a quit during a stage (willTerminate wrote `quit` into the sentinel) is `interrupted`, retried after
+    /// the backoff, and its report says `exit: quit`; a stop without a diagnostic says what the heartbeat saw.
+    func testAQuitDuringAStageIsInterruptedNotACrash() async {
+        for (i, stage) in [PromotionStage.compile, .warmup, .golden].enumerated() {
+            h = Harness()
+            let c = h.controller(revision: "q\(i)")
+            var r = PromotionRecord(key: c.key)
+            r.attempts = 1
+            r.attemptStarted = h.now.withLock { $0 }
+            c.store.save(r)
+            c.store.writeSentinel(c.key, stage)
+            c.store.updateSentinel { $0.quit = true }
+            let next = h.controller(revision: "q\(i)", launch: "L2")
+            await next.lastLaunchReport?.value
+            XCTAssertEqual(next.record?.lastReason, .interrupted)
+            XCTAssertEqual(next.record?.status, .retry, "retried after the backoff")
+            XCTAssertEqual(next.record?.failures, 0, "a quit never uses up the retry budget")
+            let inc = h.incidents.withLock { $0 }.last
+            XCTAssertEqual(inc?.code, "\(stage.rawValue):interrupted")
+            XCTAssertEqual(inc?.crash?.exit, "quit")
+        }
+        // without quit and without a diagnostic, in the background, where the platform tells it (iOS): the system
+        // ended the app there, not a failure of the build (Apple 3.1.5's rule, contract 1.22.2): nothing counted, no
+        // wait, the attempt goes on; reported as crash_on_last_run with foreground false and `background` evidence
+        AcceleratorController.tellsForeground.withLock { $0 = true }
+        defer {
+            #if canImport(UIKit) && os(iOS)
+            AcceleratorController.tellsForeground.withLock { $0 = true }
+            #else
+            AcceleratorController.tellsForeground.withLock { $0 = false }
+            #endif
+        }
+        h = Harness()
+        let c = h.controller(revision: "b0")
+        var b0 = PromotionRecord(key: c.key)
+        b0.attempts = 1
+        b0.attemptStarted = h.now.withLock { $0 }
+        c.store.save(b0)
+        c.store.writeSentinel(c.key, .compile)
+        c.store.updateSentinel { $0.foreground = false }
+        let next = h.controller(revision: "b0", launch: "L2")
+        await next.lastLaunchReport?.value
+        XCTAssertEqual(next.record?.failures, 0)
+        XCTAssertNil(next.record?.notBefore, "no wait")
+        XCTAssertNotEqual(next.record?.status, .failed)
+        XCTAssertEqual(h.incidents.withLock { $0 }.last?.code, "compile:crash_on_last_run")
+        XCTAssertEqual(h.incidents.withLock { $0 }.last?.crash?.exit, "background")
+        XCTAssertEqual(h.incidents.withLock { $0 }.last?.foreground, false)
+        await next.run(h.stages())
+        XCTAssertEqual(next.state, .ready, "the attempt goes on and promotes")
+        // in the foreground with no mark: a crash
+        h = Harness()
+        let f = h.controller(revision: "f0")
+        f.store.writeSentinel(f.key, .compile)
+        let after = h.controller(revision: "f0", launch: "L2")
+        await after.lastLaunchReport?.value
+        XCTAssertEqual(after.record?.lastReason, .crash)
+    }
+
+    /// Apple 3.1.5's rules in 4.0: a stage under way in another process is not judged; a download the network stopped
+    /// never uses up the retry budget; `forget` prepares a failed build again.
+    func testAnotherProcessesStageTheNetworkAndForget() async {
+        h = Harness()
+        let c = h.controller(revision: "o0")
+        var s = PromotionStore.Sentinel(key: c.key, stage: .compile)
+        s.pid = getppid()
+        s.at = Date()
+        s.heartbeat = Date()
+        XCTAssertTrue(AcceleratorController.underWayElsewhere(s, now: Date()), "a live process with a fresh heartbeat")
+        XCTAssertFalse(AcceleratorController.underWayElsewhere(s, now: Date().addingTimeInterval(60)), "a heartbeat that stopped")
+        s.pid = ProcessInfo.processInfo.processIdentifier
+        XCTAssertFalse(AcceleratorController.underWayElsewhere(s, now: Date()), "this process's own")
+
+        h = Harness()
+        h.failures.withLock { $0[.download] = PromotionFailure(.network, "offline: the network connection was lost") }
+        for n in 1...6 {
+            let d = h.controller(revision: "n0", launch: "L\(n)")
+            await d.run(h.stages())
+            XCTAssertEqual(d.record?.status, .retry)
+            XCTAssertEqual(d.record?.failures, 0)
+            h.advance(25 * 3600)
+        }
+
+        h = Harness()
+        h.failures.withLock { $0[.golden] = PromotionFailure(.goldenMismatch, "tokens differ") }
+        let g = h.controller(revision: "g0")
+        await g.run(h.stages())
+        XCTAssertEqual(g.record?.status, .failed)
+        h.failures.withLock { $0 = [:] }
+        g.forget()
+        XCTAssertNil(g.record)
     }
 
     // MARK: keys
@@ -258,7 +444,8 @@ final class PromotionTests: XCTestCase {
     // MARK: retries
 
     func testBackoffIsOneSixAndTwentyFourHoursThenNoMore() async {
-        h.failures.withLock { $0[.download] = PromotionFailure(.network, "offline") }
+        // a stage's failure that counts (a download the network stopped never does, Apple 3.1.5)
+        h.failures.withLock { $0[.compile] = PromotionFailure(.compileError, "E5RT: compile failed") }
         var launch = 0
         func run() async -> AcceleratorController {
             launch += 1

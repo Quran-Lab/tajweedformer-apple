@@ -20,7 +20,23 @@ final class Telemetry30VectorTests: XCTestCase {
         s.payload(try XCTUnwrap(s.pending.first), reportID: "6f1c0e9a4b2d47e8a1c3f5d7b9e0a2c4")
     }
 
-    /// The six app-reported fields and `reported` of a payload, as the vector writes a day.
+    /// SDK 4.0 (17.1) reads the 3.0 vector's app-reported fields as 4.0 sends them: the app's ranges are `app_ayahs`
+    /// and `app_surah_ayahs` (3.0's `ayahs` and `surah_ayahs`), and `coverage` is not sent.
+    static func as40(_ day: [String: Any]) -> [String: Any] {
+        func name(_ k: String) -> String? { k == "coverage" ? nil : k == "ayahs" ? "app_ayahs" : k == "surah_ayahs" ? "app_surah_ayahs" : k }
+        var out: [String: Any] = [:]
+        for (k, v) in day {
+            if k == "reported" {
+                let list = (v as? [String] ?? []).compactMap(name)
+                if !list.isEmpty { out[k] = list }
+            } else if let n = name(k) {
+                out[n] = v
+            }
+        }
+        return out
+    }
+
+    /// The app-reported fields and `reported` of a payload, as the vector writes a day.
     func reported(_ p: [String: Any]) -> [String: Any] {
         var out: [String: Any] = [:]
         for k in AnalyticsStore.appReported + ["reported"] { if let v = p[k] { out[k] = v } }
@@ -109,10 +125,12 @@ final class Telemetry30VectorTests: XCTestCase {
             s.reportChecks(rule: try XCTUnwrap(c[0] as? String), checked: try XCTUnwrap(c[1] as? Int), flagged: try XCTUnwrap(c[2] as? Int))
         }
         let p = try payload(s)
-        XCTAssertEqual(Set(p.keys), Set(example.keys), "the top-level fields")
+        // 4.0: the example's fields as 4.0 names them, and the new automatic counters of the take and its report
+        let example40 = Self.as40(example)
+        XCTAssertEqual(Set(p.keys), Set(example40.keys).union(["recited_takes", "take_s"]), "the top-level fields")
         // the app-reported fields are the example's, from the example's reports
-        XCTAssertTrue(Self.same(reported(p), reported(example)), "\(reported(p))")
-        XCTAssertEqual(p["reported"] as? [String], v["reported_order"] as? [String])
+        XCTAssertTrue(Self.same(reported(p), reported(example40)), "\(reported(p))")
+        XCTAssertEqual(p["reported"] as? [String], Self.as40(["reported": v["reported_order"] ?? []])["reported"] as? [String])
         let mine = try XCTUnwrap((p["cohorts"] as? [[String: Any]])?.first), theirs = try XCTUnwrap((example["cohorts"] as? [[String: Any]])?.first)
         XCTAssertEqual(Set(mine.keys), Set(theirs.keys), "the cohort's fields")
         for k in ["fallbacks", "self_test", "latency_ms", "rtf", "cold_start_ms", "model_load_ms", "thermal", "margin", "confidence"] {
@@ -168,7 +186,7 @@ final class Telemetry30VectorTests: XCTestCase {
             }
             XCTAssertEqual(results, t["results"] as? [String], name)
             let day = s.pending.first.map { reported(s.payload($0, reportID: "6f1c0e9a4b2d47e8a1c3f5d7b9e0a2c4")) } ?? [:]
-            XCTAssertTrue(Self.same(day, try XCTUnwrap(t["day_after"] as? [String: Any], name)), "\(name): \(day)")
+            XCTAssertTrue(Self.same(day, Self.as40(try XCTUnwrap(t["day_after"] as? [String: Any], name))), "\(name): \(day)")
         }
     }
 

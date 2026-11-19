@@ -230,8 +230,8 @@ final class UnreadableStateTests: UnreadableStorageTestCase {
         XCTAssertEqual(Self.keptAside(storage), [damaged], "the file kept aside is still there")
     }
 
-    /// The control: only a file that is not there is "never answered". A first launch asks after a session with
-    /// feedback.
+    /// The control: only a file that is not there is "never answered". A first launch is asked at the end of a good
+    /// take once the first ask is due (SDK 4.0: not in the install's first 24 hours).
     func testOnlyAFileThatIsNotThereIsNeverAnswered() async throws {
         let server = SharingTests.Server()
         StubProtocol.reset(server.handler)
@@ -239,6 +239,8 @@ final class UnreadableStateTests: UnreadableStorageTestCase {
         _ = await launch(storage: storage)
         XCTAssertFalse(FileManager.default.fileExists(atPath: storage.appendingPathComponent("cloud/sharing-state.json").path))
         XCTAssertEqual(Contributions.consent, .unknown)
-        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false, guardian: false))
+        XCTAssertNil(Contributions.sessionCompleted(feedback: true), "the install's first 24 hours")
+        Contributions.makeAskDue()
+        XCTAssertEqual(Contributions.sessionCompleted(feedback: true), .ask(reask: false))
     }
 }

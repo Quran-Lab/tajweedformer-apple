@@ -119,6 +119,6 @@ final class ProtectionClassTests: UnreadableStorageTestCase {
         XCTAssertEqual(visited.sorted(), ["accelerator", "accelerator/promotions.json", "cloud", "cloud/sharing-state.json", "models",
                                           "models/v4.0", "models/v4.0/rev", "models/v4.0/rev/layers.zfw", "outbox", "outbox/abc",
                                           "outbox/abc/seg-00001.opus"])
-        XCTAssertEqual(StorageProtection.own, ["cloud", "models", "outbox", "accelerator"])
+        XCTAssertEqual(StorageProtection.own, ["cloud", "models", "outbox", "accelerator", "core"], "SDK 4.0: the Core's state and journal")
     }
 }

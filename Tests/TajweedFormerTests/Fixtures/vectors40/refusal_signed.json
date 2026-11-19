@@ -1,0 +1,99 @@
+{
+ "section": "PROTECTED_MODEL.md 18.4.10",
+ "note": "Test keys only, made by protected40.py from fixed labels (stream(label, n): SHA-256 of the label and a 32-bit little-endian counter, concatenated). No SDK trusts them.",
+ "signer": {
+  "seed_hex": "50fb0388ef36ffc3f7f695f2c11c468e72f16bbcb66e45a21d0738badf94b5e3",
+  "public_hex": "3a83ab14c7129ea01912f2ec4db55d61570cb4ebd5be3f911f66aeb56b157059",
+  "kid_hex": "bae32b00126ed013"
+ },
+ "context": {
+  "key": "apps-one",
+  "install_hash_hex": "e20d3a51ae102d1d5aee7d3e28d192a6f7ba156b9d190fbde765ed9981561c73",
+  "challenge": "c1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB",
+  "now": 1790000000
+ },
+ "cases": [
+  {
+   "name": "a signed stop (key_revoked)",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "missing or invalid developer key",
+    "reason": "key_revoked",
+    "signed": "cXVyYW5sYWItcmVmdXNhbCAxCmFwcHMtb25lCmtleV9yZXZva2VkCmUyMGQzYTUxYWUxMDJkMWQ1YWVlN2QzZTI4ZDE5MmE2ZjdiYTE1NmI5ZDE5MGZiZGU3NjVlZDk5ODE1NjFjNzMKYzEuMTc5MDAwMDMwMC5BQUFBQUFBQUFBQUFBQUFBQUFBQUFBLkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIKMTc5MDAwMDAwMAo.9cwIUkagpAsUJEi3TNFvutU0zQkCsVs8te409kNzC92kW7G-5rMllA1DfGEhbeKrIZfapcq99IGd70TPeU2jDg"
+   },
+   "text": "quranlab-refusal 1\napps-one\nkey_revoked\ne20d3a51ae102d1d5aee7d3e28d192a6f7ba156b9d190fbde765ed9981561c73\nc1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB\n1790000000\n",
+   "stop": "key_revoked"
+  },
+  {
+   "name": "a signed stop (app_blocked, 403)",
+   "status": 403,
+   "body": {
+    "error": "app_blocked",
+    "message": "missing or invalid developer key",
+    "reason": "app_blocked",
+    "signed": "cXVyYW5sYWItcmVmdXNhbCAxCmFwcHMtb25lCmFwcF9ibG9ja2VkCmUyMGQzYTUxYWUxMDJkMWQ1YWVlN2QzZTI4ZDE5MmE2ZjdiYTE1NmI5ZDE5MGZiZGU3NjVlZDk5ODE1NjFjNzMKYzEuMTc5MDAwMDMwMC5BQUFBQUFBQUFBQUFBQUFBQUFBQUFBLkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIKMTc5MDAwMDAwMAo.U6vwf4e2hNAWmMMSa7q2of9NeZZjCPwWeVR9-butlbCmHe6p6rquhCwCDFfnrBlYV0btV_fS7eAG5f5iddtsCA"
+   },
+   "text": "quranlab-refusal 1\napps-one\napp_blocked\ne20d3a51ae102d1d5aee7d3e28d192a6f7ba156b9d190fbde765ed9981561c73\nc1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB\n1790000000\n",
+   "stop": "app_blocked"
+  },
+  {
+   "name": "a replay: signed for another challenge",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "missing or invalid developer key",
+    "reason": "key_revoked",
+    "signed": "cXVyYW5sYWItcmVmdXNhbCAxCmFwcHMtb25lCmtleV9yZXZva2VkCmUyMGQzYTUxYWUxMDJkMWQ1YWVlN2QzZTI4ZDE5MmE2ZjdiYTE1NmI5ZDE5MGZiZGU3NjVlZDk5ODE1NjFjNzMKYzEuMTc5MDAwMDMwMC5DQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0FBLkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIKMTc5MDAwMDAwMAo.SZcTrQXV7my-Tq71QC6MY_RIYDDVcOm9AmWzq5XKanIhL8Cjpyl_xfc3_0Fj5gwNQMBh3OSeXaQB_i4BVLuiBA"
+   },
+   "text": "quranlab-refusal 1\napps-one\nkey_revoked\ne20d3a51ae102d1d5aee7d3e28d192a6f7ba156b9d190fbde765ed9981561c73\nc1.1790000300.CCCCCCCCCCCCCCCCCCCCAA.BBBBBBBBBBBBBBBBBBBBBB\n1790000000\n",
+   "refuse": "challenge"
+  },
+  {
+   "name": "signed for another key",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "missing or invalid developer key",
+    "reason": "key_revoked",
+    "signed": "cXVyYW5sYWItcmVmdXNhbCAxCmFwcHMtdHdvCmtleV9yZXZva2VkCmUyMGQzYTUxYWUxMDJkMWQ1YWVlN2QzZTI4ZDE5MmE2ZjdiYTE1NmI5ZDE5MGZiZGU3NjVlZDk5ODE1NjFjNzMKYzEuMTc5MDAwMDMwMC5BQUFBQUFBQUFBQUFBQUFBQUFBQUFBLkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIKMTc5MDAwMDAwMAo.owp1mLK3fKBkEykFUBCO-0StwtRYfb4V2arGklg2t8z94J0wslhR7g_rLE2eHnR-uykT_TlZEjKQpQt_4KwSAQ"
+   },
+   "text": "quranlab-refusal 1\napps-two\nkey_revoked\ne20d3a51ae102d1d5aee7d3e28d192a6f7ba156b9d190fbde765ed9981561c73\nc1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB\n1790000000\n",
+   "refuse": "key"
+  },
+  {
+   "name": "an unsigned stop",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "missing or invalid developer key",
+    "reason": "key_revoked"
+   },
+   "refuse": "unsigned"
+  },
+  {
+   "name": "signed 11 minutes ago",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "missing or invalid developer key",
+    "reason": "key_revoked",
+    "signed": "cXVyYW5sYWItcmVmdXNhbCAxCmFwcHMtb25lCmtleV9yZXZva2VkCmUyMGQzYTUxYWUxMDJkMWQ1YWVlN2QzZTI4ZDE5MmE2ZjdiYTE1NmI5ZDE5MGZiZGU3NjVlZDk5ODE1NjFjNzMKYzEuMTc5MDAwMDMwMC5BQUFBQUFBQUFBQUFBQUFBQUFBQUFBLkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIKMTc4OTk5OTM0MAo.IZfHwG0r54rkujOiCnHs0N5bORHTuqIWZKDRkcCFcoZg7ED5L3CSUt_Xjip94I6kezGoDOfwkpf_7YRrv9NaCA"
+   },
+   "text": "quranlab-refusal 1\napps-one\nkey_revoked\ne20d3a51ae102d1d5aee7d3e28d192a6f7ba156b9d190fbde765ed9981561c73\nc1.1790000300.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBB\n1789999340\n",
+   "refuse": "time"
+  },
+  {
+   "name": "a challenge not in the strict form (a server must never sign one)",
+   "status": 401,
+   "body": {
+    "error": "invalid_key",
+    "message": "missing or invalid developer key",
+    "reason": "key_revoked",
+    "signed": "cXVyYW5sYWItcmVmdXNhbCAxCmFwcHMtb25lCmtleV9yZXZva2VkCmUyMGQzYTUxYWUxMDJkMWQ1YWVlN2QzZTI4ZDE5MmE2ZjdiYTE1NmI5ZDE5MGZiZGU3NjVlZDk5ODE1NjFjNzMKYzEueAoxNzkwMDAwMDAwCg.ffcH--BZezmkJSO6NDOpvC0qOJSwX58S5PxNLWpc0XbVw-zbA_hxAYklRO3YvnpOaT0-TwunqEJz5yF0c2vLAg"
+   },
+   "text": "quranlab-refusal 1\napps-one\nkey_revoked\ne20d3a51ae102d1d5aee7d3e28d192a6f7ba156b9d190fbde765ed9981561c73\nc1.x\n1790000000\n",
+   "refuse": "format"
+  }
+ ]
+}

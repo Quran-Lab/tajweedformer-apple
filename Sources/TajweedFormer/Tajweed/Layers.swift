@@ -1,5 +1,5 @@
 import Foundation
-import TajweedFormerCore
+import QuranLabCore
 
 // What the SDK gives, one shape across Android, Apple, Web and Native: the raw heads and the decoded layer (what
 // the model heard; no known text is involved). The public types over them are in API/.
@@ -174,23 +174,29 @@ struct DecodedTake: Sendable, Hashable {
             self.runnerUpLogProb = runnerUpLogProb; self.margin = margin
         }
 
-        init(_ t: ZfTajweedTop2) {
-            self.init(top1: Int(t.token), top1LogProb: t.log_prob, runnerUp: Int(t.runner_up), runnerUpLogProb: t.runner_up_log_prob,
-                      margin: Double(t.margin))
-        }
     }
 
-    /// Per-frame top-1 and runner-up of log-probs from any source, from the engine (`zf_tajweed_top2`: one scan of
-    /// each row, ties to the lower id, the greedy decode's argmax).
+    /// Per-frame top-1 and runner-up of log-probs from any source, by the Core's top-K (`qlc_topk` with k 2, R8: the
+    /// 3.x engine's, one scan of each row, ties to the lower id, the greedy decode's argmax); the margin is the top-1
+    /// value less the runner-up's, as the 3.x engine's top-2 computed it.
     static func top2(_ logProbs: [Float], frames: Int) -> [Frame] {
         let v = HeadsBuffer.vocab
         guard frames > 0, logProbs.count >= frames * v else { return [] }
-        var out = [ZfTajweedTop2](repeating: ZfTajweedTop2(), count: frames)
+        var ids = [Int32](repeating: 0, count: frames * 2)
+        var vals = [Float](repeating: 0, count: frames * 2)
         let n = logProbs.withUnsafeBufferPointer { lp in
-            out.withUnsafeMutableBufferPointer { zf_tajweed_top2(lp.baseAddress, Int32(frames), Int32(v), $0.baseAddress) }
+            ids.withUnsafeMutableBufferPointer { i in
+                vals.withUnsafeMutableBufferPointer { o in qlc_topk(lp.baseAddress, Int32(frames), Int32(v), 2, i.baseAddress, o.baseAddress, nil) }
+            }
         }
         guard n > 0 else { return [] }
-        return out.prefix(Int(n)).map(Frame.init)
+        // (named parts and the closure's types: Swift 6.3 gives up type-checking the one-expression form in time)
+        return (0..<Int(n)).map { (f: Int) -> Frame in
+            let first: Int32 = ids[2 * f], second: Int32 = ids[2 * f + 1]
+            let firstValue: Float = vals[2 * f], secondValue: Float = vals[2 * f + 1]
+            return Frame(top1: Int(first), top1LogProb: firstValue, runnerUp: Int(second), runnerUpLogProb: secondValue,
+                         margin: Double(firstValue - secondValue))
+        }
     }
 
     /// A greedy CTC token: a run of equal non-blank top-1 frames.

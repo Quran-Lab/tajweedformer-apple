@@ -29,7 +29,10 @@ final class Manifest30VectorTests: XCTestCase {
         // the vector is for the 3.0 line: `sdk_version` names the version it was built with, and this SDK is that
         // version or a later 3.0.x. The cases are judged as THIS SDK's version: every case holds for 3.0.0 to 3.0.99.
         XCTAssertTrue(ModelManifest.version(SDKInfo.version, isAtLeast: sdk), "SDK \(SDKInfo.version) is not older than the vector's \(sdk)")
-        // contract 1.7.1: the file holds for SDK 3.0.0 to 3.1.99 (its cases above the SDK name 3.1.100 and 3.2.0)
+        // contract 1.7.1: the file holds for SDK 3.0.0 to 3.1.99 (its cases above the SDK name 3.1.100 and 3.2.0). SDK 4.0
+        // runs protected builds only (18.2): every case is refused, a case 3.x accepted as model_incompatible (no
+        // `encryption`); a case 3.x refused stays refused
+        if SDKInfo.version.hasPrefix("4.") { return try refusedBy40(v) }
         XCTAssertTrue(["3.0", "3.1"].contains(SDKInfo.version.split(separator: ".").prefix(2).joined(separator: ".")), "the vector holds for SDK 3.0.x and 3.1.x")
         let key = Self.bytes(try XCTUnwrap(v["public_key_hex"] as? String))
         XCTAssertEqual(ConfigVerifier.keyID(key), v["key_id"] as? String)
@@ -77,6 +80,24 @@ final class Manifest30VectorTests: XCTestCase {
         XCTAssertEqual(accepted + refused, cases.count)
         XCTAssertGreaterThan(accepted, 8)
         XCTAssertGreaterThan(refused, 20)
+    }
+
+    /// SDK 4.0 on the 3.x vector: nothing opens a build without `encryption`.
+    func refusedBy40(_ v: [String: Any]) throws {
+        let key = Self.bytes(try XCTUnwrap(v["public_key_hex"] as? String))
+        let verifier = ManifestVerifier(trustedKeys: [key], requireSignature: true)
+        let cases = try XCTUnwrap(v["cases"] as? [[String: Any]])
+        XCTAssertEqual(cases.count, 35)
+        for c in cases {
+            let name = c["name"] as? String ?? "?"
+            let data = Data(try XCTUnwrap(c["manifest"] as? String, name).utf8)
+            let config = c["config"] as? [String: Any]
+            let expect = try XCTUnwrap(c["expect"] as? [String: Any], name)
+            XCTAssertThrowsError(try ModelManifest.accept(data, verifier: verifier, build: config?["revision"] as? String,
+                                                          version: config?["version"] as? String, sdkVersion: SDKInfo.version), name) { e in
+                if expect["outcome"] as? String == "ok" { XCTAssertEqual(Self.code(e), "model_incompatible", name) }
+            }
+        }
     }
 
     /// A folder's manifest goes through the same checks in production: the SDK's own verifier refuses every case of

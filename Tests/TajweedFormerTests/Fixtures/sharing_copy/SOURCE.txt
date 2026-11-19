@@ -1,0 +1,1 @@
+card_2026-11-15.json: copied byte for byte from quranlab-contract branch sdk-4.0.0-protected, sharing_copy/translations/card_2026-11-15.json at 3b87957 (copy deck 2026-11-15.1: the re-ask card's reviewed translations; SharingDeckTests compares every bundled deck's card lines with it).

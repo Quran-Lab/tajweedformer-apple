@@ -42,11 +42,10 @@ struct DownloadProfile: Sendable, Hashable {
         self.compact = compact
     }
 
-    /// iOS 18 / macOS 15: the CoreML package is specification 9 (multifunction, weights stored once for every context).
-    static var osRunsCoreML: Bool {
-        if #available(iOS 18.0, macOS 15.0, *) { return true }
-        return false
-    }
+    /// Whether this install may fetch and promote a CoreML build at all. SDK 4.0: only where the Core opens
+    /// accelerator programs itself (`AcceleratorGate`: never on the Simulator, a Core that exports the accelerator
+    /// calls of R2, iOS 18 / macOS 15). Elsewhere every take runs on the Core's exact CPU engine.
+    static var osRunsCoreML: Bool { AcceleratorGate.available }
 
     /// The package role of this profile's build.
     var packageRole: String { compact ? "coreml-compact" : "coreml" }
@@ -62,8 +61,9 @@ struct DownloadProfile: Sendable, Hashable {
     func cpuFiles(_ m: ModelManifest) -> [ModelManifest.File] {
         // the self-test set comes with the accelerator (appleFiles), even where a manifest marks it required, so a first
         // install is the bare CPU set, as on Android
-        m.files.filter { $0.isFor(platform: Self.platform) && $0.need == .required && inContext($0) && !Self.appleRoles.contains($0.role)
-            && $0.role != "selftest" }
+        // SDK 4.0: the recited detector's prebuilt index (role `recited`) comes with the CPU set whatever its need
+        m.files.filter { $0.isFor(platform: Self.platform) && ($0.need == .required || $0.role == "recited") && inContext($0)
+            && !Self.appleRoles.contains($0.role) && $0.role != "selftest" }
     }
 
     /// The accelerator files of this profile's build for this context: the package, the context's keep table and the

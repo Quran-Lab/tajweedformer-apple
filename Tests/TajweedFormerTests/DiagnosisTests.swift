@@ -26,9 +26,34 @@ final class DiagnosisTests: XCTestCase {
     /// The eleven fields of a report, in the order every SDK writes them.
     static let fields = ["sdk", "key", "config", "model", "context", "backend", "microphone", "storage", "lastError", "droppedChunks", "connection"]
 
+    /// The optional fields of a report and the values of `downloadProtocol`, as the shared names.json lists them.
+    static let optionalFields: [String] = {
+        let names = (try? Vectors30.json("names.json"))?["diagnosis"] as? [String: Any]
+        return names?["optional_fields"] as? [String] ?? []
+    }()
+    static let protocols: [String] = {
+        let names = (try? Vectors30.json("names.json"))?["diagnosis"] as? [String: Any]
+        return names?["downloadProtocol"] as? [String] ?? []
+    }()
+
     /// Why `r` is not a report of the schema; nil when it is one.
     static func problem(_ r: [String: Any], codes: [String] = DiagnosisTests.codes) -> String? {
-        guard Set(r.keys) == Set(fields) else { return "fields \(r.keys.sorted())" }
+        // the eleven fields, the optional ones of names.json, and SDK 4.0's
+        // `protected` where a runtime exists (its own shape below)
+        guard Set(r.keys).subtracting(optionalFields + ["protected"]) == Set(fields) else { return "fields \(r.keys.sorted())" }
+        if let named = r["downloadProtocol"] {
+            guard isNull(named) || protocols.contains(named as? String ?? "") else { return "downloadProtocol" }
+        }
+        if let p = r["protected"] {
+            guard let p = p as? [String: Any],
+                  Set(p.keys) == ["keyStore", "lease", "leaseExpires", "leaseClass", "refreshAfter", "graceUntil", "core"],
+                  isNull(p["keyStore"]) || ["secureEnclave", "keychain", "software", "file"].contains(p["keyStore"] as? String ?? ""),
+                  let lease = p["lease"] as? String, ["valid", "grace", "expired", "stopped", "none"].contains(lease),
+                  isNull(p["leaseClass"]) || ["attested", "standard"].contains(p["leaseClass"] as? String ?? ""),
+                  isNull(p["leaseExpires"]) == (lease == "none"),
+                  !["none", "stopped"].contains(lease) || (isNull(p["leaseClass"]) && isNull(p["refreshAfter"])),
+                  isNull(p["graceUntil"]) == (lease != "grace") else { return "protected" }
+        }
         guard let sdk = r["sdk"] as? [String: Any], Set(sdk.keys) == ["version", "latest"], matches(sdk["version"], versionPattern),
               isNull(sdk["latest"]) || matches(sdk["latest"], versionPattern) else { return "sdk" }
         guard let key = r["key"] as? [String: Any], Set(key.keys) == ["accepted", "reason"], isNull(key["accepted"]) || isBool(key["accepted"])
@@ -68,8 +93,10 @@ final class DiagnosisTests: XCTestCase {
     func testTheRulesAgreeWithTheSharedExamples() throws {
         let e = try Vectors30.json("diagnosis_examples.json")
         let valid = try XCTUnwrap(e["valid"] as? [[String: Any]]), invalid = try XCTUnwrap(e["invalid"] as? [[String: Any]])
-        XCTAssertEqual(valid.count, 7)
-        XCTAssertEqual(invalid.count, 17)
+        XCTAssertEqual(valid.count, 9)
+        XCTAssertEqual(invalid.count, 18)
+        XCTAssertEqual(Self.optionalFields, ["downloadProtocol"])
+        XCTAssertEqual(Self.protocols, ["h3", "h2", "http/1.1"])
         for x in valid {
             XCTAssertNil(Self.problem(try XCTUnwrap(x["report"] as? [String: Any])), x["name"] as? String ?? "?")
         }
@@ -197,5 +224,34 @@ final class DiagnosisTests: XCTestCase {
         XCTAssertEqual(d.key.accepted, false)
         XCTAssertEqual(d.key.reason, "invalid_key")
         XCTAssertEqual(d.lastError, "invalid_key")
+    }
+
+    /// SDK 4.0, contract section 25 (DIAGNOSIS_40.md at e5623a8): `protected` after the eleven shared fields, only with a
+    /// runtime, its fields in the section's order: the section's example with an Apple key store, then its null rules.
+    func testTheProtectedObjectOfSection25() throws {
+        var d = TajweedDiagnosis(sdkVersion: "4.0.0", sdkLatest: nil, key: .init(accepted: true, reason: nil), config: "fresh", model: nil,
+                                 context: nil, backend: nil, microphone: "granted", storage: .init(models: [], sharingQueueBytes: 0),
+                                 lastError: nil, droppedChunks: 0, connection: "unmetered")
+        XCTAssertFalse(d.json.contains("protected"), "no runtime: the eleven fields only")
+        d.protected = .init(keyStore: "secureEnclave", lease: "valid", leaseExpires: 1_795_600_000, leaseClass: "attested",
+                            refreshAfter: 1_795_100_000, graceUntil: nil, core: "4.0.0-c3 ios-arm64")
+        XCTAssertNil(Self.problem(try Self.report(d)))
+        XCTAssertTrue(d.json.hasSuffix("  \"protected\": {\"keyStore\": \"secureEnclave\", \"lease\": \"valid\", \"leaseExpires\": 1795600000, \"leaseClass\": \"attested\", \"refreshAfter\": 1795100000, \"graceUntil\": null, \"core\": \"4.0.0-c3 ios-arm64\"}\n}"), d.json)
+        // in grace: graceUntil; stopped: no class or refresh; none: no exp; no key yet: keyStore null; no Core: core null
+        d.protected = .init(keyStore: "keychain", lease: "grace", leaseExpires: 1_790_604_800, leaseClass: "standard",
+                            refreshAfter: 1_790_548_000, graceUntil: 1_790_691_200, core: "4.0.0-c3 ios-arm64-simulator")
+        XCTAssertNil(Self.problem(try Self.report(d)))
+        d.protected = .init(keyStore: "file", lease: "stopped", leaseExpires: 1_790_604_800, leaseClass: nil, refreshAfter: nil,
+                            graceUntil: nil, core: "4.0.0-c3 macos-arm64")
+        XCTAssertNil(Self.problem(try Self.report(d)))
+        d.protected = .init(keyStore: nil, lease: "none", leaseExpires: nil, leaseClass: nil, refreshAfter: nil, graceUntil: nil, core: nil)
+        XCTAssertNil(Self.problem(try Self.report(d)))
+        let p = try XCTUnwrap(try Self.report(d)["protected"] as? [String: Any])
+        XCTAssertTrue(Self.isNull(p["keyStore"]) && Self.isNull(p["core"]) && Self.isNull(p["leaseExpires"]))
+        // the rules refuse a stopped lease with a class, and a grace without its end
+        d.protected = .init(keyStore: "keychain", lease: "stopped", leaseExpires: 1, leaseClass: "attested", refreshAfter: nil, graceUntil: nil, core: nil)
+        XCTAssertEqual(Self.problem(try Self.report(d)), "protected")
+        d.protected = .init(keyStore: "keychain", lease: "grace", leaseExpires: 1, leaseClass: "standard", refreshAfter: 1, graceUntil: nil, core: nil)
+        XCTAssertEqual(Self.problem(try Self.report(d)), "protected")
     }
 }

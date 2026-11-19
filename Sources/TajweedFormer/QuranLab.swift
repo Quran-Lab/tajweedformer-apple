@@ -10,21 +10,12 @@ enum UpdatePolicy: Sendable, Hashable {
     case manual
 }
 
-/// Anonymous telemetry (daily aggregates and histograms, never audio, text or identifiers). On by default; the
-/// signed config's `flags.analytics` can turn it off for every install of the app.
-enum AnalyticsLevel: Sendable, Hashable {
-    case on
-    case off
-}
-
 /// The SDK's entry point: configure once at launch, then load a model and make a recognizer.
 enum QuranLab {
     struct Options: Sendable {
         /// Where models are looked for, in order.
         var modelSource: [ModelSource]
         var updates: UpdatePolicy
-        /// Telemetry: on by default, anonymous by construction.
-        var analytics: AnalyticsLevel
         /// An extra sink for every analytics event, besides the SDK's own daily aggregates.
         var analyticsSink: (any AnalyticsSink)?
         /// Refuse a model whose manifest is not signed by a trusted key. Off by default so a folder you staged yourself
@@ -35,11 +26,10 @@ enum QuranLab {
         var storageDirectory: URL?
         /// Quran Lab's servers. Nil: the SDK never contacts a server (tests: a model from a directory).
         var cloud: CloudOptions?
-        /// Ignored since 2.0.1: whether the SDK offers recording sharing (its own consent sheet, then every session in
-        /// full for a learner who said "Share") is Quran Lab's decision per app, in the signed config.
+        /// Ignored since 2.0.1: every learner is asked to share (the SDK's own consent sheet, then every session in
+        /// full for a learner who said "Share") under the same rules in every app, and the choice is theirs. The
+        /// signed config's `flags.contributions` is Quran Lab's incident switch, never the app's.
         var contributions: Bool
-        /// The app's audience: `.children` shows the parent or guardian variant of the consent sheet.
-        var audience: Audience
         /// The language of the SDK's sharing copy; nil follows the device.
         var sharingLocale: Locale?
         /// Download the CoreML package (iOS 18 / macOS 15) as well as the CPU set. Off: CPU only, a smaller download.
@@ -49,24 +39,20 @@ enum QuranLab {
 
         init(modelSource: [ModelSource] = [.cache, .cdn],
                     updates: UpdatePolicy = .automatic,
-                    analytics: AnalyticsLevel = .on,
                     analyticsSink: (any AnalyticsSink)? = nil,
                     requireSignedModels: Bool = false,
                     storageDirectory: URL? = nil,
                     cloud: CloudOptions? = CloudOptions(),
                     contributions: Bool = false,
-                    audience: Audience = .general,
                     sharingLocale: Locale? = nil,
                     neuralEngine: Bool = true) {
             self.modelSource = modelSource
             self.updates = updates
-            self.analytics = analytics
             self.analyticsSink = analyticsSink
             self.requireSignedModels = requireSignedModels
             self.storageDirectory = storageDirectory
             self.cloud = cloud
             self.contributions = contributions
-            self.audience = audience
             self.sharingLocale = sharingLocale
             self.neuralEngine = neuralEngine
         }
@@ -104,8 +90,9 @@ enum QuranLab {
 
     /// Configure once at launch with the app's developer key (sdk.quranlab.ai). The launch sequence runs in the
     /// background at utility priority: token, registration, the signed config (then every 60 s while a recognizer is
-    /// in use and at each foreground), the telemetry and issues that are due, the sharing outbox, and the model
-    /// update check. Nothing in the recognition path waits on it.
+    /// in use and at each foreground), the telemetry and issues that are due, the sharing outbox, and the update check
+    /// of a build this Client installed (never a first download: that waits for `model()` or `prefetch()`). Nothing in
+    /// the recognition path waits on it.
     static func configure(key: String? = nil, options: Options = Options()) {
         state.withLock { $0 = Configuration(key: key, options: options) }
         Contributions.reload()
@@ -138,13 +125,17 @@ enum QuranLab {
 
     /// Where the learner recited in a finished take (`session.reportRecited`), counted into the day's telemetry.
     static func reportRecited(surah: Int, ayahFrom: Int, ayahTo: Int) {
-        guard configuration.options.analytics != .off else { return }
         cloud?.analytics.reportRecited(surah: surah, ayahFrom: ayahFrom, ayahTo: ayahTo)
+    }
+
+    /// One take's recited count (17.1, 17.9): the detector's range, else the app's report.
+    static func countRecited(take: UInt64?, measured: CoreRecited?, report: SessionShared.Recited?, late: Bool) {
+        guard let c = cloud else { return }
+        c.analytics.count(take: take, measured: measured, report: report, late: late)
     }
 
     /// The app's own judge results (`client.analytics.reportChecks`), counted into the day's telemetry.
     static func reportChecks(rule: String, checked: Int, flagged: Int) {
-        guard configuration.options.analytics != .off else { return }
         cloud?.analytics.reportChecks(rule: rule, checked: checked, flagged: flagged)
     }
 
@@ -163,18 +154,12 @@ enum QuranLab {
     /// Starts a new contribution code; later shares are not linked to the earlier ones.
     static func resetContributor() { Contributor.reset(storage: configuration.storageDirectory) }
 
-    /// Forward the app delegate's `application(_:handleEventsForBackgroundURLSession:completionHandler:)` here.
-    /// Returns false (and does not call `completionHandler`) when the session is not the SDK's.
+    /// The app delegate's `application(_:handleEventsForBackgroundURLSession:completionHandler:)`, forwarded: the
+    /// public call is `TajweedClient.handleBackgroundEvents` (3.1.5; to 3.1.1 this was internal and no app could
+    /// reach it). Returns false (and does not call `completionHandler`) when the session is not the SDK's.
     @discardableResult
     static func handleBackgroundEvents(identifier: String, completionHandler: @escaping @Sendable () -> Void) -> Bool {
-        guard identifier.hasPrefix("ai.quranlab.contributions.") else { return false }
-        let uploader = BackgroundUploader.existing(identifier) ?? {
-            _ = cloud?.outbox
-            return BackgroundUploader.existing(identifier)
-        }()
-        guard let uploader else { return false }
-        uploader.setFinishedHandler(completionHandler)
-        return true
+        BackgroundEvents.handle(identifier: identifier, completionHandler: completionHandler)
     }
 
     /// For tests: a configuration whose cloud was made by the caller (stub network, fake App Attest).
@@ -186,15 +171,14 @@ enum QuranLab {
     }
 
     static func record(_ event: AnalyticsEvent) {
+        // SDK 4.0: always on (anonymous by construction); the signed config's flags.analytics is the only off switch
         let c = configuration
-        guard c.options.analytics != .off else { return }
         c.options.analyticsSink?.record(event)
         cloud?.record(event)
     }
 
     /// Counts a 2.0.1 telemetry counter (launches, the sharing sheet's asks and answers).
     static func count(_ c: AnalyticsStore.Counter) {
-        guard configuration.options.analytics != .off else { return }
         cloud?.analytics.count(c)
     }
 

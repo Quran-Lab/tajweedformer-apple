@@ -6,21 +6,25 @@ platform's own README gives them.
 
 ## Recitation sharing
 
-### Who decides that the sheet is offered
+### Every learner is asked; the choice is theirs
 
-Quran Lab decides, per app, in the signed config the SDK downloads (`flags.contributions`, and per platform who
-may upload). The app's own sharing option is ignored since 2.0.1. Without a signed config in force nothing is
-offered. Offered is never consent: nothing is recorded for sharing and nothing is sent before the learner
-answers "Share", and a learner who never answers never shares.
+The SDK asks every learner, in every app, with the same sheet and under the same rules, and the learner decides:
+"Share" or "Not now", and after a yes they can stop or delete what they shared at any time. No app is exempt, and an
+app has no option to turn the ask off (the app's own sharing option is ignored since 2.0.1). The signed config the SDK
+downloads keeps Quran Lab's incident switch (`flags.contributions`), which stops all asking and sharing, and says per
+platform who may upload; without a signed config in force nothing is asked. Being asked is never consent: nothing is
+recorded for sharing and nothing is sent before the learner answers "Share", and a learner who never answers never
+shares.
 
 ### Consent
 
-- The SDK shows its sheet at most three times per install, ever. A learner who said "Share" is never asked
-  again; "Not now" may lead to a later ask, a few sessions apart, until the sheet has been shown three times;
-  a learner who turned sharing off after a yes is not asked again. After that, only the app's own settings
-  entry point (the SDK's settings switch) turns sharing on or off. The count carries over from 2.0.0.
+- The SDK asks at most three times per install, ever: the full sheet, then after "Not now" a small card (SDK 4.0)
+  once both 14 days and 7 completed takes have passed, then 30 days and 10. A learner who said "Share" is never
+  asked again; a learner who turned sharing off after a yes is not asked again. After that, only the app's own
+  settings entry point (the SDK's settings switch) turns sharing on or off. The count carries over from 2.0.0 and
+  3.x.
 - The learner agrees to one wording, identified by a consent version, recorded when they agree. The SDK's
-  own copy deck has version `share-2026-11-09` (deck `2026-11-13.1`, eight languages). Every shared session
+  own copy deck has version `share-2026-11-09` (deck `2026-11-19.1`, eight languages). Every shared session
   carries the version the learner actually agreed to (`consent_version`), for example `share-2026-11-12`
   for a learner who agreed in a 3.1.0 or 3.1.1 app, who is not asked again.
 - A grant persists: a new copy deck, a new SDK version or new app wording neither pauses sharing nor asks
@@ -31,13 +35,14 @@ answers "Share", and a learner who never answers never shares.
 
 ### The default sheet, a themed sheet, or your own
 
-1. **Default.** The SDK shows its own sheet at a good moment (after a finished session with feedback, never
-   at first launch), in the learner's language, right to left for Arabic and Urdu, with a guardian variant
-   for children's apps.
+1. **Default.** The SDK shows its own sheet at a good moment (the end of a take that ended normally, with a
+   minute of recitation since the app opened; never in the install's first 24 hours or before its 3rd completed
+   take), in the learner's language, right to left for Arabic and Urdu. Every app shows the same sheet.
 2. **Themed.** Colours, corner radius and fonts of the SDK's sheets can be set; the words, their order, every
    line and the name at the top stay the SDK's. This does not change the consent version.
 3. **Your own moment.** An app that knows a better moment than the SDK's calls `client.sharing.ask()`: the
-   SDK shows its own sheet then, if an ask is still allowed, and that counts as one of the three. Drawing
+   SDK shows its own ask then when one is due by the same rules (after a completed take, never during one;
+   SDK 4.0), and that counts as one of the three; otherwise it returns false and shows nothing. Drawing
    the ask itself is not available in this version: the sheet is always the SDK's, and no call hands the
    app the request to ask or takes the learner's answer from a screen of the app's. What an app changes is
    the look (item 2) and the words (item 4).
@@ -63,7 +68,7 @@ answers "Share", and a learner who never answers never shares.
    and are not asked again (show the new wording in your settings if you like); learners who agree after
    the change get the new version. Your text must stay honest: say that the audio of recitation sessions is sent to Quran
    Lab, what else is sent (below), that it is used to improve free recitation models, and how to stop and
-   delete. Quran Lab can switch sharing off for an app whose wording is not.
+   delete. Quran Lab reviews it.
 
 ### What a shared session sends
 
@@ -141,18 +146,21 @@ Each `promotions` entry (at most 8; zero counts left out):
  "failed_at": {"download": 0, "compile": 0, "warmup": 0, "golden": 0},
  "reasons": {"network": 0, "storage": 0, "verify": 0, "compile_error": 0, "compile_timeout": 0, "load_error": 0,
              "crash": 0, "hang": 0, "non_finite": 0, "golden_mismatch": 0, "cpu_mismatch": 0, "failover": 0,
-             "denylist": 0, "other": 0},
+             "denylist": 0, "other": 0, "interrupted": 0, "slower_than_cpu": 0},
  "compile_ms": {"le_1000": 0, "le_5000": 0, "le_15000": 0, "le_30000": 0, "le_60000": 0, "le_120000": 0, "gt_120000": 0},
  "speedup": {"lt_0_5": 0, "lt_1": 0, "le_1_5": 0, "le_2": 0, "le_3": 0, "le_5": 0, "gt_5": 0},
  "failovers": 0,
  "failover_causes": {"exception": 0, "non_finite": 0, "out_of_range": 0, "blank": 0, "deadline": 0},
  "failover_stall_ms": {"le_50": 0, "le_100": 0, "le_200": 0, "le_300": 0, "le_500": 0, "le_1000": 0, "gt_1000": 0},
- "demoted": 0, "blank_confirmed_ok": 0}
+ "demoted": 0, "blank_confirmed_ok": 0,
+ "slower_than_cpu": [{"accelerator_ms": 35.0, "cpu_ms": 8.0}]}
 ```
 
 `backend` is `ane`, `gpu` or `npu:<soc>`. An attempt is counted once, when it ends. `speedup` is the CPU's
 median chunk time over the accelerator's on the self-test clips (`lt_0_5` and `lt_1`: the accelerator was
-slower, and was promoted anyway). `failover_stall_ms` runs from the failed chunk being detected to its CPU
+slower). SDK 4.0: a build that passed the golden test but is slower than the CPU engine on the device is not
+promoted; the attempt counts under `reasons.slower_than_cpu`, and `slower_than_cpu` lists each such attempt's two
+medians in milliseconds (at most 8 a day). `reasons.interrupted`: the app was quit during a stage. `failover_stall_ms` runs from the failed chunk being detected to its CPU
 result. `demoted` counts promoted builds taken back to the CPU after a failure in a session.
 `blank_confirmed_ok` counts silent stretches the CPU confirmed (no switch).
 
@@ -177,15 +185,23 @@ the day; a day stamp on the device), not at every launch, so the server counts d
    mistake included, through the accelerator and through the CPU engine and compare the tokens, the flagged
    sites and the per-word verdicts in both directions. A build passes when it finds the planted mistake and
    differs from the CPU by no more than its tolerance, which the signed manifest gives per build (none means
-   identical). A build that passes is promoted, whatever its speed; the speed is measured and reported only.
+   identical). SDK 4.0, as Android: a build that passes is promoted only when its median chunk time is not slower
+   than the CPU engine's on the same device (the signed config's `flags.accel_min_speedup` may ask for more, never
+   less than 1.0); otherwise the CPU engine stays (`slower_than_cpu`), tried again after an SDK or OS update, a new
+   build, or 30 days.
 3. **The swap** happens only between sessions, to an accelerator that is already loaded and warm, so the next
    session starts without a pause and the app sees only faster chunks. A promoted device keeps its compiled
    program and verdict, loads it again at the next launch in the background, and usually starts its first
    session on the accelerator; a session never waits for it.
 4. **If anything fails** before promotion (download, compile, a crash or hang, a different result), the CPU
    stays, the reason is recorded, and the step is retried later (after 1, 6 and 24 hours at most; never for a
-   wrong result, a NaN or a crash, until a new model or OS version). Only in good conditions: not in low power mode,
-   battery at 20 % or charging, the device not hot.
+   wrong result, a NaN, or a stop of the app at the golden test or the measurement, until a new model or OS
+   version). Only in good conditions: not in low power mode, battery at 20 % or charging, the device not hot.
+   A stop of the app at compile or warm-up is retried, and a second one there ends it; a stop during the
+   download counts nothing, and the attempt goes on at the next launch. A quit of the app (a normal end of
+   the process) is `interrupted`: retried after the wait, and never uses up the retries. On
+   iPhone and iPad a stop while the app was in the background counts nothing, until the third in a row at the
+   same stage; on a Mac the SDK cannot tell, and the stop is counted.
 5. **If the accelerator fails during a session** (an error, NaN or out-of-range output, or a chunk past its
    deadline), the session switches to the CPU at that chunk: the CPU engine rebuilds its state from the last
    few seconds of audio and redoes the chunk, so no audio is lost and the learner sees at most a short stall.
@@ -201,10 +217,13 @@ the day; a day stamp on the device), not at every launch, so the server counts d
      from warm chunks only. A single late chunk is served by the CPU and costs nothing more.
    - **What sets an accelerator aside.** Late chunks in three sessions within 24 hours, or one disagreement with
      the CPU: a few hours' pause, then it serves again (no new test). For good, for that model and OS version:
-     NaN or out-of-range output, a second disagreement with the CPU, a self-test mismatch, or a crash. An error
+     NaN or out-of-range output, a second disagreement with the CPU, or a self-test mismatch. A stop of the app
+     while a promoted build loads and warms up at launch is a stop at warm-up (item 4): the build is tested again
+     after the wait, and a second such stop ends it; a quit, or a stop in the background, there holds nothing
+     against the build. A stop of the app while the accelerator serves a session sets nothing aside. An error
      from the accelerator itself sets it aside for a day, then it is tested again (at most three times for that
-     model and OS version). Each switch to the CPU is still reported to Quran Lab, also when it sets nothing aside. An install
-     that 2.0.1 had set aside for silence or a late chunk is tested again and promoted again.
+     model and OS version). Each switch to the CPU is still reported to Quran Lab, also when it sets nothing
+     aside. An install that 2.0.1 had set aside for silence or a late chunk is tested again and promoted again.
 6. **Quran Lab can keep an accelerator off** on matching devices (by device, chip, OS build, delegate or model
    revision) through the signed config; a promoted device then goes back to the CPU at its next session.
 7. **Quran Lab hears about every incident.** A failed promotion and an in-session switch are each also sent
