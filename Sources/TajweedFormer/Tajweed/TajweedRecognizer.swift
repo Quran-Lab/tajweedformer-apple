@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import Foundation
 import os
+import QuranLabCore
 #if canImport(UIKit) && !os(watchOS)
 import UIKit
 #endif
@@ -233,7 +234,7 @@ actor TajweedRecognizer {
         let override = Self.cpuEngineOverride.withLock { $0 }
         let open = { () throws(RecognizerError) -> any CPUStreamEngine in
             if let override {
-                do { return try override(ctx) } catch { throw (error as? RecognizerError) ?? .engineFailed(code: -1, message: "\(error)") }
+                do { return try override(ctx) } catch { throw (error as? RecognizerError) ?? .engineFailed(code: Int(QLC_E_ENGINE), message: "\(error)") }
             }
             // SDK 4.0: the Core opens the model from this folder's device forms and the lease it holds; the SDK
             // reads no model file
@@ -521,9 +522,9 @@ actor TajweedRecognizer {
         defer { b.reset() }
         var out: [HeadsBuffer] = []
         do throws(RecognizerError) {
-            out += try [Float](repeating: 0, count: 16_000).withUnsafeBufferPointer { (p) throws(RecognizerError) in try b.push(p) }
+            out += try [Float](repeating: 0, count: 16_000).withBuffer { (p) throws(RecognizerError) in try b.push(p) }
             b.reset()
-            out += try clip.withUnsafeBufferPointer { (p) throws(RecognizerError) in try b.push(p) }
+            out += try clip.withBuffer { (p) throws(RecognizerError) in try b.push(p) }
             out += try b.finish()
         } catch {
             let ns = b.lastError
@@ -583,7 +584,7 @@ actor TajweedRecognizer {
                 let t0 = CFAbsoluteTimeGetCurrent()
                 let out: [HeadsBuffer]
                 do throws(RecognizerError) {
-                    out = try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try cpu.push(p) }
+                    out = try s.withBuffer { (p) throws(RecognizerError) in try cpu.push(p) }
                 } catch {
                     restore()
                     return .failed(PromotionFailure(.cpuMismatch, "\(c.id): the CPU engine failed: \(error)", clip: c.id))

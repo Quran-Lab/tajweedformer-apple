@@ -1,4 +1,5 @@
 import Foundation
+import QuranLabCore
 
 /// What a failure was, as an error report names it: the
 /// stage where the CAUSE is (not the call that failed), a reason token, the HTTP status of the answer that failed, and
@@ -16,6 +17,11 @@ struct ErrorCause: Sendable, Equatable {
     var retries: Int? = nil
     /// Part of the build was on the device when it failed (24.4's `partial`). Never sent.
     var partial = false
+    /// SDK 4.0.1 (24.2, 28.7): the role of the request the cause is (`api`, `models`), on the stages of a request to a
+    /// host of 28.1; never a host name.
+    var hostRole: String? = nil
+    /// SDK 4.0.1: that request was asked of more than one host (a failover happened in it).
+    var fallback: Bool? = nil
 
     /// What `HTTPClient.send` throws for a request that got no answer: the system's message, then the error's
     /// domain and code in brackets (` [NSURLErrorDomain -1009]`), which the report reads back. The message is never
@@ -50,7 +56,9 @@ struct ErrorCause: Sendable, Equatable {
             return ErrorCause(stage: stage, reason: s == 429 ? "rate_limited" : "http", httpStatus: s)
         }
         if let m = marker(why) {
-            let timeout = m.name == NSURLErrorDomain && m.code == String(NSURLErrorTimedOut)
+            // a host that sent no byte before an answer within its limit (28.3 item 6) gave no answer: `network` (24.3:
+            // a timeout before any answer is `network`)
+            let timeout = m.name == NSURLErrorDomain && m.code == String(NSURLErrorTimedOut) && !why.hasPrefix(HTTPClient.silentHost)
             return ErrorCause(stage: stage, reason: timeout ? "timeout" : "network", errorName: m.name, errorCode: m.code)
         }
         // no valid lease on the device (CoreFailure, ProtectedRuntime): its end passed, or none was ever held
@@ -117,8 +125,11 @@ struct ErrorCause: Sendable, Equatable {
         }
     }
 
-    /// A failure of one of the SDK's requests to Quran Lab, at `stage`.
-    static func of(_ e: CloudError, stage: String) -> ErrorCause {
+    /// A failure of one of the SDK's requests to Quran Lab, at `stage`; with the role of the request and whether it was
+    /// asked of more than one host, when this task made it (4.0.1, `traced`).
+    static func of(_ e: CloudError, stage: String) -> ErrorCause { plain(e, stage: stage).traced() }
+
+    private static func plain(_ e: CloudError, stage: String) -> ErrorCause {
         switch e {
         case .offline(let why): return answer(why, stage: stage)
         case .rejected(let s, let code, _, let reason): return refusal(status: s, code: code, reason: reason, stage: stage)
@@ -137,7 +148,9 @@ struct ErrorCause: Sendable, Equatable {
 extension ErrorCause {
     /// A failure as the SDK's own error says it, at `stage` when the caller knows where the call was (`manifest`,
     /// `download` and `lease` while a build is fetched; `model_open`, `accelerator`, `session`, `audio`, `sharing`).
-    static func of(_ e: RecognizerError, stage: String? = nil) -> ErrorCause {
+    static func of(_ e: RecognizerError, stage: String? = nil) -> ErrorCause { plain(e, stage: stage).traced() }
+
+    private static func plain(_ e: RecognizerError, stage: String?) -> ErrorCause {
         let fetching = stage == "manifest" || stage == "download" || stage == "lease"
         switch e {
         case .modelMissing(let why):
@@ -153,8 +166,12 @@ extension ErrorCause {
             return ErrorCause(stage: "audio", reason: why.hasPrefix(TajweedError.deniedMark) ? "permission_denied" : "unavailable")
         case .neuralEngineUnavailable: return ErrorCause(stage: "accelerator", reason: "unavailable")
         case .engineFailed(let code, _):
+            // the Core's status by its name (`busy`, `nomem`, `engine`, `arg`), so a report tells them apart (Gate C,
+            // 2026-11-20); out of memory is `memory` where the stage has it (24.3: model_open, session)
             let at = stage ?? "session"
-            return ErrorCause(stage: at, reason: at == "accelerator" ? "load" : "engine", errorCode: String(code))
+            let memory = code == QLC_E_NOMEM && (at == "model_open" || at == "session")
+            return ErrorCause(stage: at, reason: at == "accelerator" ? "load" : (memory ? "memory" : "engine"),
+                              errorCode: CoreFailure.statusName(code) ?? String(code))
         case .sessionActive, .sessionClosed, .cancelled, .invalidArgument: return ErrorCause(stage: stage ?? "session", reason: "other")
         case .serviceUnavailable, .contributionUnavailable: return ErrorCause(stage: stage ?? "sharing", reason: "other")
         // a lease the device does not hold is the lease's failure, wherever the call was (24.4 rule 1)

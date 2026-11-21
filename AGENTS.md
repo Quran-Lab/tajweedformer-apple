@@ -65,17 +65,17 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
 - **Coming from 3.x:** [docs/migrating-to-4.md](docs/migrating-to-4.md) says what changes. SDK 3.x stops receiving
   the V4 model on 15 January 2027, 00:00 UTC, and model versions from V4.1 on are published only encrypted, for SDK 4.0.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon (arm64 devices, the arm64 Simulator, arm64 Macs).
-- **Status:** 4.0.0 is in development and not released. It is compiled and its tests run on a Mac with Xcode
+- **Status:** 4.0.1. Each release is compiled and its tests run on a Mac with Xcode
   (docs/mac-checklist-4.0.md). It carries every fix of 3.1.5, the download work
-  included.
+  included. If Quran Lab's main servers can't be reached, the SDK uses backup servers automatically.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.0. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.1. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.0"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.1"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -93,7 +93,7 @@ against the checksum in `Package.swift`. Then add the App Attest capability ("Be
 | **Permissions** | `NSMicrophoneUsageDescription` in Info.plist: without it the system ends the app at the first use of the microphone. A sandboxed or hardened Mac app also needs the `com.apple.security.device.audio-input` entitlement. |
 | **Capabilities** | App Attest (Signing & Capabilities). With it, an install is hardware-verified: it gets the Neural Engine and sharing uploads. Without it the SDK still runs, on the CPU engine only. |
 | **Download** | Making the Client downloads nothing. The first `client.model()` or `client.prefetch()` downloads the model, encrypted: 55.5 MB, once (68.4 MB on disk), and needs a connection. On iOS 18 and macOS 15, for an attested install, the Neural Engine's build follows in the background: 76.1 MB more. |
-| **Offline** | The model opens under a lease Quran Lab signs for this install, renewed in the background whenever the device is online: learners keep working offline for days at a time (the exact time is set by Quran Lab and may change). When the lease has ended and Quran Lab cannot be reached, the model keeps opening for up to 24 hours more; a refusal ends that at once. A Model that is open keeps running. |
+| **Offline** | The first `client.model()` or `client.prefetch()` needs a connection; after that the model works offline. When the device is online, the SDK keeps itself up to date in the background. `needs_connection` means the SDK needs Quran Lab to continue. A Model that is open keeps running. |
 | **Model** | The model runs only inside the Quran Lab Core: its files are encrypted from Quran Lab's server to the device, and no plain model file is ever written. Do not change the Core's framework beyond Xcode's own signing: a changed Core gets no lease. When Quran Lab refuses the key or the app, the model's files are removed. |
 | **Analytics** | Anonymous counts and durations (never audio, text, names or device identifiers) and reports of the failures your learners hit are always sent; you find them at sdk.quranlab.ai under your app, Problems included. |
 | **Takes** | A Model has one open Session (one take) at a time; the next take is a new Session. A take holds at most 20 minutes of audio. |
@@ -207,17 +207,16 @@ section 18). Making the Client downloads nothing: the model downloads only when 
    Attest where the device has it. Quran Lab answers with an install certificate.
    Every new certificate comes with a new key.
 3. **The lease.** The signed manifest of the build the config names, then `POST /v1/model-key` with the
-   certificate and the Core's proof. The lease is wrapped for this install's key and for this Core release. Learners
-   keep working offline for days at a time; the exact time is set by Quran Lab and may change. While the device is
-   online the lease is renewed in the background about once a day, at a time spread per install. A valid lease never
-   waits for a renewal. An install attested with App Attest is hardware-verified, the class that may use the Neural
-   Engine.
+   certificate and the Core's proof. The lease is wrapped for this install's key and for this Core release. After
+   the first run the model works offline; when the device is online the SDK keeps itself up to date in the
+   background, and opening the model never waits for that. An install attested with App Attest is
+   hardware-verified, the class that may use the Neural Engine.
 4. **The download.** Ciphertext only (the build's CDN form), resumable, every file checked against the signed
    manifest. The Core installs each file to this install's device form (the plaintext's SHA-256 is checked inside
    the Core), and the downloaded copy is deleted.
-5. **The model opens** in the Core's memory from the device form and the lease. Offline with a valid lease it opens;
-   after the lease's end `client.model()` throws `needs_connection` and nothing is decrypted. A model already open
-   keeps running until it is closed. A device clock that is wrong or moved never locks a learner out.
+5. **The model opens** in the Core's memory from the device form and the lease, also offline. When
+   `client.model()` throws `needs_connection`, the SDK needs Quran Lab to continue, and nothing is decrypted. A model
+   already open keeps running until it is closed. A device clock that is wrong or moved never locks a learner out.
 
 On a network that fails, the bytes that arrived stay on the device (ciphertext, the CDN form), and the SDK takes a
 file up again by itself: at most five times per file in one call, after 1, 2, 4, 8 and 16 seconds, when there was
@@ -317,7 +316,8 @@ by itself: the compiled form that Core ML keeps for the Neural Engine of a packa
 `await client.diagnose()` is one report of where the SDK stands, safe to paste into an issue (`.json`): the SDK's
 version and the newest one, whether the key is accepted, the config, the model's version and build, the context,
 the backend, the microphone permission, what is on disk, the last error's code, the dropped chunks and the
-connection (`unmetered`, `metered`, `none` or `unknown`). Every error
+connection (`unmetered`, `metered`, `none` or `unknown`); from 4.0.1 also `endpoints` (see
+[docs/api.md](docs/api.md)). Every error
 the SDK throws is a `TajweedError` with a stable `code` (26 codes, the same in the four SDKs), a `message`, a `fix`
 and a `docs` link.
 

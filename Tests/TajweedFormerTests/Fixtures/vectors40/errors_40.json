@@ -30,14 +30,16 @@
    "expired",
    "clock",
    "parse",
-   "unavailable"
+   "unavailable",
+   "failover"
   ],
   "register": [
    "network",
    "timeout",
    "http",
    "rate_limited",
-   "refused"
+   "refused",
+   "failover"
   ],
   "attest": [
    "network",
@@ -48,7 +50,8 @@
    "unsupported",
    "attestation_failed",
    "integrity_failed",
-   "turnstile"
+   "turnstile",
+   "failover"
   ],
   "lease": [
    "network",
@@ -65,7 +68,8 @@
    "clock",
    "invalid",
    "grace",
-   "lease_unavailable"
+   "lease_unavailable",
+   "failover"
   ],
   "manifest": [
    "network",
@@ -77,7 +81,8 @@
    "invalid_answer",
    "signature",
    "parse",
-   "incompatible"
+   "incompatible",
+   "failover"
   ],
   "download": [
    "network",
@@ -91,7 +96,8 @@
    "signature",
    "storage",
    "quota",
-   "aborted"
+   "aborted",
+   "failover"
   ],
   "verify": [
    "hash",
@@ -162,11 +168,13 @@
    "refused",
    "quota",
    "storage",
-   "encoder"
+   "encoder",
+   "failover"
   ],
   "events": [
    "http",
-   "expired"
+   "expired",
+   "failover"
   ]
  },
  "codes_not_reported": [
@@ -943,6 +951,201 @@
    },
    "accepted": false,
    "field": "error.build"
+  },
+  {
+   "name": "a config every host failed, first a 503",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.1",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "config",
+     "reason": "http",
+     "http_status": 503,
+     "host_role": "api",
+     "fallback": true
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "the silent failover report",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.1",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "none",
+    "error": {
+     "stage": "lease",
+     "reason": "failover",
+     "error_code": "network",
+     "host_role": "api",
+     "fallback": true
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "a download on one host",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.1",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "download",
+     "reason": "timeout",
+     "host_role": "models",
+     "fallback": false,
+     "retries": 5
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "Node: an engine file",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.1",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "runtime",
+     "reason": "wasm_fetch",
+     "http_status": 502,
+     "host_role": "web_frame",
+     "fallback": true
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "a host role not of the three",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "config",
+     "reason": "http",
+     "host_role": "cdn"
+    }
+   },
+   "accepted": false,
+   "field": "error.host_role"
+  },
+  {
+   "name": "fallback that is not a bool",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "config",
+     "reason": "http",
+     "fallback": "yes"
+    }
+   },
+   "accepted": false,
+   "field": "error.fallback"
+  },
+  {
+   "name": "a host name (never sent)",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "web",
+    "sdk_version": "4.0.0",
+    "app_version": "2.4.0",
+    "os_version": "13",
+    "device_class": "browser",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "config",
+     "reason": "http",
+     "host": "api-b.tajweedformer.com"
+    }
+   },
+   "accepted": false,
+   "field": "error.host"
+  },
+  {
+   "name": "Android: the Core busy at the model open",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "android",
+    "sdk_version": "4.0.1",
+    "app_version": "2.4.0",
+    "os_version": "17",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "model_open",
+     "reason": "engine",
+     "error_code": "busy",
+     "error_name": "ai.quranlab.tajweedformer.core.CoreException",
+     "abi": "arm64-v8a",
+     "ram_tier": "8_16"
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "C: the Core out of memory at the model open",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "windows",
+    "sdk_version": "4.0.1",
+    "app_version": "2.4.0",
+    "os_version": "10.0",
+    "device_class": "desktop",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "engine_failed",
+    "error": {
+     "stage": "model_open",
+     "reason": "memory",
+     "error_code": "nomem",
+     "error_name": "QLC_E_NOMEM"
+    }
+   },
+   "accepted": true
   }
  ],
  "codes": [
@@ -1538,6 +1741,69 @@
    "on_device": "complete",
    "error_code": "lease_unavailable",
    "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "config",
+   "reason": "failover",
+   "http_status": 503,
+   "on_device": "none",
+   "error_code": "http",
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "failover",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": "network",
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "download",
+   "reason": "failover",
+   "http_status": null,
+   "on_device": "partial",
+   "error_code": "timeout",
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "model_open",
+   "reason": "memory",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": "nomem",
+   "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "model_open",
+   "reason": "engine",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": "busy",
+   "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "model_open",
+   "reason": "engine",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": "engine",
+   "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "model_open",
+   "reason": "engine",
+   "http_status": null,
+   "on_device": "complete",
+   "error_code": "arg",
+   "code": "engine_failed",
    "reported": true
   }
  ],
@@ -3996,6 +4262,41 @@
   {
    "reason": "parse",
    "failure_reason": "other"
+  }
+ ],
+ "core_open_are": "a Core status that fails qlc_model_open, where the SDK answers engine_failed for it, to the model_open report's reason and error_code (24.3); an SDK replays the statuses it answers engine_failed for (C answers QLC_E_BUSY with session_open, never reported, and QLC_E_ARG with model_invalid)",
+ "core_open": [
+  {
+   "status": -1,
+   "name": "QLC_E_ARG",
+   "stage": "model_open",
+   "reason": "engine",
+   "error_code": "arg",
+   "code": "engine_failed"
+  },
+  {
+   "status": -2,
+   "name": "QLC_E_NOMEM",
+   "stage": "model_open",
+   "reason": "memory",
+   "error_code": "nomem",
+   "code": "engine_failed"
+  },
+  {
+   "status": -8,
+   "name": "QLC_E_ENGINE",
+   "stage": "model_open",
+   "reason": "engine",
+   "error_code": "engine",
+   "code": "engine_failed"
+  },
+  {
+   "status": -11,
+   "name": "QLC_E_BUSY",
+   "stage": "model_open",
+   "reason": "engine",
+   "error_code": "busy",
+   "code": "engine_failed"
   }
  ]
 }

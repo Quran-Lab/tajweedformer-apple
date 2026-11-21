@@ -19,6 +19,10 @@ struct ErrorReportBody: Encodable, Sendable {
         // no `storage_free` on Apple: the free space of the volume is read under the required reason E174.1, which
         // allows nothing derived from it to leave the device
         var abi: String?
+        /// 4.0.1 (24.2, 28.7): `api`, `models` or `web_frame`, never a host name; and whether the request was asked of
+        /// more than one host.
+        var host_role: String?
+        var fallback: Bool?
     }
 
     var day: String
@@ -51,7 +55,9 @@ struct ErrorReportBody: Encodable, Sendable {
                        first_launch: e.firstLaunch, first_report: e.firstReport,
                        build: e.build.flatMap { Self.token($0, #"^[0-9a-f]{40}$"#) },
                        device_model: DeviceModel.current.flatMap { Self.token($0, #"^[A-Za-z0-9_.,-]{1,32}$"#) },
-                       ram_tier: DeviceContext.ramTier, abi: Self.abi)
+                       ram_tier: DeviceContext.ramTier, abi: Self.abi,
+                       host_role: e.hostRole.flatMap { EndpointRole(rawValue: $0) }?.rawValue,
+                       fallback: e.hostRole == nil ? nil : e.fallback)
     }
 
     /// `value` when the whole of it matches `pattern`, else nil.

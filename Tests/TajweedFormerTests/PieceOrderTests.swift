@@ -169,6 +169,79 @@ final class PieceOrderTests: XCTestCase {
         XCTAssertEqual(Array(named), want, name)
     }
 
+    /// 4.0.1 (Gate C, 2026-11-20): a model `client.model()` opened and does not hand out is closed, never left open with
+    /// no owner. With REAL opens of the test build: `closeIdleModel` leaves another folder's model open and closes this
+    /// folder's, after which the Core opens it again (it would answer `QLC_E_BUSY` while one is open); a Model whose
+    /// engine opened the Core's model, discarded, leaves the Core with nothing open.
+    func testAModelNobodyHoldsIsClosed() async throws {
+        let tb = try testBuild()
+        let lv = try V40.json("lease.json")
+        let signer = try V40.signer(lv)
+        let now = Int64(Date().timeIntervalSince1970)
+        let cert = try P.certificate(for: tb.key, signer: signer.private, now: now)
+        let answer: [String: Any] = ["v": 1, "lease": tb.lease.base64URL, "iat": now - 60, "exp": now + 604_800, "refresh_after": now + 72_000,
+                                     "base": "https://cdn.quranlab.ai/models/Quran-Lab/m/b/sdk/v4.0/", "install_cert": cert]
+        let transport = P.FakeTransport { (r: URLRequest, _: Int) -> HTTPClient.Response in
+            if r.url?.path.hasSuffix("v1/attest/challenge") == true { return P.response(200, ["challenge": P.challenge]) }
+            return r.url?.path.hasSuffix("v1/model-key") == true ? P.response(200, answer) : P.response(404, ["error": "not_found"])
+        }
+        let server = LeaseServer(transport: transport, apiURL: URL(string: "https://api.quranlab.ai")!, key: "qlk_v1_apps-one_sig",
+                                 platform: "ios", token: { (_: Bool) async throws(CloudError) -> String in "qlt_test" },
+                                 certify: { (_: any InstallKey) async throws(CloudError) -> String in cert },
+                                 trustedKeys: [signer.public])
+        let storage = Fixtures.storage()
+        let rt = ProtectedRuntime(storage: storage, server: server, keys: P.FixedKeys(tb.key), state: P.MemoryState(), clocks: SystemClocks())
+        _ = try await rt.ensureLease(tb.manifest)
+        let folderURL = storage.appendingPathComponent("models/v4.0/\(tb.manifest.build)")
+        try copyTree(tb.cdn, to: folderURL)
+        let encrypted = tb.manifest.files.filter(\.isEncrypted).filter { FileManager.default.fileExists(atPath: folderURL.appendingPathComponent($0.localPath + ".qle").path) }
+        for f in encrypted { try rt.install(tb.manifest, decodedPath: f.localPath, in: folderURL) }
+        let folder: ModelFolder
+        do throws(RecognizerError) {
+            folder = ModelFolder(id: ModelID("v4.0", repository: "Quran-Lab/test"), directory: folderURL, manifest: tb.manifest,
+                                 vocabulary: try Vocabularies.vocabulary(sha256: tb.manifest.tokensSHA256),
+                                 verifiedFiles: Set(encrypted.map(\.localPath)), coreMLProblem: "test")
+        } catch {
+            throw XCTSkip("the test build's vocabulary is not one the SDK carries: \(error)")
+        }
+        let other = ModelFolder(id: folder.id, directory: storage.appendingPathComponent("models/v4.0/other"), manifest: tb.manifest,
+                                vocabulary: folder.vocabulary, verifiedFiles: [], coreMLProblem: "test")
+        let context = tb.manifest.defaultContext
+        let opened = try rt.openModel(folder, context: context)
+        XCTAssertTrue(opened.isOpen)
+        rt.closeIdleModel(of: other)
+        XCTAssertTrue(opened.isOpen, "another folder's close leaves this one open")
+        rt.closeIdleModel(of: folder)
+        XCTAssertFalse(opened.isOpen, "closed")
+        XCTAssertNil(rt.openModel(of: folder))
+        let again = try rt.openModel(folder, context: context)
+        XCTAssertTrue(again.isOpen, "the Core had nothing open: the next open is not busy")
+        rt.closeModel()
+        // through a Model: its engine opens the Core's model (CPU only, as a Session with backend .cpu), then it is
+        // discarded as client.model() discards one whose warm-up threw
+        let before = ProtectedRuntime.current.withLock { $0 }
+        ProtectedRuntime.current.withLock { $0 = rt }
+        defer { ProtectedRuntime.current.withLock { $0 = before } }
+        // the folder as a download leaves it: every CPU file of the context verified (the Core reads the device forms)
+        let cpuFiles = DownloadProfile(context: context, coreML: false).cpuFiles(tb.manifest).map(\.localPath)
+        let usable = ModelFolder(id: folder.id, directory: folderURL, manifest: tb.manifest, vocabulary: folder.vocabulary,
+                                 verifiedFiles: folder.verifiedFiles.union(cpuFiles), coreMLProblem: "test")
+        let model = TajweedModel(usable, client: nil)
+        var cpu = TajweedSessionOptions()
+        cpu.backend = .cpu
+        do {
+            _ = try await model.prepare(options: cpu)
+        } catch {
+            throw XCTSkip("the test build does not open through a Model here: \(error)")
+        }
+        let held = try XCTUnwrap(rt.openModel(of: folder), "the Model's engine opened the Core's model")
+        await model.discard(closingCore: true)
+        XCTAssertFalse(held.isOpen, "discarded: the Core's model is closed")
+        let third = try rt.openModel(folder, context: context)
+        XCTAssertTrue(third.isOpen, "and the next open is not busy")
+        rt.closeModel()
+    }
+
     private func copyTree(_ from: URL, to: URL) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: to, withIntermediateDirectories: true)

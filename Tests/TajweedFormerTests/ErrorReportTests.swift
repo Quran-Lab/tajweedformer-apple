@@ -136,10 +136,13 @@ final class ErrorReportTests: XCTestCase {
         let error = try XCTUnwrap(body["error"] as? [String: Any])
         XCTAssertTrue(Set(error.keys).isSubset(of: ["stage", "reason", "http_status", "error_name", "error_code", "count", "retries",
                                                     "first_launch", "first_report", "build", "device_model", "ram_tier",
-                                                    "storage_free", "abi"]), "\(error.keys)")
+                                                    "storage_free", "abi", "host_role", "fallback"]), "\(error.keys)")
         XCTAssertEqual(error["stage"] as? String, "config")
         XCTAssertEqual(error["reason"] as? String, "http")
         XCTAssertEqual(error["http_status"] as? Int, 503)
+        // 4.0.1 (24.2, 28.7): the config request's role, asked of its one host (the stand-in's list has one)
+        XCTAssertEqual(error["host_role"] as? String, "api")
+        XCTAssertEqual(error["fallback"] as? Bool, false)
         XCTAssertEqual(error["count"] as? Int, 1)
         XCTAssertEqual(error["first_report"] as? Bool, true)
         XCTAssertEqual(error["abi"] as? String, "arm64")

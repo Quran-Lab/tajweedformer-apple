@@ -347,7 +347,7 @@ final class BlankVerification: @unchecked Sendable {
             while at < audio.count, !isCancelled {
                 let n = min(piece, audio.count - at)
                 let lo = at
-                r.chunks += try audio.withUnsafeBufferPointer { (p) throws(RecognizerError) -> [HeadsBuffer] in
+                r.chunks += try audio.withBuffer { (p) throws(RecognizerError) -> [HeadsBuffer] in
                     try e.push(UnsafeBufferPointer(rebasing: p[lo..<(lo + n)]))
                 }
                 at += n
@@ -606,7 +606,7 @@ final class TakeRunner {
         let first = coldNext ? policy.firstChunkMs : later
         let timeout = (first + later * Double(expected - 1)) / 1000
         let r = a.run(timeout: timeout, grace: policy.hangGraceMs / 1000) { (b: any AcceleratorBackend) throws(RecognizerError) -> [HeadsBuffer] in
-            try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try b.push(p) }
+            try s.withBuffer { (p) throws(RecognizerError) in try b.push(p) }
         }
         return try judge(r, audio: s, finishing: false, firstLimit: first, laterLimit: later)
     }
@@ -639,7 +639,7 @@ final class TakeRunner {
 
     private func cpuPush(_ s: [Float]) throws(RecognizerError) -> [HeadsBuffer] {
         guard let cpu else { throw .sessionClosed }
-        let out = try timed { () throws(RecognizerError) in try s.withUnsafeBufferPointer { (p) throws(RecognizerError) in try cpu.push(p) } }
+        let out = try timed { () throws(RecognizerError) in try s.withBuffer { (p) throws(RecognizerError) in try cpu.push(p) } }
         chunks += out.count
         return out
     }
@@ -749,7 +749,7 @@ final class TakeRunner {
         accelerator = nil
         let gap = ring.samples(from: v.end) + s
         var out = replayed
-        out += try gap.withUnsafeBufferPointer { (p) throws(RecognizerError) in try engine.push(p) }
+        out += try gap.withBuffer { (p) throws(RecognizerError) in try engine.push(p) }
         if finishing { out += try engine.finish() }
         // CPU chunk i is the take's chunk v.from + i; a whole-take replay replaces the whole take (exact)
         let kept = v.from == 0 ? 0 : v.first
@@ -787,7 +787,7 @@ final class TakeRunner {
         var from = k <= n && ring.oldest == 0 ? 0 : max(0, k - n)
         while from * chunkSamples < ring.oldest { from += 1 }
         let audio = ring.samples(from: from * chunkSamples) + s
-        var out = try audio.withUnsafeBufferPointer { (p) throws(RecognizerError) in try engine.push(p) }
+        var out = try audio.withBuffer { (p) throws(RecognizerError) in try engine.push(p) }
         if finishing { out += try engine.finish() }
         // CPU chunk i is the take's chunk from + i
         let kept = from == 0 ? 0 : min(k, before)

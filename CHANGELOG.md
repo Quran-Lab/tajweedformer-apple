@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.0.1
+
+- If Quran Lab's main servers can't be reached, the SDK uses backup servers automatically. There is nothing to set.
+- A faster first download: up to four files at a time, the largest first, and each file's SHA-256 made as its bytes
+  arrive instead of reading the file again at the end. What is downloaded, checked or refused is unchanged.
+- `TajweedClientOptions.appBuild`: the app's build number (`CFBundleVersion` when not set). The app's version and build
+  go with the config request, so Quran Lab can give each release of an app the model it was built for. Both are
+  cleaned by one rule on every platform, and registration sends the same cleaned version.
+- When the Core cannot open the model, the error report names why (`nomem` when the device ran out of memory, with
+  the message "not enough memory"; `busy`, `engine` or `arg` otherwise), so the causes of `engine_failed` can be told
+  apart. A model that `client.model()` opened and could not hand out is closed, never left open.
+- After a refused token, the SDK asks again once with the same challenge; a request that gets no answer waits the
+  time the server asked before the next try.
+- Removes model files left by other models.
+- `diagnose()` gains `endpoints`, and an error report says whether its request needed a backup server.
+- The error catalogue is the contract's of 2026-11-20 (the fix text of `reference_missing`); codes and messages are
+  unchanged.
+
 ## 4.0.0
 
 The model is protected. It is encrypted from Quran Lab's server to the device and runs only inside the Quran Lab Core
@@ -15,10 +33,9 @@ take stay as they were. Moving from 3.x: [docs/migrating-to-4.md](docs/migrating
   keeps that yes and is never asked again.
 - **Add the App Attest capability.** With it, an install is hardware-verified: it gets the Neural Engine and sharing
   uploads. Without it the SDK still runs, on the CPU engine only. On the Simulator, use a development key.
-- **The lease.** The model opens under a lease Quran Lab signs for the install, renewed in the background. Offline
-  within it, the model opens: learners keep working offline for days at a time (the exact time is set by Quran Lab
-  and may change). When it has ended and Quran Lab cannot be reached, the model keeps opening for 24 hours
-  more; a refusal ends that at once. A Model that is open keeps running.
+- **Offline.** The first `client.model()` or `client.prefetch()` needs a connection; after that the model works
+  offline. When the device is online, the SDK keeps itself up to date in the background. `needs_connection` means
+  the SDK needs Quran Lab to continue. A Model that is open keeps running.
 - **Making the Client downloads nothing.** The model downloads only when your app calls `client.model()` or
   `client.prefetch()`. In 3.x, making the Client could download the model at launch on a device that had none; a
   later start now checks only for an update of a build the Client installed.

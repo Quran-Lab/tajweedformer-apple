@@ -283,8 +283,12 @@ final class SharingOffRestartTests: XCTestCase {
     /// sends nothing for it although the server answers again. (On the code of 3.1.3 the same loop lost the
     /// recording 42 times of 50, and once in 300 without the seam.)
     func testAPassOfAQueueThatWasShutDownDeletesAndUploadsNothing() async throws {
+        #if DEBUG
         ContributionOutbox.passDelayForTests.withLock { $0 = 3_000_000 }
         defer { ContributionOutbox.passDelayForTests.withLock { $0 = 0 } }
+        #else
+        throw XCTSkip("needs the debug-only pass delay (ContributionOutbox.passDelayForTests), which a release build does not have")
+        #endif
         let fm = FileManager.default
         var lost = 0, sent = 0
         for i in 0..<50 {

@@ -331,7 +331,10 @@ final class Sharing40Tests: XCTestCase {
             var audio = try XCTUnwrap(want["audio"] as? [String: Any])
             if audio["input_sample_rate"] == nil { audio["input_sample_rate"] = audio["sample_rate"] }
             XCTAssertEqual(mine["audio"] as? NSDictionary, NSDictionary(dictionary: audio), name)
-            XCTAssertEqual(mine["decode"] as? NSDictionary, want["decode"] as? NSDictionary, name)
+            // the vector's bodies were made by a 4.0.0 SDK: the SDK names its own version (4.0.1 from this branch)
+            var decode = try XCTUnwrap(want["decode"] as? [String: Any])
+            if decode["sdk_version"] != nil { decode["sdk_version"] = SDKInfo.version }
+            XCTAssertEqual(mine["decode"] as? NSDictionary, NSDictionary(dictionary: decode), name)
             XCTAssertEqual(mine["device_model"] as? String, want["device_model"] as? String, name)
             for key in ["contributor", "day", "consent_version"] { XCTAssertEqual(mine[key] as? String, want[key] as? String, "\(name): \(key)") }
             XCTAssertEqual(mine["format"] as? Int, 1)
@@ -493,7 +496,7 @@ final class Sharing40Tests: XCTestCase {
         let markers = ShareFiles.markers(folder)
         XCTAssertEqual(markers.map(\.n), [1, 2])
         XCTAssertEqual(markers.map(\.rate), [16_000, 16_000])
-        XCTAssertEqual(markers.map(\.granule), [40 * 4096, 57 * 4096])
+        XCTAssertEqual(markers.map(\.granule), [40 * 4096, 57 * 4096] as [Int64])
         XCTAssertEqual(markers.map(\.bitrate), [0, 0])
         XCTAssertEqual(markers.map(\.audioFile), ["seg-00001.oga", "seg-00002.oga"])
         let end = try XCTUnwrap(ShareFiles.read(ShareFiles.End.self, folder.appendingPathComponent(ShareFiles.end)))

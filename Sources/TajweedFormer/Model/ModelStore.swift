@@ -263,6 +263,77 @@ struct ModelStore: Sendable {
         }
     }
 
+    /// Removes the store folders of every model id but the one in use, and returns their names (4.0.1; 3.0.2's rule,
+    /// in 4.0's store). `model` is the model in use: a folder that is the `current` revision of its id in this store.
+    /// Before, nothing removed another id's folders, so after a move to another model id the old one's files stayed
+    /// for ever. Only `models/<id>` folders go: the sharing outbox, the learner's choices, the lease and the Core's
+    /// state live outside this store and are never touched. The rules, each with its test (ModelStoreOtherIDsTests):
+    /// - only folders of this store that are model folders as the store makes them (`isStoreFolder`); a file, or a
+    ///   folder that holds anything else, is left alone, and so is `recommended.json`;
+    /// - never before the model in use is current: a model that is not the `current` revision of its id here (a
+    ///   staged one, a folder outside the store) removes nothing, so a failed install of a new id leaves the old id
+    ///   whole;
+    /// - the id in use is not touched: its `current`, its `previous` and a pending revision stay;
+    /// - the ids in `keeping` stay whatever they hold: the id of a Model that is open (`ModelsInUse`, and the Core's
+    ///   open model), of the model a Client is opening, and of a download under way (an install running, or ranges
+    ///   the background session still carries);
+    /// - an install that is pinned (`UpdatePolicy.pinned`; a version pin is the caller's to check) stays as it is.
+    @discardableResult
+    func removeOtherModels(inUse model: ModelFolder, keeping: Set<String> = []) -> [String] {
+        if case .pinned = updates { return [] }
+        let fm = FileManager.default
+        let id = model.id
+        guard let current = currentRevision(id),
+              model.directory.resolvingSymlinksInPath().path == base(id).appendingPathComponent(current).resolvingSymlinksInPath().path else {
+            return []
+        }
+        var removed: [String] = []
+        for name in ((try? fm.contentsOfDirectory(atPath: root.path)) ?? []).sorted()
+            where name != id.name && !name.hasPrefix(".") && !keeping.contains(name) {
+            let other = root.appendingPathComponent(name)
+            guard Self.isStoreFolder(other) else { continue }
+            if (try? fm.removeItem(at: other)) != nil { removed.append(name) }
+        }
+        return removed
+    }
+
+    /// The model id whose store folder holds `dir` (`models/<id>/...`), when it is in this store.
+    func modelName(of dir: URL) -> String? {
+        let r = root.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let d = dir.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        guard d.count > r.count, Array(d.prefix(r.count)) == r else { return nil }
+        return d[r.count]
+    }
+
+    /// Whether `dir` is a model id's folder as this store makes one: a folder that holds nothing but the pointer
+    /// files (`current`, `previous`, `pending`), resumable downloads (`.download-<revision>`) and revision folders
+    /// with a manifest.json, and at least one revision or download. Anything else in it (a file the store does not
+    /// write, a folder without a manifest) makes it not the store's, and it is left alone.
+    static func isStoreFolder(_ dir: URL) -> Bool {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue,
+              let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return false }
+        var models = 0
+        for name in names where name != ".DS_Store" {
+            var sub: ObjCBool = false
+            let item = dir.appendingPathComponent(name)
+            guard fm.fileExists(atPath: item.path, isDirectory: &sub) else { return false }
+            if ["current", "previous", "pending"].contains(name) {
+                if sub.boolValue { return false }
+                continue
+            }
+            guard sub.boolValue else { return false }
+            if name.hasPrefix(".download-") {
+                models += 1
+                continue
+            }
+            guard fm.fileExists(atPath: item.appendingPathComponent(ModelManifest.fileName).path) else { return false }
+            models += 1
+        }
+        return models > 0
+    }
+
     func currentRevision(_ id: ModelID) -> String? { pointer(base(id), "current") }
 
     /// The current revision of a model the store holds, whatever its id. An install holds one model; should the

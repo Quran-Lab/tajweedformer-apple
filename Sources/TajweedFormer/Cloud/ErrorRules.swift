@@ -20,7 +20,8 @@ enum ErrorRules {
     /// The code of the `TajweedError` the app gets for a failure at `stage` with `reason`, or `none` when the call
     /// goes on (a silent failure). `errorCode`: the server's `error` (or `reason`) of a refusal. errors40.py `code_for`.
     static func code(stage: String, reason: String, status: Int? = nil, onDevice: OnDevice = .nothing, errorCode: String? = nil) -> String {
-        if ["sharing", "events"].contains(stage) { return "none" }
+        // 4.0.1 (28.7): `failover`, the request was answered on another host: silent, as errors40.py
+        if ["sharing", "events"].contains(stage) || reason == "failover" { return "none" }
         // rule 3a: the token gates the config; with a build on the device, or an attestation the platform cannot give
         // (the SDK goes on unattested), the call goes on
         if stage == "attest", onDevice == .complete || attestationReasons.contains(reason) { return "none" }

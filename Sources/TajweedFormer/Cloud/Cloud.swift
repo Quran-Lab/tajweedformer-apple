@@ -11,6 +11,8 @@ final class QuranLabCloud: Sendable {
     let storage: URL
     let updates: UpdatePolicy
     let http: HTTPClient
+    /// SDK 4.0.1 (section 28): the roles' hosts and the sticky host of each.
+    let endpoints: EndpointSet
     let tokens: TokenProvider?
     let config: ConfigStore
     let analytics: AnalyticsStore
@@ -35,6 +37,8 @@ final class QuranLabCloud: Sendable {
     private let stopped = Locked(false)
     private let signatureReported = Locked<String?>(nil)
     private let refusal = Locked<(status: Int, code: String, message: String, reason: String?)?>(nil)
+    /// 4.0.1 (28.7): the request that brought `refusal` (its role, and whether more than one host was asked).
+    private let refusalTrace = Locked<RequestTrace.Entry?>(nil)
     /// Whether this start has asked the server again for a deletion that a process ended in (once per start).
     private let deletionAsked = Locked(false)
     /// Error reports: every failure that reaches the app and every silent one of 24.1.
@@ -99,6 +103,24 @@ final class QuranLabCloud: Sendable {
         return gate.stop?.error
     }
 
+    /// 4.0.1 (28.7): the cause of a call that fails on a remembered refusal (`modelStop`, `rejectionError`): its stage
+    /// and reason as before, with `host_role` and `fallback` of the request that brought the refusal. The call raises
+    /// it outside that request's operation, where `ErrorCause.traced` finds no request. `gateFirst`: the refusal the
+    /// call raises is the model gate's (`modelStop`), else this launch's first (`rejection`).
+    func refusalCause(_ e: RecognizerError, stage: String? = nil, gateFirst: Bool) -> ErrorCause {
+        var c = ErrorCause.of(e, stage: stage)
+        guard c.hostRole == nil, ErrorCause.hostStages.contains(c.stage), !ErrorCause.localReasons.contains(c.reason) else { return c }
+        let launch: RequestTrace.Entry? = refusal.withLock { $0 != nil } ? refusalTrace.withLock { $0 } : nil
+        let kept: RequestTrace.Entry? = gate.stop.flatMap { s in
+            s.hostRole.flatMap { EndpointRole(rawValue: $0) }.map { RequestTrace.Entry(role: $0, fallback: s.fallback ?? false) }
+        }
+        if let t = gateFirst ? (kept ?? launch) : (launch ?? kept) {
+            c.hostRole = t.role.rawValue
+            c.fallback = t.fallback
+        }
+        return c
+    }
+
     /// That refusal as the failure a call raises for it.
     var rejectionError: RecognizerError? {
         guard let r = rejection else { return nil }
@@ -131,7 +153,15 @@ final class QuranLabCloud: Sendable {
         lastSeal = Locked(clock())
         let app = cloud.app ?? .main
         self.app = app
-        let http = HTTPClient(session: cloud.urlSession ?? HTTPClient.makeSession())
+        // section 27: the app's version and build go on every config request, read once for this Client
+        let config = ConfigStore(storage: storage, trustedKeys: cloud.signingKeys, app: app)
+        self.config = config
+        // SDK 4.0.1 (section 28): the roles' hosts, the config in force's `endpoints` (its hosts only while it is in
+        // force), and the sticky host of each role for this process
+        let endpoints = EndpointSet(api: cloud.apiHosts, models: cloud.modelHosts,
+                                    config: { config.current.map { $0.endpoints } }, clock: clock)
+        self.endpoints = endpoints
+        let http = HTTPClient(session: cloud.urlSession ?? HTTPClient.makeSession(), endpoints: endpoints)
         self.http = http
         let gate = ModelGate(storage: storage)
         self.gate = gate
@@ -141,8 +171,6 @@ final class QuranLabCloud: Sendable {
                           attester: attester, attestKeys: attestKeys, storage: storage, issued: { gate.accepted(.api) })
         }
         self.tokens = tokens
-        let config = ConfigStore(storage: storage, trustedKeys: cloud.signingKeys)
-        self.config = config
         // the protocol of the last model request is this Client's own
         ModelDownloadRecord.reset()
         let issueQueue = IssueQueue(storage: storage)
@@ -180,6 +208,17 @@ final class QuranLabCloud: Sendable {
                                          return (c.models[id.repository]?.version, c.models[id.repository]?.revision)
                                      })
         errorReports = reports
+        // 4.0.1 (24.1 item 2, 28.7): a request of a reporting stage that was taken, refused or slowed down on another
+        // host after its first host was unreachable is one silent report, `<stage>`, `failover`, with the first host's
+        // reason and status (never a host name)
+        endpoints.onFailover.withLock {
+            $0 = { (f: EndpointSet.Failover, stage: String?) in
+                guard let stage, f.to != nil else { return }
+                reports.occur(ErrorCause(stage: stage, reason: "failover", httpStatus: f.status, errorCode: f.reason,
+                                         hostRole: f.role.rawValue, fallback: true),
+                              code: "none", enabled: config.current?.flags.issues ?? true)
+            }
+        }
         // SDK 4.0: the protected model. The lease route uses the same token as every call; a new
         // certificate comes from a full attest with a new install key.
         let leaseServer: LeaseServer? = tokens.flatMap { (t: TokenProvider) -> LeaseServer? in
@@ -263,11 +302,16 @@ final class QuranLabCloud: Sendable {
                     throw error
                 }
             })
-            // SDK 4.0: the manifest from Quran Lab's model host (the 4.0 config names no base, and a base an older
-            // config names is not used); the build's files from the lease answer's model folder (ModelUpdater)
-            return CDNClient(http: http, base: ModelHost.manifestBase(explicit: explicitBase), auth: auth, verifier: cdnVerifier,
-                             refused: { gate.note($0, from: .model) }, accepted: { gate.accepted(.model) },
-                             protocolSeen: { ModelDownloadRecord.note($0) })
+            // SDK 4.0: the build's files from the lease answer's model folder (ModelUpdater). 4.0.1 (28.4): the manifest
+            // from the same folder through the `models` hosts when this install holds a lease of the build (a lease from
+            // a backup host names that backup's model host), else from the build's folder under Quran Lab's model base (the
+            // path qlab-api names in every lease; the 4.0 config names no base, and a base an older config names is not
+            // used)
+            var cdn = CDNClient(http: http, base: ModelHost.manifestBase(explicit: explicitBase), auth: auth, verifier: cdnVerifier,
+                                refused: { gate.note($0, from: .model) }, accepted: { gate.accepted(.model) },
+                                protocolSeen: { ModelDownloadRecord.note($0) })
+            cdn.leaseFolder = { [weak runtime] (build: String) -> URL? in runtime?.leaseFolder(build) }
+            return cdn
         },
                                inferenceContext: { config.current?.inferenceContext },
                                coreML: DownloadProfile.osRunsCoreML && options.neuralEngine,
@@ -322,9 +366,11 @@ final class QuranLabCloud: Sendable {
         if ((status == 401 || status == 403) && fatal.contains(code)) || ModelGate.stops(status: status, reason: reason) {
             stopped.withLock { $0 = true }
             refusal.withLock { $0 = (status, code, message, reason) }
+            refusalTrace.withLock { $0 = RequestTrace.last }
         } else if status == 403, !code.hasPrefix("http_"), !isStopped {
             // a refusal with a code this SDK does not know: the calls go on, and the app's errors name the code
             refusal.withLock { $0 = (status, code, message, reason) }
+            refusalTrace.withLock { $0 = RequestTrace.last }
         }
     }
 
@@ -396,6 +442,11 @@ final class QuranLabCloud: Sendable {
     /// registered today).
     @discardableResult
     func register() async -> Bool {
+        // one operation for the causes it makes (4.0.1, RequestTrace)
+        await RequestTrace.scope { await self.registerOnce() }
+    }
+
+    private func registerOnce() async -> Bool {
         let today = Day.string(clock())
         // unreadable is taken as not there here, because the day's registration is then sent once more
         if (try? String(contentsOf: registeredDay, encoding: .utf8)) == today { return false }
@@ -435,6 +486,11 @@ final class QuranLabCloud: Sendable {
     /// verify is reported once a day (`signature_invalid`).
     @discardableResult
     func refreshConfig() async -> RemoteConfig? {
+        // one operation for the causes it makes (4.0.1, RequestTrace)
+        await RequestTrace.scope { await self.refreshConfigOnce() }
+    }
+
+    private func refreshConfigOnce() async -> RemoteConfig? {
         guard let tokens, !isStopped else { return nil }
         do throws(CloudError) {
             let t = try await tokens.token()
@@ -626,27 +682,8 @@ final class QuranLabCloud: Sendable {
         guard key != nil, !isStopped else { return (0, 0) }
         var events = 0, sentIssues = 0
         if flags.analytics {
-            events = await analytics.flush(send: { (d: Data) async throws(CloudError) -> Void in
-                do throws(CloudError) {
-                    _ = try await self.authed { (token: String) throws(CloudError) -> URLRequest in
-                        var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/events"), body: nil, auth: token)
-                        r.httpBody = d
-                        r.setValue("application/json", forHTTPHeaderField: "content-type")
-                        return r
-                    }
-                } catch {
-                    // contract 24.1 item 2: a telemetry report the server refused (400, 413) is dropped
-                    if case .rejected(let s, _, _, _) = error, s == 400 || s == 413 {
-                        self.noteSilent(ErrorCause(stage: "events", reason: "http", httpStatus: s))
-                    }
-                    // a body the server refuses is the SDK's bug: dropped, and reported (kind and code only)
-                    if case .rejected(400, _, _, _) = error {
-                        self.report(.serverRejected(status: 400, code: "bad_request", message: ""), kind: "other", code: "bad_request:events",
-                                    backend: nil, revision: nil)
-                    }
-                    throw error
-                }
-            })
+            // one operation for the causes it makes (4.0.1, RequestTrace: `events` names its request's role and fallback)
+            events = await RequestTrace.scope { await self.flushEvents() }
         }
         if options.issueReports {
             // the first accelerator incident of each kind per revision goes whatever flags.issues says
@@ -656,6 +693,31 @@ final class QuranLabCloud: Sendable {
         // the telemetry. SDK 4.0: no app option turns them off, only `flags.issues`
         if flags.issues { await sendErrorReports() }
         return (events, sentIssues)
+    }
+
+    /// The telemetry deltas of a send point, each one `POST /v1/events`.
+    private func flushEvents() async -> Int {
+        await analytics.flush(send: { (d: Data) async throws(CloudError) -> Void in
+            do throws(CloudError) {
+                _ = try await self.authed { (token: String) throws(CloudError) -> URLRequest in
+                    var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/events"), body: nil, auth: token)
+                    r.httpBody = d
+                    r.setValue("application/json", forHTTPHeaderField: "content-type")
+                    return r
+                }
+            } catch {
+                // contract 24.1 item 2: a telemetry report the server refused (400, 413) is dropped
+                if case .rejected(let s, _, _, _) = error, s == 400 || s == 413 {
+                    self.noteSilent(ErrorCause(stage: "events", reason: "http", httpStatus: s).traced())
+                }
+                // a body the server refuses is the SDK's bug: dropped, and reported (kind and code only)
+                if case .rejected(400, _, _, _) = error {
+                    self.report(.serverRejected(status: 400, code: "bad_request", message: ""), kind: "other", code: "bad_request:events",
+                                backend: nil, revision: nil)
+                }
+                throw error
+            }
+        })
     }
 
     // MARK: error reports
@@ -826,8 +888,27 @@ final class QuranLabCloud: Sendable {
         if let why = gate.unreadable { return .failed(ModelGate.unreadableError(why)) }
         if config.current == nil { _ = await refreshConfig() }
         guard let target = targetRevision(id) else { return .deferred("no revision in the config yet") }
-        return await updater.update(id, to: target, version: targetVersion(id), keyID: targetKeyID(id), context: context, activate: activate,
-                                    keep: keep, unmeteredOnly: unmeteredOnly)
+        let outcome = await updater.update(id, to: target, version: targetVersion(id), keyID: targetKeyID(id), context: context, activate: activate,
+                                           keep: keep, unmeteredOnly: unmeteredOnly)
+        // 4.0.1 (3.0.2's rule): the model of this id is installed and the one in use, so the store folders of every
+        // other model id go. An install pinned to a model version stays as it is.
+        if activate, case .installed(let model, _) = outcome, config.pinnedVersion == nil { await removeOtherModels(inUse: model) }
+        return outcome
+    }
+
+    /// Removes the model files other model ids left in this Client's store (`ModelStore.removeOtherModels`), keeping
+    /// every id that is in use: the folder of an open Model, the Core's open model, the model a Client is opening,
+    /// and a download under way (an install running here, or ranges the background session still carries). Only
+    /// the model store: the sharing outbox, the learner's choices, the lease and the Core's state are never touched.
+    @discardableResult
+    func removeOtherModels(inUse model: ModelFolder) async -> [String] {
+        var keeping = await updater.runningModelNames()
+        let others = ((try? FileManager.default.contentsOfDirectory(atPath: store.root.path)) ?? []).filter { $0 != model.id.name }
+        keeping.formUnion(await updater.backgroundModelNames(among: others))
+        var open = ModelsInUse.all
+        if let core = protected.openFolder { open.append(core) }
+        for dir in open { if let name = store.modelName(of: dir) { keeping.insert(name) } }
+        return store.removeOtherModels(inUse: model, keeping: keeping)
     }
 
     // MARK: sharing routes for the learner

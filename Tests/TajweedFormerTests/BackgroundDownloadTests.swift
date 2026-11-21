@@ -103,10 +103,63 @@ final class BackgroundDownloadTests: XCTestCase {
     override func setUp() {
         // ranges of 100 bytes, so that the test folder's files have several
         ModelInstaller.smallestRange.withLock { $0 = 100 }
+        // the 3.1.5 tests count the hand-over of an install that fetches one file at a time, which is how 4.0.1 goes
+        // on after the app has left; several files at a time before it is `testSeveralFilesAtATimeThenTheRestToTheBackground`
+        ModelInstaller.parallelFiles.withLock { $0 = 1 }
     }
 
     override func tearDown() {
         ModelInstaller.smallestRange.withLock { $0 = 64 << 10 }
+        ModelInstaller.parallelFiles.withLock { $0 = 4 }
+    }
+
+    // MARK: 4.0.1: several files at a time, then the background
+
+    /// 4.0.1, policy `whenLeaving`: while the app is in the foreground the files come several at a time. The weights
+    /// file's first range is held in flight; meanwhile the frames and the tokens come whole in the foreground (the
+    /// frames installed, the tokens' CDN form waiting for its turn, after the weights). The app leaves: the weights'
+    /// request is ended, and what is left of it goes to background tasks, once; the tokens are not handed over (their
+    /// verified CDN form is on disk). Every range of the weights is fetched exactly once, the Core installs each file
+    /// once in the manifest's order, and nothing of the download is left beside the installed files.
+    func testSeveralFilesAtATimeThenTheRestToTheBackgroundWhenTheAppLeaves() async throws {
+        ModelInstaller.parallelFiles.withLock { $0 = 4 }
+        let first = StubProtocol.Gate()
+        let held = Locked(false)
+        let build = StubBuild.serve(cdn: { path, seen in
+            var reply = StubBuild.served(path, seen)
+            if path == Self.weights, ModelDownloadTests.range(seen)?.lower == 0, held.withLock({ (h: inout Bool) -> Bool in defer { h = true }; return !h }) {
+                reply.hold = first
+            }
+            return reply
+        })
+        let standIn = StandIn()
+        let handOver = DownloadHandOver()
+        let storage = CloudFixtures.storage()
+        let client = try makeClient(storage, standIn, .whenLeaving, handOver)
+        defer { client.close() }
+        let call = Task { await client.model() }
+        let folder = client.folder
+        try await Self.wait("the weights' first range in flight") { held.withLock { $0 } }
+        try await Self.wait("the frames installed and the tokens' CDN form whole, both by the foreground") {
+            FileManager.default.fileExists(atPath: folder.appendingPathComponent("c16_l64/frames.zfw.qld").path)
+                && ModelInstaller.sizeOnDisk(folder.appendingPathComponent(StubBuild.tokens)) == 248
+        }
+        XCTAssertEqual(standIn.started, [], "nothing is handed over while the app is in the foreground")
+        XCTAssertEqual(client.core.installed.withLock { $0 }, ["c16_l64/frames.zfw.qle"], "the tokens wait for the weights, before them in the manifest")
+        handOver.set(away: true)
+        let got = await call.value
+        handOver.set(away: false)
+        first.open()
+        XCTAssertEqual(got.build, build, "the model opens: every file's hash is right (\(String(describing: got.error)))")
+        XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights), ["0-99", "100-199", "200-299", "300-399", "400-419"],
+                       "what was left of the weights, to the background once")
+        XCTAssertEqual(Self.ranges(standIn.started, of: StubBuild.tokens), [], "a file whole on disk is not handed over")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), ["0-99", "100-199", "200-247"], "the tokens by the foreground, once")
+        XCTAssertEqual(StubProtocol.cancelled.withLock { Self.foreground($0, of: Self.weights) }, ["0-99"], "the weights' request in flight was ended")
+        XCTAssertEqual(client.core.installed.withLock { $0 }, StubBuild.files.map(\.path), "each file once, in the manifest's order")
+        let left = (fm.enumerator(atPath: storage.appendingPathComponent("models").path)?.compactMap { $0 as? String } ?? [])
+            .filter { $0.contains(".part") }
+        XCTAssertEqual(left, [], "no partial file and no kept range is left")
     }
 
     static let weights = StubBuild.weights

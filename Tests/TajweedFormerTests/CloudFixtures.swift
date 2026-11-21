@@ -291,7 +291,12 @@ enum CloudFixtures {
     static let cdn = URL(string: "https://cdn.test")!
     static let key = "qlk_v1_test-dev_AAAAAAAAAAAAAAAAAAAAAA"
     static let app = AppIdentity(platform: "ios", bundleID: "com.example.quran", name: "Example", version: "2.1")
+    #if compiler(>=6.1)
     static let signer = Curve25519.Signing.PrivateKey()
+    #else
+    // an immutable key that the SDKs of Xcode 16.0 to 16.2 (Swift 6.0) do not mark Sendable
+    nonisolated(unsafe) static let signer = Curve25519.Signing.PrivateKey()
+    #endif
 
     static func storage() -> URL {
         let d = FileManager.default.temporaryDirectory.appendingPathComponent("zf-cloud-\(UUID().uuidString)")

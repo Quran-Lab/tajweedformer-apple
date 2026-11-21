@@ -71,9 +71,10 @@ public struct TajweedClientOptions: Sendable
 What a Client may be told besides its key. Every field has a default. SDK 4.0: there is no analytics option. Anonymous analytics (daily counts and durations only, never audio, text, names or device identifiers) are always on; Quran Lab's signed config (`flags.analytics`) is the only off switch. SDK 4.0: there is no audience option. Every app shows the same sharing sheet, every learner is asked under the same rules, and the choice is the learner's.
 
 - `public var appId: String?`: The app's id; nil reads the bundle identifier.
-- `public var appVersion: String?`: The app's version; nil reads the bundle's short version.
+- `public var appVersion: String?`: The app's version; nil reads the bundle's short version (`CFBundleShortVersionString`).
+- `public var appBuild: String?`: The app's build number (SDK 4.0.1); nil reads the bundle's `CFBundleVersion`. It goes, with the version, on the config request only (`app_build`, contract section 27), so Quran Lab can give an app's releases the model each was built for, by the rules its developer sets on sdk.quranlab.ai.
 - `public var storage: URL?`: Where the SDK keeps models and its queues; nil means `Application Support/QuranLab` (on macOS `Application Support/<bundle id>/QuranLab`). The folder is the SDK's to fill: a model found there that this Client did not download itself on this device is not opened; it is deleted and downloaded.
-- `public init(appId: String? = nil, appVersion: String? = nil, storage: URL? = nil)`
+- `public init(appId: String? = nil, appVersion: String? = nil, appBuild: String? = nil, storage: URL? = nil)`
 
 ## TajweedModel
 
@@ -452,7 +453,8 @@ public struct TajweedDiagnosis: Sendable, Hashable
 - `public let connection: String`: The device's connection: `unmetered` (Wi-Fi, Ethernet), `metered` (cellular, a personal hotspot, Low Data Mode), `none`, or `unknown` when the system does not say. `prefetch(unmeteredOnly:)` downloads on `unmetered` and `unknown`.
 - `public var downloadProtocol: String?`: The protocol of the last model request that was answered for this Client in this process: `h3`, `h2` or `http/1.1`; nil when none was made yet or the system named none. Held in memory and sent in no telemetry. In `json` it is the optional key `downloadProtocol`, written after the eleven fields when it is known.
 - `public var protected: Protected? = nil`: Nil before the protected model's runtime exists (no key configured).
-- `public var json: String`: The report as JSON, its eleven fields in the order every SDK writes them, for pasting; then `downloadProtocol` when one is known, and (4.0) `protected`.
+- `public var endpoints: Endpoints? = nil`: SDK 4.0.1: nil without a key (no request is made to any host).
+- `public var json: String`: The report as JSON, its eleven fields in the order every SDK writes them, for pasting; then `downloadProtocol` when one is known, (4.0) `protected`, and (4.0.1) `endpoints` after `protected` (28.7).
 
 ### TajweedDiagnosis.Key
 
@@ -484,12 +486,29 @@ public struct TajweedDiagnosis: Sendable, Hashable
 
 - `public struct Protected: Sendable, Hashable`: SDK 4.0, contract section 25 (`sdk_4.0.0/DIAGNOSIS_40.md`): the protected model as the Core holds it. Its fields in the section's order; no key, path or identifier.
 - `public let keyStore: String?`: Where the install's agreement key lives: `secureEnclave`, `keychain` (a software key in the Keychain), or `file` where the Keychain refuses the process (a 0600 file in the storage folder; the Core then seals its state under a key of its release, 18.4.7, as C's `file`). Nil before the install has a key.
-- `public let lease: String`: `valid`, `grace` (expired, opened because Quran Lab could not be reached, 18.4.7.1), `expired`, `stopped` or `none`.
-- `public let leaseExpires: Int64?`: The `exp` of the lease the Core holds, also when it has expired or was stopped; nil only when `lease` is `none`.
-- `public let leaseClass: String?`: `attested` or `standard`, from the lease's flags (bit 3, 18.4.6: `attested` may use the Neural Engine), never from `exp - iat` (18.4.7.2: how long a lease lasts is Quran Lab's); nil when `lease` is `none` or `stopped`.
-- `public let refreshAfter: Int64?`: The lease's `refresh_after`; nil when `lease` is `none` or `stopped`.
-- `public let graceUntil: Int64?`: `exp` + 86400 while `lease` is `grace`; nil otherwise.
+- `public let lease: String`: The state of the lease the Core holds, for support: `valid`, `grace` (the model opened while Quran Lab could not be reached, 18.4.7.1), `expired`, `stopped` or `none`. An app does not act on it: `client.model()` says what to do (`needs_connection`: the SDK needs Quran Lab to continue).
+- `public let leaseExpires: Int64?`: A time of the lease the Core holds (unix seconds, its `exp`), for support; nil only when `lease` is `none`.
+- `public let leaseClass: String?`: `attested` or `standard`, from the lease's flags (bit 3, 18.4.6: `attested` may use the Neural Engine); nil when `lease` is `none` or `stopped`.
+- `public let refreshAfter: Int64?`: A time of the lease the Core holds (unix seconds, its `refresh_after`), for support; nil when `lease` is `none` or `stopped`.
+- `public let graceUntil: Int64?`: A time the Core gives while `lease` is `grace` (unix seconds), for support; nil otherwise.
 - `public let core: String?`: The Core's release and target (`qlc_version`); nil when the Core is not loaded.
+
+### TajweedDiagnosis.Endpoints
+
+- `public struct Endpoints: Sendable, Hashable`: SDK 4.0.1: the Quran Lab servers in use. If the main servers can't be reached, the SDK uses backup servers automatically; this says which one each kind of request uses now. Host names only: never a path, a query or a key.
+- `public let api: String?`: The host the next API request goes to first.
+- `public let models: String?`: The host the next model request goes to first.
+- `public let lastFailover: Failover?`: The last request of this process that found its first host unreachable; nil when none did.
+
+### TajweedDiagnosis.Failover
+
+- `public struct Failover: Sendable, Hashable`: One request that found its first host unreachable (28.7 `lastFailover`).
+- `public let role: String`: `api` or `models`.
+- `public let from: String`: The host that did not answer.
+- `public let to: String?`: The host that answered instead; nil when none did (every host of the list was unreachable, or the list had one host).
+- `public let reason: String`: Why the first host was unreachable: `network` (no answer), `timeout`, `http` (a 5xx or another answer that was no answer of the route), `redirect` or `invalid_answer`.
+- `public let status: Int?`: The first host's HTTP status, when it answered one.
+- `public let at: Int64`: When, in unix seconds.
 
 ## TajweedError
 

@@ -169,8 +169,16 @@ enum CrashSymbols {
         #if canImport(MachO)
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        #if compiler(>=6.1)
+        let task = mach_task_self_
+        #else
+        // Swift 6.0's SDKs declare mach_task_self_ as a mutable C global, which Swift 6 mode refuses to read: the
+        // same port, read through the dynamic loader
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "mach_task_self_") else { return nil }
+        let task = sym.load(as: mach_port_t.self)
+        #endif
         let kr = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(task, task_flavor_t(TASK_VM_INFO), $0, &count) }
         }
         return kr == KERN_SUCCESS ? Int(info.phys_footprint / 1_048_576) : nil
         #else

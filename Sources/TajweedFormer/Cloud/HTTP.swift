@@ -3,11 +3,33 @@ import Foundation
 /// Where the SDK's servers are and what it trusts. The defaults are production; tests and the
 /// local stack point them elsewhere.
 struct CloudOptions: Sendable {
-    /// qlab-api.
+    /// qlab-api: the `api` role's first host, which every request of the API is made on (SDK 4.0.1: the request then
+    /// goes through the role's hosts, `EndpointSet`).
     var apiURL: URL
-    /// Where model manifests are read. Nil, the default: `https://cdn.quranlab.ai/models`. SDK 4.0: a config's
-    /// base is never used, and a build's files come only from the model folder its lease answer names.
+    /// Where model manifests are read when no lease of the build names its folder yet. Nil, the default:
+    /// `https://cdn.quranlab.ai/models`, its host the `models` role's first. SDK 4.0: a config's base is never used,
+    /// and a build's files come only from the model folder its lease answer names, through the `models` hosts.
     var cdnURL: URL?
+    /// SDK 4.0.1 (28.1): the `api` role's hosts, in order, as origins. Nil: the built-in hosts when `apiURL` is
+    /// Quran Lab's, else `apiURL` alone (a test build replaces a role's hosts; a released build never does).
+    var apiHostList: [URL]? = nil
+    /// The same for the `models` role: nil is the built-in hosts when `cdnURL` is nil, else the host of `cdnURL` alone.
+    var modelHostList: [URL]? = nil
+
+    /// The `api` role's hosts this Client is built with (28.1).
+    var apiHosts: [URL] {
+        if let apiHostList, !apiHostList.isEmpty { return apiHostList }
+        return Endpoints.origin(of: apiURL) == Endpoints.origin(Self.productionAPIHost) ? EndpointSet.builtInOrigins(.api) : [apiURL]
+    }
+
+    /// The `models` role's hosts this Client is built with (28.1).
+    var modelHosts: [URL] {
+        if let modelHostList, !modelHostList.isEmpty { return modelHostList }
+        guard let cdnURL, let o = Endpoints.origin(of: cdnURL) else { return EndpointSet.builtInOrigins(.models) }
+        return [o]
+    }
+
+    static let productionAPIHost = "api.quranlab.ai"
     /// Raw 32-byte Ed25519 public keys that config responses and model manifests may be signed with.
     var signingKeys: [Data]
     /// Send error reports (independent of `analytics`). The remote config can also turn them off.
@@ -24,8 +46,9 @@ struct CloudOptions: Sendable {
     var rangeSize: Int64
     /// The pauses, in seconds, before a model file's download is taken up again after a failure of the network:
     /// one per retry, so their count is the most retries a file gets in one call. Tests pass short ones.
-    /// (To 3.1.1 there was an option `parallelDownloads` here that nothing read: the download is one request at a
-    /// time in the foreground. It is gone; `parallelBackgroundRanges` is what the background session runs at a time.)
+    /// (To 3.1.1 there was an option `parallelDownloads` here that nothing read. It is gone: from 4.0.1 the
+    /// foreground fetches up to `ModelInstaller.parallelFiles` files at a time, one request at a time per file;
+    /// `parallelBackgroundRanges` is what the background session runs at a time.)
     var retryPauses: [TimeInterval]
     /// Whether, and when, a model download uses the background session (`BackgroundDownloads.swift`). Ignored
     /// when `urlSession` is set, unless `backgroundTransport` is.
@@ -160,11 +183,19 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
     /// The protocol the request went by, as the system's metrics name it (`h3`, `h2`, `http/1.1`); nil until the
     /// task's metrics arrive, and when they name none.
     let networkProtocol = Locked<String?>(nil)
+    /// When a byte last moved for the request before its answer came: it started, or a part of its body went out
+    /// (28.3 item 6: a host's silence is counted from there).
+    let progressed = Locked(Date())
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest) async -> URLRequest? {
         refused.withLock { $0 = true }
         return nil
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64,
+                    totalBytesExpectedToSend: Int64) {
+        progressed.withLock { $0 = Date() }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
@@ -176,6 +207,9 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
 /// A thin JSON client for qlab-api and qlab-cdn.
 struct HTTPClient: Sendable {
     let session: URLSession
+    /// The roles' hosts and their sticky hosts (SDK 4.0.1, section 28): a request made on a role's host goes through
+    /// the role's order (`routed`). Nil: every request goes to the host it names, as before.
+    var endpoints: EndpointSet? = nil
 
     struct Response: Sendable {
         let status: Int
@@ -202,6 +236,12 @@ struct HTTPClient: Sendable {
         c.httpShouldSetCookies = false
         c.urlCache = nil
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
+        #if DEBUG
+        // debug builds only (StagingHooks): a hosted test's proxy, which makes some hosts unreachable for this process
+        if let proxy = StagingHooks.connectionProxy.withLock({ $0 }) {
+            c.connectionProxyDictionary = Dictionary(uniqueKeysWithValues: proxy.map { (AnyHashable($0.key), $0.value as Any) })
+        }
+        #endif
         return URLSession(configuration: c)
     }
 
@@ -227,14 +267,41 @@ struct HTTPClient: Sendable {
     /// Tried before (to 3.1.2): only a model request had the refusing delegate (since 3.1.0). Every other request
     /// was sent with `session.data(for:)` and no delegate, which leaves a redirect to the system, and the system
     /// follows it.
+    /// SDK 4.0.1: a request made on a host of a role (`EndpointSet.role(of:)`) goes through the role's order (28.3):
+    /// `routed`, where the answer the route asks for is a 2xx with a JSON (or empty) body.
     func send(_ request: URLRequest) async throws(CloudError) -> Response {
-        let data: Data, response: URLResponse
+        try await routed(request, role: nil, accept: Endpoints.jsonAnswer)
+    }
+
+    /// `send`, where `accept` says whether a 2xx (or a 304) is the answer the route asks for (28.3: a config that
+    /// verifies, a lease the Core accepts); one that is not is unreachable on that host, and the next is asked.
+    func send(_ request: URLRequest, accepting accept: @escaping @Sendable (Response) -> Bool) async throws(CloudError) -> Response {
+        try await routed(request, role: nil, accept: accept)
+    }
+
+    /// One request to the one host it names, as every request was before 4.0.1. `limited`: the host's silence limit
+    /// of 28.3 item 6 (no byte for 10 s before the answer's status is no answer).
+    func once(_ request: URLRequest, limited: Bool) async throws(CloudError) -> Response {
         let watch = NoRedirect()
-        do {
-            (data, response) = try await session.data(for: request, delegate: watch)
-        } catch {
-            // no answer: the system's words, and its error's domain and code for the error report
-            throw .offline(ErrorCause.noAnswer(error))
+        let data: Data, response: URLResponse
+        if limited {
+            let opened = try await head(request, watch: watch, limit: Self.silenceLimit.withLock { $0 })
+            response = opened.response
+            var body = Data()
+            do {
+                for try await byte in opened.bytes { body.append(byte) }
+            } catch {
+                // the answer began and did not end: the system's words, its domain and code (24.2)
+                throw .offline(ErrorCause.noAnswer(error))
+            }
+            data = body
+        } else {
+            do {
+                (data, response) = try await session.data(for: request, delegate: watch)
+            } catch {
+                // no answer: the system's words, and its error's domain and code for the error report
+                throw .offline(ErrorCause.noAnswer(error))
+            }
         }
         guard let http = response as? HTTPURLResponse else { throw .invalid("not an HTTP response") }
         if watch.refused.withLock({ $0 }) || Self.redirects.contains(http.statusCode) { throw Self.redirectRefused(http.statusCode) }
@@ -250,6 +317,15 @@ struct HTTPClient: Sendable {
     /// code from the body.
     func checked(_ request: URLRequest) async throws(CloudError) -> Response {
         let r = try await send(request)
+        if (200..<300).contains(r.status) { return r }
+        throw Self.failure(status: r.status, body: r.body)
+    }
+
+    /// `checked` of a request of `role` (a model request, whose folder may be on a host that is not one of the role's:
+    /// that host is asked first, 28.4).
+    func checked(_ request: URLRequest, role: EndpointRole, accept: @escaping @Sendable (Response) -> Bool = Endpoints.jsonAnswer)
+        async throws(CloudError) -> Response {
+        let r = try await routed(request, role: role, accept: accept)
         if (200..<300).contains(r.status) { return r }
         throw Self.failure(status: r.status, body: r.body)
     }
@@ -329,17 +405,17 @@ struct HTTPClient: Sendable {
     /// for the whole file and written over the partial file from its first byte, with no look at its length, and an
     /// answer without a byte was a success. A 204, a short 200 or an error page with status 200 then wiped the
     /// partial file, and the caller asked again at once, without a count and without a pause.
-    func stream(_ request: URLRequest, offset: Int64, size: Int64, into file: URL,
+    ///
+    /// `hash` (4.0.1): told every piece written to the partial file, at its place in the file; a whole file is hashed
+    /// as it is written beside it, and that hash becomes the partial file's when the whole file takes its place.
+    func stream(_ request: URLRequest, offset: Int64, size: Int64, into file: URL, hash: PartHasher? = nil,
                 started: @Sendable (_ headers: [String: String], _ whole: Bool) -> Void,
                 received: @Sendable (Int64) -> Void) async throws(CloudError) -> Streamed {
         let fm = FileManager.default
         let watch = NoRedirect()
-        let incoming: URLSession.AsyncBytes, response: URLResponse
-        do {
-            (incoming, response) = try await session.bytes(for: request, delegate: watch)
-        } catch {
-            throw .offline(error.localizedDescription)
-        }
+        // SDK 4.0.1: with the roles' hosts, a model host has 10 s without a byte before the answer's status (28.3)
+        let opened = try await head(request, watch: watch, limit: endpoints == nil ? nil : Self.silenceLimit.withLock { $0 })
+        let incoming = opened.bytes, response = opened.response
         guard let http = response as? HTTPURLResponse else { throw .invalid("not an HTTP response") }
         var headers: [String: String] = [:]
         for (k, v) in http.allHeaderFields {
@@ -396,6 +472,9 @@ struct HTTPClient: Sendable {
             throw .storage("cannot open \(target.lastPathComponent): \(error.localizedDescription)")
         }
         if !whole { started(headers, false) }
+        // the hash of what this answer writes: the partial file's own (a range), or one of its own (a whole file)
+        let writing = whole ? (hash == nil ? nil : PartHasher()) : hash
+        let first = whole ? Int64(0) : offset
         var written: Int64 = 0
         var buffer = [UInt8]()
         buffer.reserveCapacity(Self.pieceBytes)
@@ -411,7 +490,7 @@ struct HTTPClient: Sendable {
                 }
                 buffer.append(byte)
                 if buffer.count >= Self.pieceBytes {
-                    storage = Self.write(&buffer, to: handle)
+                    storage = Self.write(&buffer, to: handle, hash: writing, at: first + written)
                     if storage != nil { break }
                     written += Int64(Self.pieceBytes)
                     if !whole { received(Int64(Self.pieceBytes)) }
@@ -423,7 +502,7 @@ struct HTTPClient: Sendable {
         // what arrived before the connection ended is written before the failure is reported
         if storage == nil, !buffer.isEmpty {
             let last = Int64(buffer.count)
-            storage = Self.write(&buffer, to: handle)
+            storage = Self.write(&buffer, to: handle, hash: writing, at: first + written)
             if storage == nil {
                 written += last
                 if !whole { received(last) }
@@ -442,6 +521,7 @@ struct HTTPClient: Sendable {
                     try? fm.removeItem(at: target)
                     throw .storage("cannot put \(file.lastPathComponent) in place: \(error.localizedDescription)")
                 }
+                if let hash, let writing { hash.take(writing) }
                 started(headers, true)
                 received(size - offset)
                 return Streamed(status: status, headers: headers, whole: true, written: written, networkProtocol: named)
@@ -460,11 +540,13 @@ struct HTTPClient: Sendable {
         return Streamed(status: status, headers: headers, whole: false, written: written, networkProtocol: named)
     }
 
-    /// Writes the gathered bytes to the file and empties the buffer; the failure's words when the write fails.
-    private static func write(_ buffer: inout [UInt8], to handle: FileHandle) -> String? {
+    /// Writes the gathered bytes to the file at `offset` (where the handle stands) and empties the buffer; the bytes
+    /// written go to `hash`. The failure's words when the write fails.
+    private static func write(_ buffer: inout [UInt8], to handle: FileHandle, hash: PartHasher?, at offset: Int64) -> String? {
         defer { buffer.removeAll(keepingCapacity: true) }
         do {
             try handle.write(contentsOf: buffer)
+            if let hash { buffer.withUnsafeBytes { hash.append($0, at: offset) } }
             return nil
         } catch {
             return error.localizedDescription

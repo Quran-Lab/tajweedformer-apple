@@ -8,17 +8,27 @@ import XCTest
 /// file whose path ends with one of the given endings fails as the read of a file of a protected class fails while
 /// the device is locked; the file itself is not touched, and writes go through. `open()` ends it. This is a switch
 /// of the test: no test here locks a device.
+/// The seam is in debug builds only (`StorageSeam`): in a release build of the tests these do nothing, and the tests
+/// that need them skip (`UnreadableStorageTestCase`).
 enum StorageLock {
     static func refuse(_ endings: [String]) {
+        #if DEBUG
         StorageSeam.refusesReads.withLock { $0 = { (url: URL) -> Bool in endings.contains { url.path.hasSuffix($0) } } }
+        #endif
     }
 
-    static func open() { StorageSeam.refusesReads.withLock { $0 = nil } }
+    static func open() {
+        #if DEBUG
+        StorageSeam.refusesReads.withLock { $0 = nil }
+        #endif
+    }
 
     /// Between tests: no read is refused, and the Keychain is the system's.
     static func reset() {
         open()
+        #if DEBUG
         StorageSeam.keychain.withLock { $0 = nil }
+        #endif
     }
 }
 
@@ -77,16 +87,25 @@ final class MemoryKeychain: @unchecked Sendable {
 
     /// From here the SDK's calls for the contributor's Keychain items come to this stand-in.
     func install() {
+        #if DEBUG
         let standIn = KeychainStandIn(read: { [self] (account: String) in read(account) },
                                       add: { [self] (account: String, data: Data) in add(account, data) },
                                       delete: { [self] (account: String) in delete(account) })
         StorageSeam.keychain.withLock { $0 = standIn }
+        #endif
     }
 }
 
 /// What the tests of the unreadable storage share: a launch on a storage, a recording, the first process that
 /// leaves a queue, and what was sent.
 class UnreadableStorageTestCase: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        #if !DEBUG
+        throw XCTSkip("needs the debug-only storage seam (StorageSeam), which a release build does not have")
+        #endif
+    }
+
     override func tearDown() {
         StorageLock.reset()
         QuranLab.configure(key: nil, options: .init(cloud: nil), cloud: nil)

@@ -14,9 +14,9 @@ final class ErrorReportVectorTests: XCTestCase {
 
     func testCodes() throws {
         let cases = try XCTUnwrap(try Self.vectors()["codes"] as? [[String: Any]])
-        // 49 at 98e98f4, the 12 of rules 3 and 3a at f209443 (3 attest, 9 lease), 3 of the grace at ca3f9a5 and 2 of
-        // 503 lease_unavailable at 1c971ab
-        XCTAssertEqual(cases.count, 66)
+        // 49 at 98e98f4, the 12 of rules 3 and 3a at f209443 (3 attest, 9 lease), 3 of the grace at ca3f9a5, 2 of 503
+        // lease_unavailable at 1c971ab, 3 of section 28's silent failover at de2a2da and 4 of the Core's open at 7f097b9
+        XCTAssertEqual(cases.count, 73)
         for c in cases {
             let stage = try XCTUnwrap(c["stage"] as? String), reason = try XCTUnwrap(c["reason"] as? String)
             let onDevice = try XCTUnwrap(ErrorRules.OnDevice(rawValue: try XCTUnwrap(c["on_device"] as? String)))

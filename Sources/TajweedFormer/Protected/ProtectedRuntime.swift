@@ -5,6 +5,18 @@ import QuranLabCore
 /// How a request of the protected model reaches the server: the SDK's HTTP client, or a fake in the tests.
 protocol LeaseTransport: Sendable {
     func send(_ request: URLRequest) async throws(CloudError) -> HTTPClient.Response
+    /// SDK 4.0.1: `accept` says whether a 2xx is the answer the route asks for (28.3: a lease the Core accepts); one
+    /// that is not is unreachable on that host, and the next `api` host is asked.
+    func send(_ request: URLRequest, accepting accept: @escaping @Sendable (HTTPClient.Response) -> Bool) async throws(CloudError)
+        -> HTTPClient.Response
+}
+
+extension LeaseTransport {
+    /// A transport with one host (the tests' fakes): the answer is the answer.
+    func send(_ request: URLRequest, accepting accept: @escaping @Sendable (HTTPClient.Response) -> Bool) async throws(CloudError)
+        -> HTTPClient.Response {
+        try await send(request)
+    }
 }
 
 extension HTTPClient: LeaseTransport {}
@@ -53,9 +65,18 @@ final class LeaseAttemptTrace: @unchecked Sendable {
 
     private let lock = NSLock()
     private var _asked = false, _status = 0, _apiRefusal = false, _retryAfter = 0, _stopped = false
+    /// SDK 4.0.1 (28.5): the largest `Retry-After` any host gave the request that went out.
+    private var _hostRetryAfter = 0
 
     /// A request went out (its answer, if any, follows).
-    func asking() { lock.withLock { _asked = true; _status = 0; _apiRefusal = false; _retryAfter = 0 } }
+    func asking() { lock.withLock { _asked = true; _status = 0; _apiRefusal = false; _retryAfter = 0; _hostRetryAfter = 0 } }
+
+    /// One host's answer to the request that went out (`HTTPClient.routed` tells each): its `Retry-After`, kept when
+    /// it is the largest so far (28.5: an attempt that ended unreachable on every host waits the largest any host gave).
+    func hostAnswered(retryAfter: String?) {
+        let s = LeaseRetry.retryAfter(retryAfter)
+        lock.withLock { _hostRetryAfter = max(_hostRetryAfter, s) }
+    }
 
     /// The answer of the request that went out: its status, whether it is the API's own refusal (a 4xx other than 429
     /// whose body is JSON with an `error` string), and its `Retry-After`.
@@ -89,7 +110,9 @@ final class LeaseAttemptTrace: @unchecked Sendable {
     var asked: Bool { lock.withLock { _asked } }
     var status: Int { lock.withLock { _status } }
     var apiRefusal: Bool { lock.withLock { _apiRefusal } }
-    var retryAfter: Int { lock.withLock { _retryAfter } }
+    /// 18.4.7 and 28.5: a 429's own `Retry-After` (no other host was asked); for an answer that was unreachable on
+    /// every host, the largest any host gave (a `503 lease_unavailable` carries 30).
+    var retryAfter: Int { lock.withLock { _status == 429 ? _retryAfter : max(_retryAfter, _hostRetryAfter) } }
     var stopped: Bool { lock.withLock { _stopped } }
 }
 
@@ -102,6 +125,11 @@ struct LeaseAttemptEnd: Sendable {
     var error: RecognizerError?
     var status = 0
     var reason = "network"
+    /// 4.0.1 (28.7): the role of the attempt's last request and whether it was asked of more than one host, for the
+    /// report of an open in grace (`host_role`, `fallback`). After a wait that ended before the attempt did: `api`,
+    /// and `fallback` not known yet.
+    var hostRole: String?
+    var fallback: Bool?
 }
 
 /// The install's certificate, for the key generation it was issued to.
@@ -194,6 +222,14 @@ final class ProtectedRuntime: @unchecked Sendable {
 
     var leaseRecord: LeaseRecord? { leaseFile.read().takingUnreadableAsMissing }
 
+    /// SDK 4.0.1 (28.4): the model folder of the lease this install holds for `build` (its accepted `base`, valid or
+    /// not: the folder is where the build's files are, and every answer from it is held to the signed manifest), else
+    /// nil. `CDNClient.manifest` reads the build's manifest from there through the `models` hosts.
+    func leaseFolder(_ build: String) -> URL? {
+        guard let rec = leaseRecord, rec.build.lowercased() == build.lowercased() else { return nil }
+        return Self.acceptedBase(rec.base.flatMap { URL(string: $0) })
+    }
+
     /// `diagnose()`'s protected state (the C SDK's `protected` object): the key store, the lease and its grace, the
     /// install's class, the Core.
     func diagnosis() -> TajweedDiagnosis.Protected {
@@ -277,7 +313,7 @@ final class ProtectedRuntime: @unchecked Sendable {
             throw e
         case .none:
             host.leaseAttempt(refused: false)
-            attempts.withLock { $0.status = 0; $0.reason = "timeout" }
+            attempts.withLock { $0.status = 0; $0.reason = "timeout"; $0.hostRole = EndpointRole.api.rawValue; $0.fallback = nil }
             if let r = inGrace(host, record) { return r }
             throw .offline("needs_connection: the lease has expired and Quran Lab did not answer within \(Int(graceWait)) s")
         }
@@ -289,8 +325,11 @@ final class ProtectedRuntime: @unchecked Sendable {
         // the Core in force now (an attempt that made a new install certificate made a new Core)
         let host = (try? self.host()) ?? host
         guard host.leaseGrace().inGrace else { return nil }
-        let (status, reason) = attempts.withLock { ($0.status, $0.reason) }
-        onSilent(ErrorCause(stage: "lease", reason: "grace", httpStatus: status > 0 ? status : nil, errorCode: reason))
+        let (status, reason, role, fallback) = attempts.withLock { ($0.status, $0.reason, $0.hostRole, $0.fallback) }
+        // 4.0.1 (28.7): the report names the role of the attempt's request and whether it went to another host. It is
+        // made here, outside the attempt's operation, so `ErrorCause.traced` would find no request
+        onSilent(ErrorCause(stage: "lease", reason: "grace", httpStatus: status > 0 ? status : nil, errorCode: reason,
+                            hostRole: role, fallback: role == nil ? nil : fallback))
         return record
     }
 
@@ -395,24 +434,29 @@ final class ProtectedRuntime: @unchecked Sendable {
         let trace = LeaseAttemptTrace()
         attempts.withLock { $0.running += 1 }
         defer { attempts.withLock { $0.running -= 1 } }
-        let result = await LeaseAttemptTrace.$current.withValue(trace) { () async -> Result<LeaseRecord, RecognizerError> in
-            do throws(RecognizerError) {
-                return .success(try await self.request(m))
-            } catch {
-                return .failure(error)
+        // one operation for the causes it makes (4.0.1, RequestTrace)
+        let (result, last) = await RequestTrace.scope { () async -> (Result<LeaseRecord, RecognizerError>, RequestTrace.Entry?) in
+            let r = await LeaseAttemptTrace.$current.withValue(trace) { () async -> Result<LeaseRecord, RecognizerError> in
+                do throws(RecognizerError) {
+                    return .success(try await self.request(m))
+                } catch {
+                    return .failure(error)
+                }
             }
+            // the attempt's last request through a role (28.7), for the report of an open in grace
+            return (r, RequestTrace.last)
         }
         switch result {
         case .success(let r):
-            attempts.withLock { $0.endedAtMs = 0; $0.unreachable = false; $0.error = nil }
+            attempts.withLock { $0.endedAtMs = 0; $0.unreachable = false; $0.error = nil; $0.hostRole = nil; $0.fallback = nil }
             return r
         case .failure(let e):
-            told(e, trace)
+            told(e, trace, last)
             throw e
         }
     }
 
-    private func told(_ e: RecognizerError, _ trace: LeaseAttemptTrace) {
+    private func told(_ e: RecognizerError, _ trace: LeaseAttemptTrace, _ last: RequestTrace.Entry? = nil) {
         guard trace.asked, !trace.stopped else { return }
         (try? host())?.leaseAttempt(refused: trace.apiRefusal)
         let cause = lastFailure.withLock { $0?.cause }
@@ -424,6 +468,8 @@ final class ProtectedRuntime: @unchecked Sendable {
             a.error = e
             a.status = trace.status
             a.reason = reason
+            a.hostRole = last?.role.rawValue
+            a.fallback = last?.fallback
         }
     }
 
@@ -445,6 +491,10 @@ final class ProtectedRuntime: @unchecked Sendable {
         guard let server else { throw .offline("no developer key configured") }
         guard let enc = m.encryption, let raw = m.raw else { throw .modelIncompatible("not a protected build") }
         var renewToken = false, reattested = false, rechallenged = false, pieceFallback = false
+        // 18.4.10 (4.0.1, endpoints_40.json's attempts): after invalid_token the request is repeated once with the
+        // renewed token and the SAME challenge (a challenge is a stateless HMAC good on every api host, 28.5); 4.0.0
+        // asked a new one
+        var keptChallenge: String?
         var cert = try await certificate()
         let now = { self.clocks.wallMs() / 1000 }
         let trace = LeaseAttemptTrace.current
@@ -459,7 +509,12 @@ final class ProtectedRuntime: @unchecked Sendable {
                 return try fail(error.recognizerError, .offline, now: now())
             }
             do throws(CloudError) {
-                challenge = try await self.challenge(server, token: token)
+                if let kept = keptChallenge {
+                    challenge = kept
+                    keptChallenge = nil
+                } else {
+                    challenge = try await self.challenge(server, token: token)
+                }
             } catch {
                 return try fail(error.recognizerError, .offline, now: now())
             }
@@ -474,11 +529,26 @@ final class ProtectedRuntime: @unchecked Sendable {
                 "key_id": enc.keyID, "core": ask.core,
             ]
             let resp: HTTPClient.Response
+            // 28.3, 18.4.7.1 (4.0.1): the answer this route asks for is a lease answer of 18.4.5 (its `base` on an
+            // allowed host, 28.4) whose lease the Core accepts; another 2xx is unreachable on that host, and the next
+            // `api` host is asked. The Core's verdict on the answer that ended the request is kept, so it is asked once.
+            let verdict = Locked<(body: Data, result: Result<(expiresAt: Int64, refreshAfter: Int64), CoreFailure>)?>(nil)
+            let build = m.build
+            let accept: @Sendable (HTTPClient.Response) -> Bool = { (a: HTTPClient.Response) -> Bool in
+                guard a.status == 200, let answer = LeaseAnswer.parse(a.body), Self.acceptedBase(answer.base) != nil else { return false }
+                let result: Result<(expiresAt: Int64, refreshAfter: Int64), CoreFailure>
+                do throws(CoreFailure) { result = .success(try host.leaseAccept(answer.lease, manifest: raw, build: build)) } catch {
+                    result = .failure(error)
+                }
+                verdict.withLock { $0 = (a.body, result) }
+                if case .success = result { return true }
+                return false
+            }
             do throws(CloudError) {
                 var r = try HTTPClient.jsonRequest(server.apiURL.appendingPathComponent("v1/model-key"), body: body, auth: token)
                 r.timeoutInterval = 30
                 trace?.asking()
-                resp = try await server.transport.send(r)
+                resp = try await server.transport.send(r, accepting: accept)
             } catch {
                 return try fail(error.recognizerError, .offline, now: now())
             }
@@ -488,9 +558,19 @@ final class ProtectedRuntime: @unchecked Sendable {
                     onIssue("other", "lease_answer_unreadable")
                     return try fail(.serverRejected(status: 200, code: "invalid_response", message: "the lease answer is not one"), .other, now: now())
                 }
+                // 28.4 (4.0.1): a `base` off the allow-list makes no lease answer of 18.4.5 (4.0.0 accepted the lease and
+                // then had no folder to fetch from)
+                guard let base = Self.acceptedBase(answer.base) else {
+                    return try fail(.serverRejected(status: 200, code: "invalid_response", message: "the lease answer names no model folder of Quran Lab's"),
+                                    .other, now: now())
+                }
                 let accepted: (expiresAt: Int64, refreshAfter: Int64)
                 do throws(CoreFailure) {
-                    accepted = try host.leaseAccept(answer.lease, manifest: raw, build: m.build)
+                    if let kept = verdict.withLock({ $0 }), kept.body == resp.body {
+                        accepted = try kept.result.get()
+                    } else {
+                        accepted = try host.leaseAccept(answer.lease, manifest: raw, build: m.build)
+                    }
                 } catch {
                     // the Core refused the lease (another install's, another release's, expired by its clock)
                     let outcome: LeaseOutcome = error.detail == Self.leaseExpiredDetail ? .expired : .refused
@@ -506,7 +586,7 @@ final class ProtectedRuntime: @unchecked Sendable {
                    parsed.isFor(installHash: host.installHash) {
                     certFile.write(StoredCertificate(generation: keys.generation, certificate: c))
                 }
-                let rec = LeaseRecord(build: m.build, base: Self.acceptedBase(answer.base)?.absoluteString,
+                let rec = LeaseRecord(build: m.build, base: base.absoluteString,
                                       expiresAt: accepted.expiresAt, refreshAfter: accepted.refreshAfter)
                 leaseFile.write(rec)
                 retry.withLock { $0.succeeded() }
@@ -537,6 +617,7 @@ final class ProtectedRuntime: @unchecked Sendable {
             switch refusal {
             case .renewToken where !renewToken:
                 renewToken = true
+                keptChallenge = challenge
             case .newChallenge where !rechallenged:
                 rechallenged = true
             case .reattest where !reattested:
@@ -580,7 +661,8 @@ final class ProtectedRuntime: @unchecked Sendable {
     /// A failed lease request: counted, the retry steps advanced, its cause kept (`cause`, else the error's own), and
     /// the error thrown.
     private func fail(_ e: RecognizerError, _ outcome: LeaseOutcome, now: Int64, cause: ErrorCause? = nil) throws(RecognizerError) -> LeaseRecord {
-        let failure = CausedFailure(error: e, cause: cause ?? ErrorCause.of(e, stage: "lease"))
+        // 4.0.1: with the role of the request that failed and whether it was asked of more than one host (24.2)
+        let failure = CausedFailure(error: e, cause: (cause ?? ErrorCause.of(e, stage: "lease")).traced())
         lastFailure.withLock { $0 = failure }
         let retryAfter = LeaseAttemptTrace.current?.retryAfter ?? 0
         retry.withLock { $0.failed(now: now, retryAfter: retryAfter) }
@@ -595,7 +677,10 @@ final class ProtectedRuntime: @unchecked Sendable {
         r.setValue(server.key, forHTTPHeaderField: "x-qlab-key")
         r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
         LeaseAttemptTrace.current?.asking()
-        let resp = try await server.transport.send(r)
+        // 28.3: the answer asked for is a challenge in the strict form; another 2xx is unreachable on that host
+        let resp = try await server.transport.send(r, accepting: { (a: HTTPClient.Response) -> Bool in
+            (200..<300).contains(a.status) && Self.strictChallenge(a.body) != nil
+        })
         LeaseAttemptTrace.current?.answered(status: resp.status, body: resp.body, retryAfter: resp.header("Retry-After"))
         guard (200..<300).contains(resp.status) else {
             if resp.status >= 500 { throw .offline("HTTP \(resp.status)") }
@@ -603,30 +688,35 @@ final class ProtectedRuntime: @unchecked Sendable {
             throw .rejected(status: resp.status, code: o?["error"] as? String ?? "http_\(resp.status)", message: HTTPClient.message(o),
                             reason: HTTPClient.reason(o))
         }
-        guard let o = (try? JSONSerialization.jsonObject(with: resp.body)) as? [String: Any], let c = o["challenge"] as? String,
-              c.range(of: #"^c1\.[0-9]{10}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{22}$"#, options: .regularExpression) != nil else {
-            throw .invalid("no challenge in the strict form")
-        }
+        guard let c = Self.strictChallenge(resp.body) else { throw .invalid("no challenge in the strict form") }
+        return c
+    }
+
+    /// The challenge of an answer, when it is one in the strict form (`c1.<10 digits>.<22>.<22>`).
+    static func strictChallenge(_ body: Data) -> String? {
+        guard let o = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], let c = o["challenge"] as? String,
+              c.range(of: #"^c1\.[0-9]{10}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{22}$"#, options: .regularExpression) != nil else { return nil }
         return c
     }
 
     /// The Core's lease refusal `expired` (qlcore.h `QLC_D_LEASE_EXPIRED`).
     static let leaseExpiredDetail = Int(QLC_D_LEASE_EXPIRED)
 
-    /// A model folder URL from a lease answer is used only on Quran Lab's own hosts, over https, as the C SDK's
-    /// `base_ok`: `https://quranlab.ai/` or `https://<name>.quranlab.ai/`, a path that ends in '/', no port, user,
-    /// query, fragment or "..". It is the only place a build's files come from (never a config).
+    /// A model folder URL from a lease answer is used only on Quran Lab's own hosts, over https (28.4, SDK 4.0.1): a
+    /// host of the allow-list (`quranlab.ai`, `tajweedformer.com`, `quran-lab.com` or a name under one; 4.0.0 took
+    /// `*.quranlab.ai` only), a path that starts and ends in '/', printable ASCII, at most 511 characters, and no port,
+    /// user, query, fragment, backslash, space or "..". It is the only place a build's files come from (never a config),
+    /// asked through the `models` hosts (`CDNFileSource`).
     static func acceptedBase(_ base: URL?) -> URL? {
         guard let base else { return nil }
-        let s = base.absoluteString
-        guard s.utf8.count < 512, s.hasPrefix("https://"), s.hasSuffix("/"), !s.contains(".."),
-              s.rangeOfCharacter(from: CharacterSet(charactersIn: "?#@\\ ")) == nil,
-              base.port == nil, base.user == nil, base.password == nil,
-              let host = base.host?.lowercased(), !host.contains(":") else { return nil }
-        if host == "quranlab.ai" || (host.count > 12 && host.hasSuffix(".quranlab.ai")) { return base }
+        if Endpoints.baseParts(base.absoluteString) != nil { return base }
         #if DEBUG
-        // debug builds only (StagingHooks): a host a staging test named, over https like any other
-        if StagingHooks.baseHosts.withLock({ $0.contains(host) }) { return base }
+        // debug builds only (StagingHooks): a host a staging test named, over https and in the same form as any other
+        if let host = base.host?.lowercased(), StagingHooks.baseHosts.withLock({ $0.contains(host) }),
+           var c = URLComponents(url: base, resolvingAgainstBaseURL: false) {
+            c.host = "staging.quranlab.ai"
+            if let named = c.url, Endpoints.baseParts(named.absoluteString) != nil { return base }
+        }
         #endif
         return nil
     }
@@ -767,6 +857,17 @@ final class ProtectedRuntime: @unchecked Sendable {
         guard let o = open.withLock({ $0 }), o.folder == folder.directory, o.model.isOpen else { return nil }
         return o.model
     }
+
+    /// 4.0.1 (Gate C, 2026-11-20): the open model of `folder` closed when nothing runs on it (no call, no take), its
+    /// plaintext wiped: a model `client.model()` opened and did not hand out is never left open with no owner. Another
+    /// folder's open model, or one in use, is left as it is.
+    func closeIdleModel(of folder: ModelFolder) {
+        guard let o = open.withLock({ $0 }), o.folder == folder.directory else { return }
+        if o.model.closeIfIdle() { open.withLock { if $0?.model === o.model { $0 = nil } } }
+    }
+
+    /// The folder of the Core's open model, when one is open.
+    var openFolder: URL? { open.withLock { $0?.folder } }
 
     /// Closes the open model: its plaintext is wiped and released. A take running on it fails.
     func closeModel() {

@@ -529,7 +529,7 @@ final class ShareFeedTests: XCTestCase {
         w.at(1_231_500)
         w.recorder.takeEnded(t, completed: true)
         w.settle()
-        XCTAssertEqual(w.tapes.map(\.samples), [1_171 * 16_000, 60 * 16_000])
+        XCTAssertEqual(w.tapes.map(\.samples), [1_171 * 16_000, 60 * 16_000] as [Int64])
     }
 
     /// A take that runs past 20 minutes: the recording closes whole at the cap and the take goes on in the next one,
@@ -541,7 +541,7 @@ final class ShareFeedTests: XCTestCase {
                                              weightsSHA256: nil))
         // 1250 s in pushes of 10 s
         for _ in 0..<125 { try w.recorder.audio(t, w.audio(160_000), rate: 16_000) }
-        XCTAssertEqual(w.tapes.map(\.samples), [1_200 * 16_000, 50 * 16_000])
+        XCTAssertEqual(w.tapes.map(\.samples), [1_200 * 16_000, 50 * 16_000] as [Int64])
         XCTAssertEqual(w.tapes.first?.completed, true, "closed at the cap, as a whole recording")
         w.at(1_250_000)
         w.recorder.takeEnded(t, completed: true)
