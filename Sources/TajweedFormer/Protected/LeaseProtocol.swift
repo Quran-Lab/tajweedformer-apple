@@ -63,7 +63,11 @@ struct LeaseAnswer: Sendable, Equatable {
               let iat = (o["iat"] as? NSNumber)?.int64Value, let exp = (o["exp"] as? NSNumber)?.int64Value,
               let ra = (o["refresh_after"] as? NSNumber)?.int64Value else { return nil }
         var base: URL?
-        if let b = o["base"] as? String, let u = URL(string: b), u.scheme == "https", u.host != nil, b.hasSuffix("/") { base = u }
+        // 28.4 (4.0.1): the base as the answer wrote it is held to printable ASCII without a backslash before it is
+        // made a URL (Foundation's URL(string:) percent-encodes a space or a backslash it would otherwise refuse, and
+        // the encoded form would pass `ProtectedRuntime.acceptedBase`)
+        if let b = o["base"] as? String, b.utf8.allSatisfy({ (0x21...0x7e).contains($0) && $0 != 0x5c }),
+           let u = URL(string: b), u.scheme == "https", u.host != nil, b.hasSuffix("/") { base = u }
         let piece = (o["piece"] as? String).flatMap { Data(base64URL: $0) }
         return LeaseAnswer(lease: lease, issuedAt: iat, expiresAt: exp, refreshAfter: ra, base: base,
                            certificate: o["install_cert"] as? String, piece: piece)

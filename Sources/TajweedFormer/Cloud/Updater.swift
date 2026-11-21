@@ -105,6 +105,24 @@ actor ModelUpdater {
     }
     private var runs: [String: Run] = [:]
 
+    /// 4.0.1: the model ids with an install under way (its download folder is being written): another model's
+    /// install never removes them (`ModelStore.removeOtherModels`).
+    func runningModelNames() -> Set<String> {
+        Set(runs.keys.compactMap { $0.split(separator: "@", maxSplits: 1).first.map(String.init) })
+    }
+
+    /// 4.0.1: the model ids among `names` whose download the system's background session still carries (ranges
+    /// handed to it before the app stopped, for an install the next call goes on with): never removed either.
+    func backgroundModelNames(among names: [String]) async -> Set<String> {
+        guard let background else { return [] }
+        var out: Set<String> = []
+        for name in names {
+            let tasks = await background.transport.pending(prefix: store.root.lastPathComponent + "/" + name + "/")
+            if !tasks.isEmpty { out.insert(name) }
+        }
+        return out
+    }
+
     /// Brings `id` to the build `cdnRevision` (the first 40 hex digits of the SHA-256 of its manifest; `version` is
     /// the model version the config names for it) with `context`'s files (nil: the config's `inference.context` when
     /// the build has it, else the manifest's default context). Concurrent calls for the same model share one run.
@@ -123,7 +141,8 @@ actor ModelUpdater {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (waiter: CheckedContinuation<Outcome, Never>) in
                 self.join(key, me, waiter, keep: keep, unmeteredOnly: unmeteredOnly) { unmetered in
-                    await self.run(id, cdnRevision, version, keyID, context, activate, unmetered)
+                    // one operation for the causes it makes (4.0.1, RequestTrace)
+                    await RequestTrace.scope { await self.run(id, cdnRevision, version, keyID, context, activate, unmetered) }
                 }
             }
         } onCancel: {
@@ -222,8 +241,9 @@ actor ModelUpdater {
         let droppedCounter = droppedForNothing
         return BackgroundPlan(transport: background.transport, policy: background.policy, handOver: background.handOver, folder: relative,
                               request: { (path: String, lower: Int64, upper: Int64, validator: String?) async -> URLRequest? in
-                                  await client.backgroundRequest(source.url(path), lower: lower, upper: upper,
-                                                                 validator: validator, sendsKey: sendsKey())
+                                  // 4.0.1 (28.4): on the host the file's next attempt asks, the validator only to its host
+                                  await source.backgroundRequest(path, lower: lower, upper: upper, validator: validator,
+                                                                 sendsKey: sendsKey())
                               },
                               abandoned: { n in counter.withLock { $0 += n } },
                               stopped: { stop()?.error },

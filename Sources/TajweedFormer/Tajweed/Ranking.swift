@@ -65,7 +65,11 @@ struct TajweedRanking: Sendable, Hashable {
                 }
             }
         }
-        guard n == frames else { throw .engineFailed(code: -1, message: "qlc_topk(\(head.rawValue), k \(k)) failed") }
+        // the code is a Core status (an error report names it, ErrorCause): the Core's own when qlc_topk returned one,
+        // else QLC_E_ENGINE (the engine could not run); never a placeholder that reads as another status
+        guard n == frames else {
+            throw .engineFailed(code: n < 0 ? Int(n) : Int(QLC_E_ENGINE), message: "qlc_topk(\(head.rawValue), k \(k)) failed")
+        }
         return TajweedRanking(head: head, k: k, frames: frames, ids: ids, values: out, margins: margins, names: names)
     }
 }

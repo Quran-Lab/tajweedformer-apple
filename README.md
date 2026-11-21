@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/Quran-Lab/tajweedformer-apple/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Quran-Lab/tajweedformer-apple/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="platform: iOS, macOS" src="https://img.shields.io/badge/platform-iOS%2015%20%7C%20macOS%2012-1c1b19?style=flat-square">
-  <img alt="version: 4.0.0" src="https://img.shields.io/badge/version-4.0.0-2a3b8f?style=flat-square">
+  <img alt="version: 4.0.1" src="https://img.shields.io/badge/version-4.0.1-2a3b8f?style=flat-square">
   <img alt="model licence: NPL-1.2" src="https://img.shields.io/badge/model%20licence-NPL--1.2-1c1b19?style=flat-square">
 </p>
 
@@ -71,11 +71,11 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai/go/gh-tajwe
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.0. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.1. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.0"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.1"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -93,7 +93,7 @@ against the checksum in `Package.swift`. Then add the App Attest capability ("Be
 | **Permissions** | `NSMicrophoneUsageDescription` in Info.plist: without it the system ends the app at the first use of the microphone. A sandboxed or hardened Mac app also needs the `com.apple.security.device.audio-input` entitlement. |
 | **Capabilities** | App Attest (Signing & Capabilities). With it, an install is hardware-verified: it gets the Neural Engine and sharing uploads. Without it the SDK still runs, on the CPU engine only. |
 | **Download** | Making the Client downloads nothing. The first `client.model()` or `client.prefetch()` downloads the model, encrypted: 55.5 MB, once (68.4 MB on disk), and needs a connection. On iOS 18 and macOS 15, for an attested install, the Neural Engine's build follows in the background: 76.1 MB more. |
-| **Offline** | The model opens under a lease Quran Lab signs for this install, renewed in the background whenever the device is online: learners keep working offline for days at a time (the exact time is set by Quran Lab and may change). When the lease has ended and Quran Lab cannot be reached, the model keeps opening for up to 24 hours more; a refusal ends that at once. A Model that is open keeps running. |
+| **Offline** | The first `client.model()` or `client.prefetch()` needs a connection; after that the model works offline. When the device is online, the SDK keeps itself up to date in the background. `needs_connection` means the SDK needs Quran Lab to continue. A Model that is open keeps running. |
 | **Model** | The model runs only inside the Quran Lab Core: its files are encrypted from Quran Lab's server to the device, and no plain model file is ever written. Do not change the Core's framework beyond Xcode's own signing: a changed Core gets no lease. When Quran Lab refuses the key or the app, the model's files are removed. |
 | **Analytics** | Anonymous counts and durations (never audio, text, names or device identifiers) and reports of the failures your learners hit are always sent; you find them at sdk.quranlab.ai under your app, Problems included. |
 | **Takes** | A Model has one open Session (one take) at a time; the next take is a new Session. A take holds at most 20 minutes of audio. |

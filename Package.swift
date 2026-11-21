@@ -15,7 +15,7 @@ let package = Package(
         // The Core (quranlab-core), a dynamic framework per slice (ios-arm64, ios-arm64-simulator, macos-arm64) that
         // exports only the functions of qlcore.h. Published with each release;
         // SwiftPM checks it against the checksum below.
-        .binaryTarget(name: "QuranLabCore", url: "https://cdn.quranlab.ai/sdk/apple/4.0.0/QuranLabCore.xcframework.zip", checksum: "5a3bfa4223c8887f04d544e8e5c73b6ad74c9b947d8fa0c70df151f49c42d797"),
+        .binaryTarget(name: "QuranLabCore", url: "https://cdn.quranlab.ai/sdk/apple/4.0.1/QuranLabCore.xcframework.zip", checksum: "5a3bfa4223c8887f04d544e8e5c73b6ad74c9b947d8fa0c70df151f49c42d797"),
         // libopus 1.6.1 for sharing, compiled from its source like any other target (scripts/opus/vendor_opus.sh).
         .target(
             name: "COpus",

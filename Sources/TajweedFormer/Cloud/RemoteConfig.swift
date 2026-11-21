@@ -146,6 +146,9 @@ struct RemoteConfig: Codable, Sendable, Equatable {
     /// SDK 4.0: when the SDK asks a learner to share, at the top level (never in `flags`), as it came:
     /// read field by field with `ShareAsk.Config.resolve`, so nothing in it can fail the config. Absent: the defaults.
     var share_ask: JSONValue? = nil
+    /// SDK 4.0.1 (section 28.2): the hosts of the `api` and `models` roles while this config is in force, as it came
+    /// (`Endpoints.roleList` reads it; nothing in it can fail the config). Absent: the built-in hosts.
+    var endpoints: JSONValue? = nil
 
     /// The context the config names, when it names one.
     var inferenceContext: String? { inference?.object?["context"]?.string }
@@ -308,6 +311,9 @@ final class ConfigStore: Sendable {
     /// The model version the config request pins (`model_version`), when the app pinned one.
     private let pinned = Locked<String?>(nil)
 
+    /// The model version the app pinned, when it pinned one.
+    var pinnedVersion: String? { pinned.withLock { $0 } }
+
     /// Sets the pin; true when it changed.
     func pin(_ version: String?) -> Bool {
         pinned.withLock { (p: inout String?) -> Bool in
@@ -318,7 +324,29 @@ final class ConfigStore: Sendable {
     /// When the config was last fetched (or confirmed by a 304) in this process.
     let lastFetch = Locked<Date?>(nil)
 
-    init(storage: URL, trustedKeys: [Data]) {
+    /// Section 27 (SDK 4.0.1): `app_version` and `app_build` of every config request, percent-encoded, read once
+    /// when the Client is made (an app's version does not change while its process runs).
+    let appParameters: [URLQueryItem]
+
+    /// Section 27.1: the value cleaned by the one rule (`AppIdentity.cleaned`: ASCII `0-9 A-Z a-z . + -` only, the leading
+    /// `.`, `+` and `-` dropped, at most 32), nil when it is not known (absent, nothing left, or `"0"`).
+    static func appValue(_ raw: String?) -> String? {
+        let cleaned = AppIdentity.cleaned(raw)
+        return cleaned.isEmpty || cleaned == "0" ? nil : cleaned
+    }
+
+    /// `app_version` then `app_build`, each left out when not known; a `+` sent as `%2B` (a bare `+` in a query reads
+    /// as a space).
+    static func appParameters(_ app: AppIdentity?) -> [URLQueryItem] {
+        guard let app else { return [] }
+        var out: [URLQueryItem] = []
+        if let v = appValue(app.version) { out.append(URLQueryItem(name: "app_version", value: v.replacingOccurrences(of: "+", with: "%2B"))) }
+        if let b = appValue(app.build) { out.append(URLQueryItem(name: "app_build", value: b.replacingOccurrences(of: "+", with: "%2B"))) }
+        return out
+    }
+
+    init(storage: URL, trustedKeys: [Data], app: AppIdentity? = nil) {
+        appParameters = Self.appParameters(app)
         file = JSONFile(url: storage.appendingPathComponent("cloud/config.json"))
         bucketFile = storage.appendingPathComponent("cloud/rollout-bucket")
         verifier = ConfigVerifier(trustedKeys: trustedKeys)
@@ -379,15 +407,27 @@ final class ConfigStore: Sendable {
         c.queryItems = [URLQueryItem(name: "bucket", value: String(bucket)), URLQueryItem(name: "sdk", value: SDKInfo.version)]
         let pin = pinned.withLock { $0 }
         if let pin { c.queryItems?.append(URLQueryItem(name: "model_version", value: pin)) }
+        // section 27 (4.0.1): the app's version and build after the parameters of before, already percent-encoded
+        if !appParameters.isEmpty { c.percentEncodedQueryItems = (c.percentEncodedQueryItems ?? []) + appParameters }
         var r = URLRequest(url: c.url!)
         r.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
         // unreadable is taken as not there here, because the config is then asked for in full
         let saved = file.read().takingUnreadableAsMissing
         let stored = current
+        let conditional: Bool
         if let etag = saved?.etag, saved?.pin == pin, let stored, stored.expiresAt.timeIntervalSince(now) > 3600 {
             r.setValue(etag, forHTTPHeaderField: "if-none-match")
+            conditional = true
+        } else {
+            conditional = false
         }
-        let resp = try await http.send(r)
+        // 28.3: the answer this route asks for is a config that verifies, or a 304 to a request with If-None-Match; any
+        // other 2xx is unreachable on that host, and the next host is asked
+        let verifier = self.verifier
+        let resp = try await http.send(r, accepting: { (a: HTTPClient.Response) -> Bool in
+            if a.status == 304 { return conditional }
+            return (try? verifier.verify(body: a.body, signature: a.header("x-qlab-signature"), keyID: a.header("x-qlab-key-id"), now: now)) != nil
+        })
         if resp.status == 304, let stored {
             lastFetch.withLock { $0 = now }
             return stored

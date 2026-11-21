@@ -45,7 +45,7 @@ final class FakeCPUEngine: CPUStreamEngine {
 
     func finish() throws(RecognizerError) -> [HeadsBuffer] {
         let zeros = [Float](repeating: 0, count: 16_800)
-        return try zeros.withUnsafeBufferPointer { (p) throws(RecognizerError) in try push(p) }
+        return try zeros.withBuffer { (p) throws(RecognizerError) in try push(p) }
     }
 
     private func chunk(_ w: ArraySlice<Float>, blank: Bool) -> HeadsBuffer {
@@ -146,7 +146,10 @@ func fakeRecitation(seconds: Double, seed: Int = 1) -> [Float] {
     let n = Int(seconds * 16_000)
     return (0..<n).map { i in
         let t = Double(i) / 16_000
-        return Float(0.2 * sin(2 * .pi * 180 * t) * (0.6 + 0.4 * sin(2 * .pi * (0.7 + 0.1 * Double(seed)) * t)))
+        // in parts, the same arithmetic in the same order (Swift 6.1 and 6.2 gave up type-checking it as one expression)
+        let tone: Double = sin(2 * Double.pi * 180 * t)
+        let level: Double = 0.6 + 0.4 * sin(2 * Double.pi * (0.7 + 0.1 * Double(seed)) * t)
+        return Float(0.2 * tone * level)
     }
 }
 

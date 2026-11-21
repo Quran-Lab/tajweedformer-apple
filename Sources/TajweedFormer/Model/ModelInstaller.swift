@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Where stored files come from: a byte range of a stored file (`layers.zfw.gz`).
@@ -18,11 +19,20 @@ struct StreamedRange: Sendable {
 /// A source that writes a range to the partial file as its bytes arrive (the CDN), so a connection that ends
 /// keeps what it delivered. `started` is told the validator of the answer (its strong ETag, when it has one) and
 /// whether the answer is the whole file, before the first byte is written; `received` every piece written.
-/// `size` is the whole file's size in the signed manifest: an answer is held to it (SPEC 16.1).
+/// `size` is the whole file's size in the signed manifest: an answer is held to it (SPEC 16.1). `hash` is told every
+/// piece as it is written to the partial file (and, for a whole file sent for a range, takes that file's hash once it
+/// has taken the partial file's place), so the file's SHA-256 is ready when its last byte is (4.0.1).
 protocol StreamingModelFileSource: ModelFileSource {
-    func stream(_ path: String, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL,
+    func stream(_ path: String, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL, hash: PartHasher?,
                 started: @Sendable (_ validator: String?, _ whole: Bool) -> Void,
                 received: @Sendable (Int64) -> Void) async throws(RecognizerError) -> StreamedRange
+    /// SDK 4.0.1 (28.4): a background round of `path` ended without its next byte, a failed attempt that was no
+    /// answer: the source's next attempt of the file goes to its next host.
+    func resumeElsewhere(_ path: String)
+}
+
+extension StreamingModelFileSource {
+    func resumeElsewhere(_ path: String) {}
 }
 
 /// What an install did, for analytics (`downloads`) and the host.
@@ -46,10 +56,17 @@ struct InstallReport: Sendable, Hashable {
 
 /// Counts the bytes of an install for `client.prefetch`'s progress: the stored bytes done (files already on disk, the
 /// part of a file kept from an earlier run, every piece as it arrives) and the total of the CPU set.
+/// 4.0.1: several files arrive at once, each from its own task, so two counts can be made in one order and told in the
+/// other. A count is told only when no later one has been told already: the listener sees the counts in the order
+/// they were made, never a step back that is not one (a file that starts again).
 final class ProgressMeter: @unchecked Sendable {
     private let lock = NSLock()
     private var done: Int64 = 0
     private var total: Int64 = 0
+    /// The number of the last count made, and of the last one told.
+    private var made: UInt64 = 0
+    private let telling = NSLock()
+    private var told: UInt64 = 0
     private let report: @Sendable (Int64, Int64) -> Void
 
     init(_ report: @escaping @Sendable (Int64, Int64) -> Void) { self.report = report }
@@ -64,9 +81,104 @@ final class ProgressMeter: @unchecked Sendable {
     func add(_ n: Int64) {
         lock.lock()
         done = max(0, min(total, done + n))
-        let d = done, t = total
+        made += 1
+        let d = done, t = total, number = made
         lock.unlock()
+        telling.lock()
+        defer { telling.unlock() }
+        guard number > told else { return }
+        told = number
         report(d, t)
+    }
+}
+
+/// The SHA-256 of a partial file, made as its bytes are written (4.0.1): the transport hands it every piece it writes,
+/// in order, so the file's hash is ready when its last byte is, and the file is not read again after it. A resume
+/// hashes the bytes already on disk first (`resuming`). A whole file that the server sends for a range is hashed by a
+/// hasher of its own, which this one takes over when that file takes the partial file's place (`take`). A partial file
+/// that is emptied starts the hash again (`restart`). Should a write ever not follow the bytes hashed so far (bytes
+/// that arrived in another way), the hash is not trusted, and the file is read from disk once at the end, as before
+/// 4.0.1: the bytes on disk are what is checked, in every case.
+final class PartHasher: @unchecked Sendable {
+    private let lock = NSLock()
+    private var sha = SHA256()
+    private var count: Int64 = 0
+    private var broken = false
+
+    /// For tests: files whose SHA-256 was read from disk at the end (the hash made as they arrived was not usable), and
+    /// bytes of partial files read to resume a hash.
+    static let readAgain = Locked(0)
+    static let resumedBytes = Locked<Int64>(0)
+
+    init() {}
+
+    /// The hasher of the partial file `part`, whose first `have` bytes are on disk: those are read and hashed now.
+    static func resuming(_ part: URL, have: Int64) -> PartHasher {
+        let h = PartHasher()
+        guard have > 0 else { return h }
+        guard let fh = try? FileHandle(forReadingFrom: part) else {
+            h.broken = true
+            return h
+        }
+        defer { try? fh.close() }
+        var left = have
+        while left > 0 {
+            guard let piece = try? fh.read(upToCount: Int(min(left, 4 << 20))), !piece.isEmpty else {
+                h.broken = true
+                return h
+            }
+            h.sha.update(data: piece)
+            h.count += Int64(piece.count)
+            left -= Int64(piece.count)
+        }
+        resumedBytes.withLock { $0 += have }
+        return h
+    }
+
+    /// Bytes written at `offset` of the file: hashed when they follow the bytes hashed so far.
+    func append(_ bytes: UnsafeRawBufferPointer, at offset: Int64) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !broken else { return }
+        guard offset == count else {
+            broken = true
+            return
+        }
+        sha.update(bufferPointer: bytes)
+        count += Int64(bytes.count)
+    }
+
+    func append(_ data: Data, at offset: Int64) {
+        data.withUnsafeBytes { append($0, at: offset) }
+    }
+
+    /// The file is now the one `other` hashed (a whole file in the partial file's place).
+    func take(_ other: PartHasher) {
+        other.lock.lock()
+        let (s, n, b) = (other.sha, other.count, other.broken)
+        other.lock.unlock()
+        lock.lock()
+        (sha, count, broken) = (s, n, b)
+        lock.unlock()
+    }
+
+    /// The partial file was emptied: its hash starts again.
+    func restart() {
+        lock.lock()
+        (sha, count, broken) = (SHA256(), 0, false)
+        lock.unlock()
+    }
+
+    /// The size and lowercase hex SHA-256 of `part`: from the bytes hashed as they were written, when they are every
+    /// byte the file holds; else read from the file.
+    func digest(of part: URL) throws(RecognizerError) -> (Int64, String) {
+        lock.lock()
+        let usable = !broken && count == ModelInstaller.sizeOnDisk(part)
+        let (s, n) = (sha, count)
+        lock.unlock()
+        if usable { return (n, s.finalize().map { String(format: "%02x", $0) }.joined()) }
+        Self.readAgain.withLock { $0 += 1 }
+        return try ModelManifest.digest(part)
     }
 }
 
@@ -190,6 +302,9 @@ struct ModelInstaller: Sendable {
         for other in plan.later.withLock({ $0 }) where !Self.present(other, in: folder) {
             let otherPart = BackgroundRange.part(folder, other.path)
             guard Self.sizeOnDisk(otherPart) == 0 else { continue }
+            // 4.0.1: a file that came whole beside the one in hand (`ensureAll`) waits for the Core as its verified CDN
+            // form: nothing of it is asked for again
+            guard Self.sizeOnDisk(folder.appendingPathComponent(other.path)) != other.size else { continue }
             guard let more = await hand(plan, other, otherPart, from: 0, validator: nil, pending: pending) else { break }
             started += more
         }
@@ -315,7 +430,7 @@ struct ModelInstaller: Sendable {
     /// Joins the range kept for the byte the partial file ends at, when there is one: its bytes are appended and
     /// the kept file is removed. The bytes joined, or nil when no range is kept for that byte. A kept range that
     /// does not fit (it would pass the file's end) is removed and not joined.
-    private func join(_ part: URL, at have: Int64, size: Int64) throws(RecognizerError) -> Int64? {
+    private func join(_ part: URL, at have: Int64, size: Int64, hash: PartHasher) throws(RecognizerError) -> Int64? {
         guard let range = BackgroundRange.kept(beside: part).first(where: { $0.lower == have }) else { return nil }
         defer { try? FileManager.default.removeItem(at: range.file) }
         let length = Self.sizeOnDisk(range.file)
@@ -328,6 +443,7 @@ struct ModelInstaller: Sendable {
             try h.seek(toOffset: UInt64(have))
             try h.write(contentsOf: bytes)
             try h.synchronize()
+            hash.append(bytes, at: have)
             SDKLatest.debugOnly("model download: joined \(length) bytes that the background session fetched, at byte \(have) of \(part.lastPathComponent)")
         } catch {
             throw .storageFailed("cannot join a range to \(part.lastPathComponent): \(error.localizedDescription)")
@@ -397,8 +513,14 @@ struct ModelInstaller: Sendable {
     /// Tried before (the first candidate, never released): one hand-over per leaving. A range that was missing
     /// after the round was then asked for by the app itself, and each such request was ended at once because the
     /// app was away, until the tries were used up: the call failed on a working network.
+    ///
+    /// 4.0.1: every piece written is told to `hash` (the file's SHA-256 as it arrives). `yieldWhenAway`: a file fetched
+    /// beside others (`ensureAll`, policy `whenLeaving`) does not hand itself over when the app leaves: it ends where
+    /// it stands (false), and the install goes on one file at a time, which hands what is left over as before. True:
+    /// all of the file is on disk.
     private func stream(_ streaming: any StreamingModelFileSource, _ f: ModelManifest.File, part: URL, from start: Int64,
-                        report: inout InstallReport, meter: ProgressMeter?) async throws(RecognizerError) {
+                        hash: PartHasher, yieldWhenAway: Bool = false,
+                        report: inout InstallReport, meter: ProgressMeter?) async throws(RecognizerError) -> Bool {
         let fm = FileManager.default
         let kept = Self.validatorFile(part)
         let folder = URL(fileURLWithPath: String(part.path.dropLast((f.path + ".part").count)), isDirectory: true)
@@ -421,7 +543,8 @@ struct ModelInstaller: Sendable {
         while have < f.size {
             // a refusal that stops the model has arrived (a background task may have met it): no further request
             if let stop = background?.stopped() { throw stop }
-            if background != nil, let joined = try join(part, at: have, size: f.size) {
+            if yieldWhenAway, let plan = background, plan.handOver.isAway { return false }
+            if background != nil, let joined = try join(part, at: have, size: f.size, hash: hash) {
                 have += joined
                 report.downloadedBytes += joined
                 meter?.add(joined)
@@ -438,7 +561,8 @@ struct ModelInstaller: Sendable {
                         let brought = try await awaitBackground(plan, part, at: have)
                         if !brought, plan.stopped() == nil, !plan.handOver.isActive {
                             // every task has ended and the next byte is not there: a failed attempt, and the
-                            // range is handed over again
+                            // range is handed over again (4.0.1: to the next host, 28.4)
+                            streaming.resumeElsewhere(f.path)
                             try await afterFailedAttempt(.offline("the background transfer of \(f.path) ended without its next byte"), &retries)
                             await handResigned(plan, f, part: part, from: have, in: folder)
                         }
@@ -459,6 +583,7 @@ struct ModelInstaller: Sendable {
                     // the round brought the next byte, or the app is back and fetches it itself: go on
                     let brought = BackgroundRange.kept(beside: part).contains { $0.lower == have }
                     if !brought, plan.policy == .whenLeaving, plan.handOver.isAway {
+                        streaming.resumeElsewhere(f.path)
                         try await afterFailedAttempt(.offline("the background transfer of \(f.path) ended without its next byte"), &retries)
                     }
                     continue
@@ -486,7 +611,7 @@ struct ModelInstaller: Sendable {
                     signal.yield()
                 }
                 do throws(RecognizerError) {
-                    _ = try await streaming.stream(path, lower: before, upper: upper, size: size, validator: validator, into: part,
+                    _ = try await streaming.stream(path, lower: before, upper: upper, size: size, validator: validator, into: part, hash: hash,
                                                    started: { (answered: String?, whole: Bool) in
                                                        // the answer that starts the partial file, or starts it again
                                                        guard before == 0 || whole else { return }
@@ -558,6 +683,7 @@ struct ModelInstaller: Sendable {
                 try? fm.removeItem(at: part)
                 try? fm.removeItem(at: kept)
                 guard fm.createFile(atPath: part.path, contents: nil) else { throw .storageFailed("cannot create \(f.path).part") }
+                hash.restart()
                 meter?.add(-have)
                 have = 0
                 try await afterFailedAttempt(failure, &retries)
@@ -570,6 +696,7 @@ struct ModelInstaller: Sendable {
         try? fm.removeItem(at: HTTPClient.wholeFile(beside: part))
         // a kept range that was never needed (the foreground had its bytes first)
         for range in BackgroundRange.kept(beside: part) { try? fm.removeItem(at: range.file) }
+        return true
     }
 
     static func defaultFreeSpace(_ url: URL) -> Int64 {
@@ -589,12 +716,7 @@ struct ModelInstaller: Sendable {
         let cpu = profile.cpuFiles(manifest)
         meter?.start(total: DownloadProfile.bytes(cpu))
         try checkSpace(cpu, in: folder)
-        for (i, f) in cpu.enumerated() {
-            // the files after this one go to the background with it, should the learner leave during it
-            background?.later.withLock { $0 = Array(cpu[(i + 1)...]) }
-            try await ensure(f, in: folder, report: &report, counted: true)
-        }
-        background?.later.withLock { $0 = [] }
+        try await ensureAll(cpu, in: folder, report: &report, counted: true)
         try manifest.write(to: folder)
         if !profile.appleFiles(manifest).isEmpty {
             do throws(RecognizerError) {
@@ -626,7 +748,7 @@ struct ModelInstaller: Sendable {
         }
         var report = InstallReport()
         try checkSpace(files, in: folder)
-        for f in files { try await ensure(f, in: folder, report: &report) }
+        try await ensureAll(files, in: folder, report: &report, counted: false)
         report.profileBytes = DownloadProfile.bytes(files)
         report.diskBytes = files.reduce(0) { $0 + ($1.isEncrypted ? $1.deviceFormSize : $1.localSize) }
         return report
@@ -654,51 +776,235 @@ struct ModelInstaller: Sendable {
         return v?.fileSize.map(Int64.init) == (f.isEncrypted ? f.deviceFormSize : f.localSize)
     }
 
+    /// The most files one install fetches at a time (4.0.1). The largest file starts first, so the big weights file
+    /// is on its way at once and the small files fill the other places; they go to the same host, so the system runs
+    /// them as streams of one HTTP/2 or HTTP/3 connection.
+    static let parallelFiles = Locked(4)
+
+    /// What `obtain` brought one file to.
+    enum Obtained: Sendable {
+        /// Nothing more to do: it was on disk already, or it is a plain file now in place and verified.
+        case inPlace
+        /// The CDN form of an encrypted file, whole and verified against the signed manifest: the Core's install is
+        /// left. `downloads`: the times it was fetched in this call (0: an earlier call left it on disk).
+        case cdnForm(URL, downloads: Int)
+        /// The app left while it was on its way (`ensureAll`, policy `whenLeaving`): what is on disk stays, and the
+        /// install that goes on one file at a time takes it up.
+        case leftHalfway
+    }
+
+    /// Every file of `files` on disk, decoded and verified, the encrypted ones installed by the Core (`ensure` for
+    /// each). 4.0.1: at most `parallelFiles` files are fetched at a time, the largest first; the Core's installs stay
+    /// one at a time and in the order of `files` (the manifest's), each as soon as the files before it are in. The
+    /// first failure ends the call with its own error; the other transfers are cancelled, and every byte they wrote
+    /// stays in its partial file for the next call. When the app leaves during it (policy `whenLeaving`), the files
+    /// stop where they stand and the rest goes on one file at a time, which hands it to the background session as
+    /// before. The policies of the measurement on a phone (`whenResigning`, `fromFirstByte`) keep one file at a time.
+    /// Before 4.0.1: one file at a time, each request after the last.
+    func ensureAll(_ files: [ModelManifest.File], in folder: URL, report: inout InstallReport, counted: Bool) async throws(RecognizerError) {
+        let width = min(Self.parallelFiles.withLock { $0 }, files.count)
+        let meter = counted ? self.meter : nil
+        var owed = Array(files.indices)
+        // what the progress holds for a file already (a file the app's leaving stopped), counted once
+        var floors: [Int: Int64] = [:]
+        if width > 1, background == nil || background?.policy == .whenLeaving {
+            (owed, floors) = try await fetchTogether(files, width: width, in: folder, report: &report, meter: meter)
+        }
+        for (k, i) in owed.enumerated() {
+            // the files after this one go to the background with it, should the learner leave during it
+            background?.later.withLock { $0 = owed[(k + 1)...].map { files[$0] } }
+            let share = meter.map { Self.share(of: $0, size: files[i].size, floor: floors[i] ?? 0, counted: Locked(0)) }
+            try await ensure(files[i], in: folder, report: &report, meter: floors[i] == nil ? meter : share)
+        }
+        background?.later.withLock { $0 = [] }
+    }
+
+    /// One file's part of an install's progress (`fetchTogether`): a count of the file's own bytes, as `ensure` makes
+    /// it, that tells the install's meter what it adds above `floor` (bytes counted for the file already, before it
+    /// went on one file at a time), so no byte is counted twice. `counted`: what the install's meter holds for it.
+    static func share(of meter: ProgressMeter, size: Int64, floor: Int64, counted: Locked<Int64>) -> ProgressMeter {
+        let last = Locked(floor)
+        let own = ProgressMeter { (done: Int64, _: Int64) in
+            let now = max(done, floor)
+            let delta = last.withLock { (l: inout Int64) -> Int64 in
+                defer { l = now }
+                return now - l
+            }
+            counted.withLock { $0 = now }
+            if delta != 0 { meter.add(delta) }
+        }
+        own.start(total: size)
+        return own
+    }
+
+    /// One file of `fetchTogether`, as a task of its group: what `obtain` brought it to, with its own report.
+    private func obtainTask(_ i: Int, _ f: ModelManifest.File, in folder: URL, meter: ProgressMeter?,
+                            yieldWhenAway: Bool) async -> (Int, Result<(Obtained, InstallReport), RecognizerError>) {
+        var r = InstallReport()
+        do throws(RecognizerError) {
+            let obtained = try await obtain(f, in: folder, report: &r, meter: meter, yieldWhenAway: yieldWhenAway)
+            return (i, .success((obtained, r)))
+        } catch {
+            return (i, .failure(error))
+        }
+    }
+
+    /// The order `ensureAll` asks for the files in: the largest first, files of one size in the manifest's order.
+    static func queue(_ files: [ModelManifest.File]) -> [Int] {
+        files.indices.sorted { files[$0].size != files[$1].size ? files[$0].size > files[$1].size : $0 < $1 }
+    }
+
+    /// `ensureAll`'s files, at most `width` on their way at once. Returns the indices of the files left to install
+    /// one at a time, in order (none unless the app left).
+    private func fetchTogether(_ files: [ModelManifest.File], width: Int, in folder: URL, report: inout InstallReport,
+                               meter: ProgressMeter?) async throws(RecognizerError) -> (owed: [Int], floors: [Int: Int64]) {
+        let order = Self.queue(files)
+        let yieldWhenAway = background != nil
+        // each file counts its bytes in a share of the progress of its own
+        let counted = files.indices.map { _ in Locked<Int64>(0) }
+        let shares = files.indices.map { i in meter.map { Self.share(of: $0, size: files[i].size, floor: 0, counted: counted[i]) } }
+        var ready: [Int: Obtained] = [:]
+        var next = 0 // the next file of `files` the Core installs
+        var failure: RecognizerError?
+        var halfway = false
+        await withTaskGroup(of: (Int, Result<(Obtained, InstallReport), RecognizerError>).self) { group in
+            var launched = 0
+            while launched < width {
+                let i = order[launched], f = files[i]
+                launched += 1
+                group.addTask { await self.obtainTask(i, f, in: folder, meter: shares[i], yieldWhenAway: yieldWhenAway) }
+            }
+            for await (i, result) in group {
+                switch result {
+                case .failure(let error):
+                    // the first failure is the call's; the transfers still on their way stop and keep what they wrote
+                    if failure == nil {
+                        failure = error
+                        group.cancelAll()
+                    }
+                case .success(let (obtained, r)):
+                    report.downloadedBytes += r.downloadedBytes
+                    report.resumed = report.resumed || r.resumed
+                    if case .leftHalfway = obtained { halfway = true } else { ready[i] = obtained }
+                }
+                // the Core's installs, in order, as far as the files are here
+                while failure == nil, !halfway, let obtained = ready.removeValue(forKey: next) {
+                    if case .cdnForm(let cdn, let n) = obtained {
+                        do throws(RecognizerError) {
+                            try await coreInstall(files[next], cdn: cdn, downloads: n, in: folder, report: &report, meter: shares[next])
+                        } catch {
+                            failure = error
+                            group.cancelAll()
+                            break
+                        }
+                    }
+                    next += 1
+                }
+                if failure == nil, !halfway, launched < order.count {
+                    let j = order[launched], f = files[j]
+                    launched += 1
+                    group.addTask { await self.obtainTask(j, f, in: folder, meter: shares[j], yieldWhenAway: yieldWhenAway) }
+                }
+            }
+        }
+        if let failure { throw failure }
+        // the files the Core has not installed: those the app's leaving stopped, and (after a leaving) any after them,
+        // each with what the progress holds for it
+        let owed = Array(next..<files.count)
+        return (owed, Dictionary(uniqueKeysWithValues: owed.map { ($0, counted[$0].withLock { $0 }) }))
+    }
+
     /// One file on disk, decoded and verified: kept if already there and matching, else downloaded (resuming a
     /// `.part`), checked, inflated, checked. One retry after a mismatch.
     func ensure(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport, counted: Bool = false) async throws(RecognizerError) {
-        let fm = FileManager.default
+        try await ensure(f, in: folder, report: &report, meter: counted ? meter : nil)
+    }
+
+    private func ensure(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport, meter: ProgressMeter?) async throws(RecognizerError) {
+        if case .cdnForm(let cdn, let n) = try await obtain(f, in: folder, report: &report, meter: meter, yieldWhenAway: false) {
+            try await coreInstall(f, cdn: cdn, downloads: n, in: folder, report: &report, meter: meter)
+        }
+    }
+
+    /// `ensure` up to the Core's install: the file kept when it is on disk and matching, a CDN form an earlier call left
+    /// handed on, else the file downloaded (`download`).
+    private func obtain(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport, meter: ProgressMeter?,
+                        yieldWhenAway: Bool) async throws(RecognizerError) -> Obtained {
         let dst = folder.appendingPathComponent(f.localPath)
-        let meter = counted ? self.meter : nil
         if f.isEncrypted {
             if Self.present(f, in: folder) {
                 meter?.add(f.size)
-                return
+                return .inPlace
             }
             // a CDN form a stopped install left (no lease then): installed now, without a download
             let cdn = folder.appendingPathComponent(f.path)
-            if let (size, sha) = try? ModelManifest.digest(cdn), size == f.size, sha == f.sha256 {
-                do throws(RecognizerError) {
-                    try installEncrypted(f, cdn: cdn)
-                    meter?.add(f.size)
-                    return
-                } catch {
-                    guard case .checksumMismatch = error else { throw error }
-                }
-            }
+            if let (size, sha) = try? ModelManifest.digest(cdn), size == f.size, sha == f.sha256 { return .cdnForm(cdn, downloads: 0) }
         } else if Self.present(f, in: folder), let (_, sha) = try? ModelManifest.digest(dst), sha == f.localSHA256 {
             meter?.add(f.size)
-            return
+            return .inPlace
         }
-        if !f.isEncrypted { try? fm.removeItem(at: dst) }
-        var attempt = 0
+        if !f.isEncrypted { try? FileManager.default.removeItem(at: dst) }
+        return try await download(f, in: folder, after: 0, report: &report, meter: meter, yieldWhenAway: yieldWhenAway)
+    }
+
+    /// The file downloaded and checked (`fetch`), at most two times in a call in all: `after` is how many times it was
+    /// fetched in this call already. A mismatch starts it again while a try is left.
+    private func download(_ f: ModelManifest.File, in folder: URL, after done: Int, report: inout InstallReport, meter: ProgressMeter?,
+                          yieldWhenAway: Bool) async throws(RecognizerError) -> Obtained {
+        var downloads = done
         while true {
-            attempt += 1
+            downloads += 1
             let before = report.downloadedBytes
             var kept: Int64 = 0
             do throws(RecognizerError) {
-                try await fetch(f, in: folder, report: &report, meter: meter, kept: &kept)
-                return
+                switch try await fetch(f, in: folder, report: &report, meter: meter, kept: &kept, yieldWhenAway: yieldWhenAway) {
+                case .placed: return .inPlace
+                case .halfway: return .leftHalfway
+                case .cdnForm(let cdn): return .cdnForm(cdn, downloads: downloads)
+                }
             } catch {
-                guard case .checksumMismatch = error, attempt < 2 else { throw error }
+                guard case .checksumMismatch = error, downloads < 2 else { throw error }
                 // the file starts again: what was counted for it goes back
                 meter?.add(-(kept + report.downloadedBytes - before))
             }
         }
     }
 
+    /// The Core's install of a verified CDN form. A container the Core refuses as damaged is downloaded once more
+    /// (a CDN form an earlier call left does not count as a download of this call): `ensure`'s rule, the same with
+    /// one file at a time or several.
+    private func coreInstall(_ f: ModelManifest.File, cdn: URL, downloads: Int, in folder: URL, report: inout InstallReport,
+                             meter: ProgressMeter?) async throws(RecognizerError) {
+        var cdn = cdn, downloads = downloads
+        while true {
+            do throws(RecognizerError) {
+                try installEncrypted(f, cdn: cdn)
+                if downloads == 0 { meter?.add(f.size) }
+                return
+            } catch {
+                guard case .checksumMismatch = error, downloads < 2 else { throw error }
+                // the file starts again: what was counted for it goes back
+                if downloads > 0 { meter?.add(-f.size) }
+            }
+            guard case .cdnForm(let again, let n) = try await download(f, in: folder, after: downloads, report: &report, meter: meter,
+                                                                      yieldWhenAway: false) else { return }
+            cdn = again
+            downloads = n
+        }
+    }
+
+    /// What one `fetch` did.
+    private enum Fetched {
+        /// A plain file, in place and verified.
+        case placed
+        /// An encrypted file's CDN form, whole and verified, at this URL.
+        case cdnForm(URL)
+        /// The app left before the file was whole (`yieldWhenAway`).
+        case halfway
+    }
+
     private func fetch(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport, meter: ProgressMeter?,
-                       kept: inout Int64) async throws(RecognizerError) {
+                       kept: inout Int64, yieldWhenAway: Bool) async throws(RecognizerError) -> Fetched {
         let fm = FileManager.default
         let part = folder.appendingPathComponent(f.path + ".part")
         let dst = folder.appendingPathComponent(f.localPath)
@@ -714,8 +1020,12 @@ struct ModelInstaller: Sendable {
             kept = have
             meter?.add(have)
         }
+        // 4.0.1: the SHA-256 as the bytes are written (the bytes kept from an earlier call hashed first), so the file
+        // is not read again once its last byte is in. Before 4.0.1 it was read whole after the last byte.
+        let hash = PartHasher.resuming(part, have: have)
         if let streaming = source as? any StreamingModelFileSource {
-            try await stream(streaming, f, part: part, from: have, report: &report, meter: meter)
+            guard try await stream(streaming, f, part: part, from: have, hash: hash, yieldWhenAway: yieldWhenAway,
+                                   report: &report, meter: meter) else { return .halfway }
             have = f.size
         }
         guard let h = try? FileHandle(forWritingTo: part) else { throw .storageFailed("cannot open \(f.path).part") }
@@ -726,6 +1036,7 @@ struct ModelInstaller: Sendable {
                 let piece = try await source.bytes(f.path, lower: have, upper: upper, size: f.size)
                 guard Int64(piece.count) == upper - have + 1 else { throw RecognizerError.offline("short range for \(f.path)") }
                 try h.write(contentsOf: piece)
+                hash.append(piece, at: have)
                 have += Int64(piece.count)
                 report.downloadedBytes += Int64(piece.count)
                 meter?.add(Int64(piece.count))
@@ -739,7 +1050,7 @@ struct ModelInstaller: Sendable {
             try? h.close()
             throw .storageFailed("cannot write \(f.path).part: \(error.localizedDescription)")
         }
-        let (size, sha) = try ModelManifest.digest(part)
+        let (size, sha) = try hash.digest(of: part)
         guard size == f.size, sha == f.sha256 else {
             try? fm.removeItem(at: part)
             throw .checksumMismatch(file: f.path)
@@ -752,7 +1063,7 @@ struct ModelInstaller: Sendable {
                 try? fm.removeItem(at: part)
                 throw .storageFailed("cannot place \(f.path): \(error.localizedDescription)")
             }
-            try installEncrypted(f, cdn: cdn)
+            return .cdnForm(cdn)
         } else if f.isGzip {
             let out: Gzip.Output
             do throws(RecognizerError) { out = try Gzip.inflate(part, to: dst) } catch {
@@ -772,6 +1083,7 @@ struct ModelInstaller: Sendable {
                 throw .storageFailed("cannot place \(f.localPath): \(error.localizedDescription)")
             }
         }
+        return .placed
     }
 }
 

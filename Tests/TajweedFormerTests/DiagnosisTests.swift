@@ -40,7 +40,19 @@ final class DiagnosisTests: XCTestCase {
     static func problem(_ r: [String: Any], codes: [String] = DiagnosisTests.codes) -> String? {
         // the eleven fields, the optional ones of names.json, and SDK 4.0's
         // `protected` where a runtime exists (its own shape below)
-        guard Set(r.keys).subtracting(optionalFields + ["protected"]) == Set(fields) else { return "fields \(r.keys.sorted())" }
+        guard Set(r.keys).subtracting(optionalFields + ["protected", "endpoints"]) == Set(fields) else { return "fields \(r.keys.sorted())" }
+        // 4.0.1 (ENDPOINTS_40.md 28.7, DIAGNOSIS_40 25.3): `endpoints` where the Client has a key; Apple writes no webFrame
+        if let e = r["endpoints"] {
+            guard let e = e as? [String: Any], Set(e.keys) == ["api", "models", "lastFailover"],
+                  isNull(e["api"]) || e["api"] is String, isNull(e["models"]) || e["models"] is String else { return "endpoints" }
+            if !isNull(e["lastFailover"]) {
+                guard let f = e["lastFailover"] as? [String: Any], Set(f.keys) == ["role", "from", "to", "reason", "status", "at"],
+                      ["api", "models", "web_frame"].contains(f["role"] as? String ?? ""), f["from"] is String,
+                      isNull(f["to"]) || f["to"] is String,
+                      ["network", "timeout", "http", "redirect", "invalid_answer"].contains(f["reason"] as? String ?? ""),
+                      isNull(f["status"]) || isCount(f["status"]), isCount(f["at"]) else { return "endpoints.lastFailover" }
+            }
+        }
         if let named = r["downloadProtocol"] {
             guard isNull(named) || protocols.contains(named as? String ?? "") else { return "downloadProtocol" }
         }
@@ -253,5 +265,39 @@ final class DiagnosisTests: XCTestCase {
         XCTAssertEqual(Self.problem(try Self.report(d)), "protected")
         d.protected = .init(keyStore: "keychain", lease: "grace", leaseExpires: 1, leaseClass: "standard", refreshAfter: 1, graceUntil: nil, core: nil)
         XCTAssertEqual(Self.problem(try Self.report(d)), "protected")
+    }
+
+    /// SDK 4.0.1, ENDPOINTS_40.md 28.7 and DIAGNOSIS_40 25.3: `endpoints` after `protected`, its fields in the table's
+    /// order (api, models, lastFailover; no webFrame on Apple), lastFailover's six in theirs, `to` and `status` null
+    /// when none answered (a list of one host, or no network).
+    func testTheEndpointsObjectOf28_7() throws {
+        var d = TajweedDiagnosis(sdkVersion: "4.0.1", sdkLatest: nil, key: .init(accepted: true, reason: nil), config: "fresh", model: nil,
+                                 context: nil, backend: nil, microphone: "granted", storage: .init(models: [], sharingQueueBytes: 0),
+                                 lastError: nil, droppedChunks: 0, connection: "unmetered")
+        XCTAssertFalse(d.json.contains("endpoints"), "no key: no endpoints")
+        d.protected = .init(keyStore: "secureEnclave", lease: "valid", leaseExpires: 1_795_600_000, leaseClass: "attested",
+                            refreshAfter: 1_795_100_000, graceUntil: nil, core: "4.0.0-c3 ios-arm64")
+        d.endpoints = .init(api: "api-b.tajweedformer.com", models: "cdn.quranlab.ai",
+                            lastFailover: .init(role: "api", from: "api.quranlab.ai", to: "api-b.tajweedformer.com", reason: "http",
+                                                status: 503, at: 1_795_200_000))
+        XCTAssertNil(Self.problem(try Self.report(d)))
+        XCTAssertTrue(d.json.hasSuffix("\"core\": \"4.0.0-c3 ios-arm64\"},\n  \"endpoints\": {\"api\": \"api-b.tajweedformer.com\", "
+            + "\"models\": \"cdn.quranlab.ai\", \"lastFailover\": {\"role\": \"api\", \"from\": \"api.quranlab.ai\", "
+            + "\"to\": \"api-b.tajweedformer.com\", \"reason\": \"http\", \"status\": 503, \"at\": 1795200000}}\n}"), d.json)
+        // none answered: to and status null; no failover yet: lastFailover null
+        d.endpoints = .init(api: "api.quranlab.ai", models: "cdn.quranlab.ai",
+                            lastFailover: .init(role: "models", from: "cdn.quranlab.ai", to: nil, reason: "network", status: nil, at: 1_795_200_001))
+        XCTAssertNil(Self.problem(try Self.report(d)))
+        XCTAssertTrue(d.json.contains("\"to\": null, \"reason\": \"network\", \"status\": null"), d.json)
+        d.endpoints = .init(api: "api.quranlab.ai", models: "cdn.quranlab.ai", lastFailover: nil)
+        XCTAssertNil(Self.problem(try Self.report(d)))
+        XCTAssertTrue(d.json.hasSuffix("  \"endpoints\": {\"api\": \"api.quranlab.ai\", \"models\": \"cdn.quranlab.ai\", \"lastFailover\": null}\n}"))
+        // the rules refuse a reason that is not one of 28.7's, and a field that is not the table's
+        var bad = try Self.report(d)
+        bad["endpoints"] = ["api": "api.quranlab.ai", "models": "cdn.quranlab.ai", "lastFailover": NSNull(), "webFrame": "web.quranlab.ai"]
+        XCTAssertEqual(Self.problem(bad), "endpoints")
+        bad["endpoints"] = ["api": "api.quranlab.ai", "models": "cdn.quranlab.ai",
+                            "lastFailover": ["role": "api", "from": "api.quranlab.ai", "to": NSNull(), "reason": "refused", "status": 403, "at": 1]]
+        XCTAssertEqual(Self.problem(bad), "endpoints.lastFailover")
     }
 }

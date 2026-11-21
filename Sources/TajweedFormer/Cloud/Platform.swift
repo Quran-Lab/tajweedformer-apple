@@ -2,7 +2,7 @@ import Foundation
 
 /// The SDK's own version, sent in registration, events and issue reports.
 enum SDKInfo {
-    static let version = "4.0.0"
+    static let version = "4.0.1"
     /// Where the SDK runs: the one sentence every `runtime_unsupported` error ends its fix with. It says what the
     /// README's "Before you start" says.
     static let minimum = "iOS 15 or macOS 12 or later, on Apple silicon (an arm64 device, the arm64 simulator or an arm64 Mac)"
@@ -42,12 +42,16 @@ struct AppIdentity: Sendable, Hashable {
     var bundleID: String
     var name: String?
     var version: String
+    /// SDK 4.0.1 (section 27): the app's build number, `CFBundleVersion` or the app's own (`TajweedClientOptions.appBuild`);
+    /// nil when not known. Sent only on the config request.
+    var build: String?
 
-    init(platform: String = AppIdentity.currentPlatform, bundleID: String, name: String? = nil, version: String) {
+    init(platform: String = AppIdentity.currentPlatform, bundleID: String, name: String? = nil, version: String, build: String? = nil) {
         self.platform = platform
         self.bundleID = bundleID
         self.name = name
         self.version = version
+        self.build = build
     }
 
     static var currentPlatform: String {
@@ -63,10 +67,30 @@ struct AppIdentity: Sendable, Hashable {
         let info = Bundle.main.infoDictionary ?? [:]
         let bundle = Bundle.main.bundleIdentifier ?? "unknown.app"
         let name = (info["CFBundleDisplayName"] as? String) ?? (info["CFBundleName"] as? String)
-        let raw = (info["CFBundleShortVersionString"] as? String) ?? "0"
-        let version = raw.filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "+" }
         return AppIdentity(bundleID: bundle, name: name.map { String($0.prefix(80)) },
-                           version: version.isEmpty ? "0" : String(version.prefix(32)))
+                           version: registerVersion(info["CFBundleShortVersionString"] as? String),
+                           build: info["CFBundleVersion"] as? String)
+    }
+
+    /// Contract section 27.1 (564c144), the one cleaning of `app_version` and `app_build` on every platform, in order:
+    /// keep only the ASCII characters `0-9 A-Z a-z . + -`; drop `.`, `+` and `-` from the start; keep the first 32.
+    /// ` 7.1 (beta)` is `7.1beta`, `-7.1` is `7.1`, `7.1-` and a letter outside ASCII is `7.1-`, `...` is empty. (4.0.0 kept any Unicode letter or
+    /// digit, and no leading sign was dropped.)
+    static func cleaned(_ raw: String?) -> String {
+        guard let raw else { return "" }
+        let kept = raw.unicodeScalars.filter { s in
+            (48...57).contains(s.value) || (65...90).contains(s.value) || (97...122).contains(s.value) || ".+-".unicodeScalars.contains(s)
+        }
+        let signs = ".+-".unicodeScalars
+        let trimmed = kept.drop { signs.contains($0) }
+        return String(String.UnicodeScalarView(trimmed.prefix(32)))
+    }
+
+    /// Register's `app_version` (27.1, PLATFORM_CLIENT 5): the cleaned version, or `"0"` when it is not known or
+    /// cleans down to nothing (register requires the field).
+    static func registerVersion(_ raw: String?) -> String {
+        let v = cleaned(raw)
+        return v.isEmpty ? "0" : v
     }
 }
 

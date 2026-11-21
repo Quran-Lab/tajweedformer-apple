@@ -63,11 +63,15 @@ public final class TajweedSharing: Sendable {
     /// while the learner's stored answer cannot be read.
     public func setOn(_ on: Bool) async throws(TajweedError) {
         if on && !isAvailable { throw TajweedError(.sharingUnavailable) }
-        do throws(RecognizerError) {
-            try await Contributions.switchSharing(on)
-        } catch {
-            throw TajweedError(from: error, stage: "sharing")
-        }
+        // one operation for the cause it makes (4.0.1, RequestTrace: `sharing` names its request's role and fallback)
+        try await RequestTrace.scope { () async -> Result<Void, TajweedError> in
+            do throws(RecognizerError) {
+                try await Contributions.switchSharing(on)
+                return .success(())
+            } catch {
+                return .failure(TajweedError(from: error, stage: "sharing"))
+            }
+        }.get()
     }
 
     /// Asks now, at a point of the app's own flow, when an ask is due by the SDK's rules: the sheet the first time, a
@@ -113,11 +117,15 @@ public final class TajweedSharing: Sendable {
     /// "Delete what I shared": every recording this learner shared from this app is deleted from Quran Lab's servers
     /// (signed with this device's key; no app credential can do it), the unsent queue is dropped, and sharing goes off.
     public func delete() async throws(TajweedError) {
-        do throws(RecognizerError) {
-            try await Contributions.deleteShared()
-        } catch {
-            throw TajweedError(from: error, stage: "sharing")
-        }
+        // one operation for the cause it makes (4.0.1, RequestTrace)
+        try await RequestTrace.scope { () async -> Result<Void, TajweedError> in
+            do throws(RecognizerError) {
+                try await Contributions.deleteShared()
+                return .success(())
+            } catch {
+                return .failure(TajweedError(from: error, stage: "sharing"))
+            }
+        }.get()
     }
 
     /// The code that deletes the learner's recordings when the device is lost; nil until the learner has shared.

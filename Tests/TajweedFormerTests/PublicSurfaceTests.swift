@@ -28,6 +28,8 @@ final class PublicSurfaceTests: XCTestCase {
         "TajweedSessionOptions.Backend", "TajweedSessionOptions.Pace",
         "TajweedDiagnosis.Key", "TajweedDiagnosis.Model", "TajweedDiagnosis.StoredModel",
         "TajweedDiagnosis.Storage", "TajweedDiagnosis.Protected", "TajweedSharing.Item", "TajweedSharing.Summary",
+        // 4.0.1: the hosts in use and the last failover
+        "TajweedDiagnosis.Endpoints", "TajweedDiagnosis.Failover",
     ]
 
     static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -215,17 +217,18 @@ final class PublicSurfaceTests: XCTestCase {
         // the options as a value: no such field
         let fields = Mirror(reflecting: TajweedClientOptions()).children.compactMap { $0.label }
         XCTAssertEqual(fields.flatMap { Self.removedIdentifiers($0) }, [], "TajweedClientOptions: \(fields)")
-        XCTAssertEqual(Set(fields), ["appId", "appVersion", "storage"])
+        // 4.0.1: the app's build number, sent on the config request
+        XCTAssertEqual(Set(fields), ["appId", "appVersion", "appBuild", "storage"])
     }
 
     // MARK: the error catalogue
 
     /// The SHA-256 of the contract's errors.json this package embeds (sdk_3.0.0/errors.json at quranlab-contract
-    /// sdk-4.0.0-protected 3c62bf3: 26 codes, the reasons of `server_rejected` with the two of a model request, the fix
-    /// of `model_missing` without a folder to open, docs on sdk.quranlab.ai, and the fix of `sharing_unavailable` that
-    /// names Quran Lab's switch for a platform or for everyone, never one app). Recorded when the copy was made; the
-    /// copy is never edited.
-    static let catalogueSHA256 = "923da8f3d66e765a34574c4e12cbce5ae963688f407a07106f46dcd865fad3bd"
+    /// sdk-4.0.0-protected 564c144, the same bytes as 7f097b9: 26 codes, the reasons of `server_rejected` with the two
+    /// of a model request, the fix of `model_missing` without a folder to open, docs on sdk.quranlab.ai, the fix of
+    /// `sharing_unavailable` that names Quran Lab's switch for a platform or for everyone, never one app, and the fix
+    /// of `reference_missing` that names web 4.0.0's bug). Recorded when the copy was made; the copy is never edited.
+    static let catalogueSHA256 = "9b6c034e8a2ec73080b2621aef821d5f7117fa828a27c5f6cf97e672e044c880"
 
     func embedded() throws -> Data { try Data(contentsOf: try XCTUnwrap(ErrorCatalogue.resource)) }
 

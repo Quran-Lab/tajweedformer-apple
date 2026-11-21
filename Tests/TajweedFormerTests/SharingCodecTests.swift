@@ -231,7 +231,20 @@ final class SharingCodecTests: XCTestCase {
 
     /// Memory stays flat over a long session (encoder, resampler and writer reuse their buffers):
     /// 10 minutes by default, 2 hours with ZF_LONG=1.
+    ///
+    /// Measured in a test process of its own on a Mac (the same test, run again by `xctest` with ZF_MEMORY_CHILD=1),
+    /// with the same bound. The footprint is the whole process's: in a full suite it also moves with what earlier
+    /// tests left running (on 2026-11-20 it grew 2.4 to 5.1 MB in 3 of 6 full runs, at footprints of 72 to 170 MB, and
+    /// stayed within 0.3 MB at 9 MB each time the test ran alone), so only a process of its own measures the session.
     func testMemoryIsFlatOverALongSession() throws {
+        #if os(macOS)
+        if ProcessInfo.processInfo.environment["ZF_MEMORY_CHILD"] != "1", let child = try Self.inOwnProcess("SharingCodecTests/testMemoryIsFlatOverALongSession") {
+            print(child.output.split(separator: "\n").filter { $0.hasPrefix("sharing memory:") }.joined(separator: "\n"))
+            XCTAssertEqual(child.status, 0, "the test in a process of its own:\n" + child.output.suffix(3000))
+            XCTAssertTrue(child.output.contains("sharing memory:"), "the measurement ran")
+            return
+        }
+        #endif
         let minutes = ProcessInfo.processInfo.environment["ZF_LONG"] == "1" ? 120 : 10
         let url = Self.temp()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -253,11 +266,41 @@ final class SharingCodecTests: XCTestCase {
         XCTAssertEqual(try OpusTestDecoder.decode(try Data(contentsOf: url)).count, minutes * 60 * 48_000)
     }
 
+    #if os(macOS)
+    /// `test` (`Class/method` of this bundle) run by the same `xctest` in a new process with ZF_MEMORY_CHILD=1, and its
+    /// exit status and output; nil where this process is not `xctest` (then the test measures in place).
+    static func inOwnProcess(_ test: String) throws -> (status: Int32, output: String)? {
+        let runner = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0])
+        guard runner.lastPathComponent == "xctest", FileManager.default.isExecutableFile(atPath: runner.path) else { return nil }
+        let bundle = Bundle(for: SharingCodecTests.self).bundleURL
+        let p = Process()
+        p.executableURL = runner
+        p.arguments = ["-XCTest", "TajweedFormerTests." + test, bundle.path]
+        var env = ProcessInfo.processInfo.environment
+        env["ZF_MEMORY_CHILD"] = "1"
+        p.environment = env
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        try p.run()
+        let out = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(decoding: out, as: UTF8.self))
+    }
+    #endif
+
     static func footprint() -> Int {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        #if compiler(>=6.1)
+        let task = mach_task_self_
+        #else
+        // Swift 6.0's SDKs: the mutable C global read through the dynamic loader, as CrashDiagnostics does
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "mach_task_self_") else { return 0 }
+        let task = sym.load(as: mach_port_t.self)
+        #endif
         let r = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(task, task_flavor_t(TASK_VM_INFO), $0, &count) }
         }
         return r == KERN_SUCCESS ? Int(info.phys_footprint) : 0
     }

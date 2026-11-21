@@ -32,7 +32,7 @@
     {"code": "checksum_mismatch", "message": "A model file differs from the manifest: {file}.", "fix": "Call removeModels() and then model() to download the model again; if it repeats, the storage is failing."},
     {"code": "model_incompatible", "message": "This model build does not run on this SDK: {detail}.", "fix": "Upgrade the SDK to the version the message names, or let client.model() pick the build for this SDK instead of opening a folder."},
     {"code": "runtime_unsupported", "message": "The SDK cannot run here: {detail}.", "fix": "Run the app where the SDK is supported: {minimum}."},
-    {"code": "reference_missing", "message": "The reference data is not on this device.", "fix": "Call model.reference.fetch() once, with a connection, before asking for units."},
+    {"code": "reference_missing", "message": "The reference data is not on this device.", "fix": "Call model.reference.fetch() once, with a connection, before asking for units; in a browser on web SDK 4.0.0 the error can also come after a fetch() that succeeded, an SDK bug fixed in the hosted web SDK (nothing to change in the app) and in 4.0.1."},
     {"code": "session_open", "message": "This model already has an open session.", "fix": "Finish or cancel the open session before starting the next take."},
     {"code": "session_closed", "message": "The session has ended.", "fix": "Start a new session with model.listen() or model.session() for the next take."},
     {"code": "cancelled", "message": "The take was cancelled.", "fix": "Nothing to fix: cancel() was called, or the app's task was cancelled; start a new session for the next take."},

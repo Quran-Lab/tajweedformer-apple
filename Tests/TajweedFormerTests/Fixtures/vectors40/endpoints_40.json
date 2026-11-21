@@ -1,0 +1,3667 @@
+{
+ "format": "quranlab.endpoints-40/1",
+ "about": "ENDPOINTS_40.md (section 28): endpoint sets and failover. Made by tools/endpoints40.py --write; do not edit by hand.",
+ "roles": {
+  "api": [
+   "api.quranlab.ai",
+   "api-b.tajweedformer.com",
+   "api-g.tajweedformer.com",
+   "api-a.tajweedformer.com"
+  ],
+  "models": [
+   "cdn.quranlab.ai",
+   "cdn-b.tajweedformer.com",
+   "cdn-g.tajweedformer.com",
+   "cdn-a.tajweedformer.com"
+  ],
+  "web_frame": [
+   "web.quranlab.ai",
+   "web2.quranlab.ai",
+   "web-b.tajweedformer.com",
+   "web-g.tajweedformer.com",
+   "web-a.tajweedformer.com"
+  ]
+ },
+ "config_roles": [
+  "api",
+  "models"
+ ],
+ "suffixes": [
+  "quranlab.ai",
+  "tajweedformer.com",
+  "quran-lab.com"
+ ],
+ "limits": {
+  "connect_s": 5,
+  "head_s": 10,
+  "probe_s": 1800,
+  "loader_switch_s": 4,
+  "frame_switch_s": 4,
+  "frame_timeout_s": 24,
+  "resumes": 5,
+  "pauses": [
+   1,
+   2,
+   4,
+   8,
+   16
+  ],
+  "max_config_hosts": 8
+ },
+ "web_frame_schedule": [
+  {
+   "at_s": 0,
+   "host": "web.quranlab.ai"
+  },
+  {
+   "at_s": 4,
+   "host": "web2.quranlab.ai"
+  },
+  {
+   "at_s": 8,
+   "host": "web-b.tajweedformer.com"
+  },
+  {
+   "at_s": 12,
+   "host": "web-g.tajweedformer.com"
+  },
+  {
+   "at_s": 16,
+   "host": "web-a.tajweedformer.com"
+  }
+ ],
+ "answers_are": "{answer: none | stalled} when none came; else {status, body: json | bytes | html | empty | invalid, error, reason, core, retry_after?}: json the route's own answer, bytes a model file 16.1 holds to be the file, invalid a JSON or bytes answer that fails the route's check; core for the lease route as grace.json; routes: config, register, token, challenge, attest, model-key, manifest, file, engine",
+ "hosts": [
+  {
+   "host": "api.quranlab.ai",
+   "allowed": true
+  },
+  {
+   "host": "cdn-b.tajweedformer.com",
+   "allowed": true
+  },
+  {
+   "host": "web-g.tajweedformer.com",
+   "allowed": true
+  },
+  {
+   "host": "quranlab.ai",
+   "allowed": true
+  },
+  {
+   "host": "tajweedformer.com",
+   "allowed": true
+  },
+  {
+   "host": "quran-lab.com",
+   "allowed": true
+  },
+  {
+   "host": "eu.cdn.quran-lab.com",
+   "allowed": true
+  },
+  {
+   "host": "API.QuranLab.AI",
+   "allowed": true
+  },
+  {
+   "host": "xn--mgbaal8b0b.quranlab.ai",
+   "allowed": true
+  },
+  {
+   "host": "quranlab.ai.example.net",
+   "allowed": false
+  },
+  {
+   "host": "evilquranlab.ai",
+   "allowed": false
+  },
+  {
+   "host": "cdn.quranlab.ai.",
+   "allowed": false
+  },
+  {
+   "host": "cdn.quranlab.ai:8443",
+   "allowed": false
+  },
+  {
+   "host": "user@cdn.quranlab.ai",
+   "allowed": false
+  },
+  {
+   "host": "192.0.2.10",
+   "allowed": false
+  },
+  {
+   "host": "[::1]",
+   "allowed": false
+  },
+  {
+   "host": "cdn_b.tajweedformer.com",
+   "allowed": false
+  },
+  {
+   "host": "-cdn.quranlab.ai",
+   "allowed": false
+  },
+  {
+   "host": "cdn-.quranlab.ai",
+   "allowed": false
+  },
+  {
+   "host": "cdn..quranlab.ai",
+   "allowed": false
+  },
+  {
+   "host": "",
+   "allowed": false
+  },
+  {
+   "host": "tajweedformer.co",
+   "allowed": false
+  },
+  {
+   "host": "quranlab.com",
+   "allowed": false
+  },
+  {
+   "host": "cén.quranlab.ai",
+   "allowed": false
+  },
+  {
+   "host": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.quranlab.ai",
+   "allowed": false
+  },
+  {
+   "host": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.quranlab.ai",
+   "allowed": true
+  },
+  {
+   "host": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.quranlab.ai",
+   "allowed": false
+  },
+  {
+   "host": "api-a.tajweedformer.com",
+   "allowed": true
+  },
+  {
+   "host": "web-a.tajweedformer.com",
+   "allowed": true
+  }
+ ],
+ "config_lists": [
+  {
+   "name": "no endpoints",
+   "endpoints": null,
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-b.tajweedformer.com",
+     "api-g.tajweedformer.com",
+     "api-a.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "the standby first",
+   "endpoints": {
+    "api": [
+     "api-b.tajweedformer.com",
+     "api.quranlab.ai",
+     "api-g.tajweedformer.com"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api-b.tajweedformer.com",
+     "api.quranlab.ai",
+     "api-g.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "a host disabled",
+   "endpoints": {
+    "api": [
+     "api.quranlab.ai",
+     "api-g.tajweedformer.com"
+    ],
+    "models": [
+     "cdn-b.tajweedformer.com",
+     "cdn.quranlab.ai"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-g.tajweedformer.com"
+    ],
+    "models": [
+     "cdn-b.tajweedformer.com",
+     "cdn.quranlab.ai"
+    ]
+   }
+  },
+  {
+   "name": "an added host of the allow-list is used (a later provider, no SDK update)",
+   "endpoints": {
+    "api": [
+     "api.quranlab.ai",
+     "api-x.tajweedformer.com",
+     "api-b.tajweedformer.com"
+    ],
+    "models": [
+     "cdn-x.quran-lab.com",
+     "cdn.quranlab.ai"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-x.tajweedformer.com",
+     "api-b.tajweedformer.com"
+    ],
+    "models": [
+     "cdn-x.quran-lab.com",
+     "cdn.quranlab.ai"
+    ]
+   }
+  },
+  {
+   "name": "a host of another domain is dropped",
+   "endpoints": {
+    "api": [
+     "api.example.net",
+     "api-b.tajweedformer.com"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api-b.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "a lookalike is dropped: evilquranlab.ai and quranlab.ai.example.net",
+   "endpoints": {
+    "api": [
+     "evilquranlab.ai",
+     "api.quranlab.ai.example.net",
+     "xtajweedformer.com",
+     "api.quranlab.ai"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "an entry with a scheme, a port or a path is dropped",
+   "endpoints": {
+    "api": [
+     "https://api-x.quranlab.ai",
+     "api-x.quranlab.ai:443",
+     "api-x.quranlab.ai/v1",
+     "api-b.tajweedformer.com"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api-b.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "8 entries are taken",
+   "endpoints": {
+    "api": [
+     "api-0.quranlab.ai",
+     "api-1.quranlab.ai",
+     "api-2.quranlab.ai",
+     "api-3.quranlab.ai",
+     "api-4.quranlab.ai",
+     "api-5.quranlab.ai",
+     "api-6.quranlab.ai",
+     "api-7.quranlab.ai"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api-0.quranlab.ai",
+     "api-1.quranlab.ai",
+     "api-2.quranlab.ai",
+     "api-3.quranlab.ai",
+     "api-4.quranlab.ai",
+     "api-5.quranlab.ai",
+     "api-6.quranlab.ai",
+     "api-7.quranlab.ai"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "more than 8 entries: refused whole, the built-in list",
+   "endpoints": {
+    "api": [
+     "api-0.quranlab.ai",
+     "api-1.quranlab.ai",
+     "api-2.quranlab.ai",
+     "api-3.quranlab.ai",
+     "api-4.quranlab.ai",
+     "api-5.quranlab.ai",
+     "api-6.quranlab.ai",
+     "api-7.quranlab.ai",
+     "api-8.quranlab.ai"
+    ],
+    "models": [
+     "cdn-b.tajweedformer.com"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-b.tajweedformer.com",
+     "api-g.tajweedformer.com",
+     "api-a.tajweedformer.com"
+    ],
+    "models": [
+     "cdn-b.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "a config that has expired: the built-in lists, its added hosts never used",
+   "endpoints": {
+    "api": [
+     "api-x.tajweedformer.com",
+     "api-b.tajweedformer.com"
+    ],
+    "models": [
+     "cdn-b.tajweedformer.com"
+    ]
+   },
+   "in_force": false,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-b.tajweedformer.com",
+     "api-g.tajweedformer.com",
+     "api-a.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "a models host named for api is kept (the allow-list, not the role, decides)",
+   "endpoints": {
+    "api": [
+     "cdn.quranlab.ai",
+     "api.quranlab.ai"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "cdn.quranlab.ai",
+     "api.quranlab.ai"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "nothing left: the built-in list",
+   "endpoints": {
+    "api": [
+     "api.example.net"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-b.tajweedformer.com",
+     "api-g.tajweedformer.com",
+     "api-a.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "an empty list: the built-in list",
+   "endpoints": {
+    "api": []
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-b.tajweedformer.com",
+     "api-g.tajweedformer.com",
+     "api-a.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "not an array: the built-in list",
+   "endpoints": {
+    "api": "api-b.tajweedformer.com"
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-b.tajweedformer.com",
+     "api-g.tajweedformer.com",
+     "api-a.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "repeats and case",
+   "endpoints": {
+    "api": [
+     "API-B.TAJWEEDFORMER.COM",
+     "api-b.tajweedformer.com",
+     "api.quranlab.ai",
+     7,
+     null
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api-b.tajweedformer.com",
+     "api.quranlab.ai"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "web_frame is never taken from a config",
+   "endpoints": {
+    "web_frame": [
+     "web-b.tajweedformer.com"
+    ]
+   },
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-b.tajweedformer.com",
+     "api-g.tajweedformer.com",
+     "api-a.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  },
+  {
+   "name": "endpoints that is not an object",
+   "endpoints": [
+    "api-b.tajweedformer.com"
+   ],
+   "in_force": true,
+   "lists": {
+    "api": [
+     "api.quranlab.ai",
+     "api-b.tajweedformer.com",
+     "api-g.tajweedformer.com",
+     "api-a.tajweedformer.com"
+    ],
+    "models": [
+     "cdn.quranlab.ai",
+     "cdn-b.tajweedformer.com",
+     "cdn-g.tajweedformer.com",
+     "cdn-a.tajweedformer.com"
+    ]
+   }
+  }
+ ],
+ "bases": [
+  {
+   "name": "the first model host",
+   "base": "https://cdn.quranlab.ai/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": true,
+   "asks_with_p_first": [
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "asks_with_p_standby": [
+    "cdn-b.tajweedformer.com",
+    "cdn.quranlab.ai",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "host": "cdn.quranlab.ai",
+   "path": "/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/"
+  },
+  {
+   "name": "the standby (a lease from api-b)",
+   "base": "https://cdn-b.tajweedformer.com/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": true,
+   "asks_with_p_first": [
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "asks_with_p_standby": [
+    "cdn-b.tajweedformer.com",
+    "cdn.quranlab.ai",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "host": "cdn-b.tajweedformer.com",
+   "path": "/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/"
+  },
+  {
+   "name": "the third model host",
+   "base": "https://cdn-g.tajweedformer.com/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": true,
+   "asks_with_p_first": [
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "asks_with_p_standby": [
+    "cdn-b.tajweedformer.com",
+    "cdn.quranlab.ai",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "host": "cdn-g.tajweedformer.com",
+   "path": "/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/"
+  },
+  {
+   "name": "an allowed host that is not one of the role: asked first",
+   "base": "https://eu.cdn.quran-lab.com/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": true,
+   "asks_with_p_first": [
+    "eu.cdn.quran-lab.com",
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "asks_with_p_standby": [
+    "eu.cdn.quran-lab.com",
+    "cdn-b.tajweedformer.com",
+    "cdn.quranlab.ai",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "host": "eu.cdn.quran-lab.com",
+   "path": "/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/"
+  },
+  {
+   "name": "upper case",
+   "base": "https://CDN.QuranLab.ai/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": true,
+   "asks_with_p_first": [
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "asks_with_p_standby": [
+    "cdn-b.tajweedformer.com",
+    "cdn.quranlab.ai",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "host": "cdn.quranlab.ai",
+   "path": "/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/"
+  },
+  {
+   "name": "another domain",
+   "base": "https://cdn.example.net/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": false
+  },
+  {
+   "name": "a name that only contains ours",
+   "base": "https://cdn.quranlab.ai.example.net/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": false
+  },
+  {
+   "name": "http",
+   "base": "http://cdn.quranlab.ai/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": false
+  },
+  {
+   "name": "a port",
+   "base": "https://cdn.quranlab.ai:443/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": false
+  },
+  {
+   "name": "user information",
+   "base": "https://x@cdn.quranlab.ai/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": false
+  },
+  {
+   "name": "a query",
+   "base": "https://cdn.quranlab.ai/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/?a=1/",
+   "accepted": false
+  },
+  {
+   "name": "no trailing slash",
+   "base": "https://cdn.quranlab.ai/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0",
+   "accepted": false
+  },
+  {
+   "name": "dot dot",
+   "base": "https://cdn.quranlab.ai/models/../x/",
+   "accepted": false
+  },
+  {
+   "name": "a backslash",
+   "base": "https://cdn.quranlab.ai/models\\x/",
+   "accepted": false
+  },
+  {
+   "name": "a space",
+   "base": "https://cdn.quranlab.ai/models/a b/",
+   "accepted": false
+  },
+  {
+   "name": "an IP literal",
+   "base": "https://192.0.2.10/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "accepted": false
+  },
+  {
+   "name": "no path",
+   "base": "https://cdn.quranlab.ai",
+   "accepted": false
+  },
+  {
+   "name": "too long",
+   "base": "https://cdn.quranlab.ai/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/",
+   "accepted": false
+  }
+ ],
+ "answers": [
+  {
+   "route": "config",
+   "answer": {
+    "status": 200,
+    "body": "json"
+   },
+   "class": "taken"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 304,
+    "body": "empty",
+    "error": null
+   },
+   "class": "taken"
+  },
+  {
+   "route": "register",
+   "answer": {
+    "status": 304,
+    "body": "empty",
+    "error": null
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 200,
+    "body": "invalid"
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 200,
+    "body": "html"
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 200,
+    "body": "empty"
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "file",
+   "answer": {
+    "status": 206,
+    "body": "bytes",
+    "error": null
+   },
+   "class": "taken"
+  },
+  {
+   "route": "file",
+   "answer": {
+    "status": 206,
+    "body": "invalid",
+    "error": null
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "model-key",
+   "answer": {
+    "status": 200,
+    "body": "json",
+    "core": "accepted"
+   },
+   "class": "taken"
+  },
+  {
+   "route": "model-key",
+   "answer": {
+    "status": 200,
+    "body": "json",
+    "core": "refused"
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "answer": "none"
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "answer": "stalled"
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 500,
+    "body": "json",
+    "error": "internal"
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 502,
+    "body": "html",
+    "error": null
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "model-key",
+   "answer": {
+    "status": 503,
+    "body": "json",
+    "error": "lease_unavailable",
+    "retry_after": 30
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 503,
+    "body": "json",
+    "error": "service_unavailable"
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 302,
+    "body": "empty",
+    "error": null
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 403,
+    "body": "html",
+    "error": null
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "challenge",
+   "answer": {
+    "status": 407,
+    "body": "html",
+    "error": null
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 401,
+    "body": "json",
+    "error": null
+   },
+   "class": "unreachable"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 429,
+    "body": "json",
+    "error": "rate_limited",
+    "retry_after": 60
+   },
+   "class": "slow_down"
+  },
+  {
+   "route": "file",
+   "answer": {
+    "status": 429,
+    "body": "json",
+    "error": "model_limit"
+   },
+   "class": "slow_down"
+  },
+  {
+   "route": "file",
+   "answer": {
+    "status": 429,
+    "body": "html",
+    "error": null
+   },
+   "class": "slow_down"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 401,
+    "body": "json",
+    "error": "invalid_key",
+    "reason": "key_revoked"
+   },
+   "class": "refused"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 403,
+    "body": "json",
+    "error": "app_blocked",
+    "reason": "app_blocked"
+   },
+   "class": "refused"
+  },
+  {
+   "route": "file",
+   "answer": {
+    "status": 403,
+    "body": "json",
+    "error": "model_attestation_required"
+   },
+   "class": "refused"
+  },
+  {
+   "route": "model-key",
+   "answer": {
+    "status": 403,
+    "body": "json",
+    "error": "lease_integrity_failed"
+   },
+   "class": "refused"
+  },
+  {
+   "route": "model-key",
+   "answer": {
+    "status": 401,
+    "body": "json",
+    "error": "invalid_key",
+    "reason": "key_revoked",
+    "core": "stop"
+   },
+   "class": "refused"
+  },
+  {
+   "route": "config",
+   "answer": {
+    "status": 400,
+    "body": "json",
+    "error": "invalid_body"
+   },
+   "class": "refused"
+  },
+  {
+   "route": "model-key",
+   "answer": {
+    "status": 404,
+    "body": "json",
+    "error": "build_unknown"
+   },
+   "class": "refused"
+  },
+  {
+   "route": "file",
+   "answer": {
+    "status": 503,
+    "body": "json",
+    "error": "network_blocked",
+    "retry_after": 3600
+   },
+   "class": "unreachable"
+  }
+ ],
+ "requests_are": "per step: the time in seconds, each host's answer, the hosts asked in order, the class the request ended on (taken, refused, slow_down, unreachable), the host that ended it, fallback (more than one host asked), probe (the probe back), and P after it; a step {list} is a config list that changes",
+ "requests": [
+  {
+   "name": "the first host refuses the connection: the standby answers, and the next request goes to it first",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 60,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "the first host answers 503: the standby answers, and the next request goes to it first",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 503,
+       "body": "json",
+       "error": "service_unavailable"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 60,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "the first host stalls: the standby answers, and the next request goes to it first",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "stalled"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 60,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "the first host answers a redirect: the standby answers, and the next request goes to it first",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 302,
+       "body": "empty",
+       "error": null
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 60,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "the first host answers a firewall page (a 403 that is not the API's): the standby answers, and the next request goes to it first",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 403,
+       "body": "html",
+       "error": null
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 60,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "the first host answers 200 with a captive portal's page: the standby answers, and the next request goes to it first",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "html"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 60,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "the first host answers a config that does not verify: the standby answers, and the next request goes to it first",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "invalid"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 60,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "probe back at 30 minutes: the first host answers again and is P again",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 1799,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 1800,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false,
+     "probe": true,
+     "p_after": "api.quranlab.ai"
+    },
+    {
+     "at": 1900,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api.quranlab.ai"
+    }
+   ]
+  },
+  {
+   "name": "probe back while the first host is still down: the standby for 30 more minutes",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 1800,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": true,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 3599,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 3600,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false,
+     "probe": true,
+     "p_after": "api.quranlab.ai"
+    }
+   ]
+  },
+  {
+   "name": "a refusal on the standby is the answer: the third host is never asked",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 403,
+       "body": "json",
+       "error": "app_blocked",
+       "reason": "app_blocked"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "refused",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "a refusal on the first host: no other host is asked",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 401,
+       "body": "json",
+       "error": "invalid_key",
+       "reason": "key_revoked"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "refused",
+     "by": "api.quranlab.ai",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api.quranlab.ai"
+    }
+   ]
+  },
+  {
+   "name": "a 429 on the first host: no other host is asked, P stays",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 429,
+       "body": "json",
+       "error": "rate_limited",
+       "retry_after": 60
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "slow_down",
+     "by": "api.quranlab.ai",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api.quranlab.ai"
+    },
+    {
+     "at": 60,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api.quranlab.ai"
+    }
+   ]
+  },
+  {
+   "name": "a 429 on the standby after the first host failed: the third is not asked",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 502,
+       "body": "html",
+       "error": null
+      },
+      "api-b.tajweedformer.com": {
+       "status": 429,
+       "body": "json",
+       "error": "rate_limited"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "slow_down",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "every host unreachable: P and its time stay",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 503,
+       "body": "json",
+       "error": "service_unavailable"
+      },
+      "api-b.tajweedformer.com": {
+       "answer": "none"
+      },
+      "api-g.tajweedformer.com": {
+       "answer": "none"
+      },
+      "api-a.tajweedformer.com": {
+       "answer": "none"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com",
+      "api-g.tajweedformer.com",
+      "api-a.tajweedformer.com"
+     ],
+     "class": "unreachable",
+     "by": null,
+     "fallback": true,
+     "probe": false,
+     "p_after": "api.quranlab.ai"
+    },
+    {
+     "at": 100,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 200,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "answer": "none"
+      },
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-g.tajweedformer.com": {
+       "answer": "none"
+      },
+      "api-a.tajweedformer.com": {
+       "answer": "none"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com",
+      "api.quranlab.ai",
+      "api-g.tajweedformer.com",
+      "api-a.tajweedformer.com"
+     ],
+     "class": "unreachable",
+     "by": null,
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 1900,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false,
+     "probe": true,
+     "p_after": "api.quranlab.ai"
+    }
+   ]
+  },
+  {
+   "name": "the reserved third host answers when the first two do not",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 502,
+       "body": "html",
+       "error": null
+      },
+      "api-g.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com",
+      "api-g.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-g.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-g.tajweedformer.com"
+    },
+    {
+     "at": 10,
+     "route": "config",
+     "answers": {
+      "api-g.tajweedformer.com": {
+       "answer": "none"
+      },
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-g.tajweedformer.com",
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "P on the standby: a request that finds it down goes to the first host, then the third",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 100,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "answer": "none"
+      },
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com",
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api.quranlab.ai"
+    }
+   ]
+  },
+  {
+   "name": "a 304 to a config with If-None-Match on the standby is taken",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 304,
+       "body": "empty",
+       "error": null
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "a lease the Core refuses is unreachable: the next host is asked",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "model-key",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json",
+       "core": "refused"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json",
+       "core": "accepted"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "a config list changes: the standby first, then one that disables it",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api.quranlab.ai"
+    },
+    {
+     "list": [
+      "api-b.tajweedformer.com",
+      "api.quranlab.ai",
+      "api-g.tajweedformer.com"
+     ],
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "at": 10,
+     "route": "config",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    },
+    {
+     "list": [
+      "api.quranlab.ai",
+      "api-g.tajweedformer.com"
+     ],
+     "p_after": "api.quranlab.ai"
+    },
+    {
+     "at": 20,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-g.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-g.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-g.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-g.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "a host the config adds is asked; when that config expires the built-in list is back",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "list": [
+      "api.quranlab.ai",
+      "api-x.tajweedformer.com"
+     ],
+     "p_after": "api.quranlab.ai"
+    },
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 502,
+       "body": "html",
+       "error": null
+      },
+      "api-x.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-x.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-x.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-x.tajweedformer.com"
+    },
+    {
+     "at": 10,
+     "route": "config",
+     "answers": {
+      "api-x.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-x.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-x.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-x.tajweedformer.com"
+    },
+    {
+     "list": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com",
+      "api-g.tajweedformer.com",
+      "api-a.tajweedformer.com"
+     ],
+     "p_after": "api.quranlab.ai"
+    },
+    {
+     "at": 20,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "models: the first CDN down, the manifest and the files from the standby CDN",
+   "role": "models",
+   "hosts": [
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "manifest",
+     "answers": {
+      "cdn.quranlab.ai": {
+       "answer": "none"
+      },
+      "cdn-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "cdn.quranlab.ai",
+      "cdn-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "cdn-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "cdn-b.tajweedformer.com"
+    },
+    {
+     "at": 1,
+     "route": "file",
+     "answers": {
+      "cdn-b.tajweedformer.com": {
+       "status": 200,
+       "body": "bytes"
+      }
+     },
+     "asked": [
+      "cdn-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "cdn-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "cdn-b.tajweedformer.com"
+    },
+    {
+     "at": 2,
+     "route": "file",
+     "answers": {
+      "cdn-b.tajweedformer.com": {
+       "status": 200,
+       "body": "bytes"
+      }
+     },
+     "asked": [
+      "cdn-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "cdn-b.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "cdn-b.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "models: a 429 model_limit is never taken to another CDN",
+   "role": "models",
+   "hosts": [
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "file",
+     "answers": {
+      "cdn.quranlab.ai": {
+       "status": 429,
+       "body": "json",
+       "error": "model_limit"
+      }
+     },
+     "asked": [
+      "cdn.quranlab.ai"
+     ],
+     "class": "slow_down",
+     "by": "cdn.quranlab.ai",
+     "fallback": false,
+     "probe": false,
+     "p_after": "cdn.quranlab.ai"
+    }
+   ]
+  },
+  {
+   "name": "the fourth host answers when the first three do not",
+   "role": "api",
+   "hosts": [
+    "api.quranlab.ai",
+    "api-b.tajweedformer.com",
+    "api-g.tajweedformer.com",
+    "api-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "config",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 503,
+       "body": "json",
+       "error": "service_unavailable"
+      },
+      "api-g.tajweedformer.com": {
+       "answer": "stalled"
+      },
+      "api-a.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com",
+      "api-g.tajweedformer.com",
+      "api-a.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-a.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "api-a.tajweedformer.com"
+    },
+    {
+     "at": 10,
+     "route": "config",
+     "answers": {
+      "api-a.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-a.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-a.tajweedformer.com",
+     "fallback": false,
+     "probe": false,
+     "p_after": "api-a.tajweedformer.com"
+    }
+   ]
+  },
+  {
+   "name": "web_frame (Node: the engine files): the hosts in order",
+   "role": "web_frame",
+   "hosts": [
+    "web.quranlab.ai",
+    "web2.quranlab.ai",
+    "web-b.tajweedformer.com",
+    "web-g.tajweedformer.com",
+    "web-a.tajweedformer.com"
+   ],
+   "steps": [
+    {
+     "at": 0,
+     "route": "engine",
+     "answers": {
+      "web.quranlab.ai": {
+       "answer": "none"
+      },
+      "web2.quranlab.ai": {
+       "status": 522,
+       "body": "html",
+       "error": null
+      },
+      "web-b.tajweedformer.com": {
+       "status": 200,
+       "body": "bytes"
+      }
+     },
+     "asked": [
+      "web.quranlab.ai",
+      "web2.quranlab.ai",
+      "web-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "web-b.tajweedformer.com",
+     "fallback": true,
+     "probe": false,
+     "p_after": "web-b.tajweedformer.com"
+    }
+   ]
+  }
+ ],
+ "attempts": [
+  {
+   "name": "the first host down, the standby gives the lease",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json",
+       "core": "accepted"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    }
+   ],
+   "outcome": "lease",
+   "retry_after": null
+  },
+  {
+   "name": "the first host answers the challenge, then goes down: the lease from the standby with that challenge",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 503,
+       "body": "json",
+       "error": "lease_unavailable",
+       "retry_after": 30
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json",
+       "core": "accepted"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true
+    }
+   ],
+   "outcome": "lease",
+   "retry_after": null
+  },
+  {
+   "name": "a refusal from the standby is the attempt's refusal: the third host is never asked",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 403,
+       "body": "json",
+       "error": "lease_integrity_failed"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "refused",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    }
+   ],
+   "outcome": "refused",
+   "retry_after": null
+  },
+  {
+   "name": "a signed stop from the standby is a stop",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 502,
+       "body": "html",
+       "error": null
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 401,
+       "body": "json",
+       "error": "invalid_key",
+       "reason": "key_revoked",
+       "core": "stop"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "refused",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    }
+   ],
+   "outcome": "stop",
+   "retry_after": null
+  },
+  {
+   "name": "unreachable only when every host was: grace may open",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 503,
+       "body": "json",
+       "error": "service_unavailable"
+      },
+      "api-g.tajweedformer.com": {
+       "answer": "none"
+      },
+      "api-a.tajweedformer.com": {
+       "answer": "none"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com",
+      "api-g.tajweedformer.com",
+      "api-a.tajweedformer.com"
+     ],
+     "class": "unreachable",
+     "by": null,
+     "fallback": true
+    }
+   ],
+   "outcome": "unreachable",
+   "retry_after": null
+  },
+  {
+   "name": "the lease request unreachable on every host after a challenge from the first",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 503,
+       "body": "json",
+       "error": "lease_unavailable",
+       "retry_after": 30
+      },
+      "api-b.tajweedformer.com": {
+       "status": 503,
+       "body": "json",
+       "error": "lease_unavailable",
+       "retry_after": 120
+      },
+      "api-g.tajweedformer.com": {
+       "answer": "none"
+      },
+      "api-a.tajweedformer.com": {
+       "answer": "none"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com",
+      "api-g.tajweedformer.com",
+      "api-a.tajweedformer.com"
+     ],
+     "class": "unreachable",
+     "by": null,
+     "fallback": true
+    }
+   ],
+   "outcome": "unreachable",
+   "retry_after": 120
+  },
+  {
+   "name": "a 429 on the first host ends the attempt there: unreachable for the grace, no other host asked",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 429,
+       "body": "json",
+       "error": "rate_limited",
+       "retry_after": 60
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "slow_down",
+     "by": "api.quranlab.ai",
+     "fallback": false
+    }
+   ],
+   "outcome": "unreachable",
+   "retry_after": 60
+  },
+  {
+   "name": "401 invalid_token on the standby: the token renewed (through the api order), the repeat gives a lease",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 401,
+       "body": "json",
+       "error": "invalid_token"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "refused",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    },
+    {
+     "route": "token",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json",
+       "core": "accepted"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    }
+   ],
+   "outcome": "lease",
+   "retry_after": null
+  },
+  {
+   "name": "install_cert_invalid on the standby: attest again there, then the lease",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "answer": "none"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 401,
+       "body": "json",
+       "error": "install_cert_invalid"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "refused",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    },
+    {
+     "route": "attest",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    },
+    {
+     "route": "challenge",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json",
+       "core": "accepted"
+      }
+     },
+     "asked": [
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": false
+    }
+   ],
+   "outcome": "lease",
+   "retry_after": null
+  },
+  {
+   "name": "a lease the Core refuses on the first host: the same request, its challenge unchanged, to the standby, which gives a lease",
+   "requests": [
+    {
+     "route": "challenge",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai"
+     ],
+     "class": "taken",
+     "by": "api.quranlab.ai",
+     "fallback": false
+    },
+    {
+     "route": "model-key",
+     "answers": {
+      "api.quranlab.ai": {
+       "status": 200,
+       "body": "json",
+       "core": "refused"
+      },
+      "api-b.tajweedformer.com": {
+       "status": 200,
+       "body": "json",
+       "core": "accepted"
+      }
+     },
+     "asked": [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     "class": "taken",
+     "by": "api-b.tajweedformer.com",
+     "fallback": true
+    }
+   ],
+   "outcome": "lease",
+   "retry_after": null
+  }
+ ],
+ "downloads_are": "one file of size bytes, nothing stored at the start, P before it; answers: what each attempt got, a bytes answer {status 200 | 206, deliver n, end complete | stall | reset} or any answer; requests: the host, the Range, the If-Range sent (null for none) and the pause before it",
+ "downloads": [
+  {
+   "name": "the first CDN fails mid-file: the standby resumes with Range and no If-Range",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 400,
+     "end": "reset"
+    },
+    {
+     "status": 206,
+     "body": "bytes",
+     "deliver": 600,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": "bytes=400-",
+     "if_range": null,
+     "pause_before": 1
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-b.tajweedformer.com"
+  },
+  {
+   "name": "the first CDN never answers: the whole file from the standby",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "answer": "none"
+    },
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 1000,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 1
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-b.tajweedformer.com"
+  },
+  {
+   "name": "the standby stalls too: the third and fourth hosts, then back to the first with its own validator",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 300,
+     "end": "stall"
+    },
+    {
+     "status": 206,
+     "body": "bytes",
+     "deliver": 200,
+     "end": "stall"
+    },
+    {
+     "answer": "none"
+    },
+    {
+     "answer": "none"
+    },
+    {
+     "status": 206,
+     "body": "bytes",
+     "deliver": 500,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": "bytes=300-",
+     "if_range": null,
+     "pause_before": 1
+    },
+    {
+     "host": "cdn-g.tajweedformer.com",
+     "range": "bytes=500-",
+     "if_range": null,
+     "pause_before": 2
+    },
+    {
+     "host": "cdn-a.tajweedformer.com",
+     "range": "bytes=500-",
+     "if_range": null,
+     "pause_before": 4
+    },
+    {
+     "host": "cdn.quranlab.ai",
+     "range": "bytes=500-",
+     "if_range": "\"c-1\"",
+     "pause_before": 8
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn.quranlab.ai"
+  },
+  {
+   "name": "P on the standby: the file starts there; its validator goes back to it only",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn-b.tajweedformer.com",
+   "answers": [
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 100,
+     "end": "reset"
+    },
+    {
+     "status": 206,
+     "body": "bytes",
+     "deliver": 100,
+     "end": "reset"
+    },
+    {
+     "answer": "none"
+    },
+    {
+     "answer": "none"
+    },
+    {
+     "status": 206,
+     "body": "bytes",
+     "deliver": 800,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn.quranlab.ai",
+     "range": "bytes=100-",
+     "if_range": null,
+     "pause_before": 1
+    },
+    {
+     "host": "cdn-g.tajweedformer.com",
+     "range": "bytes=200-",
+     "if_range": null,
+     "pause_before": 2
+    },
+    {
+     "host": "cdn-a.tajweedformer.com",
+     "range": "bytes=200-",
+     "if_range": null,
+     "pause_before": 4
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": "bytes=200-",
+     "if_range": "\"b-1\"",
+     "pause_before": 8
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-b.tajweedformer.com"
+  },
+  {
+   "name": "a 503 on the first CDN: the standby",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 503,
+     "body": "html",
+     "error": null
+    },
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 1000,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 1
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-b.tajweedformer.com"
+  },
+  {
+   "name": "a 206 of another total is a failed attempt: the next host",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 500,
+     "end": "reset"
+    },
+    {
+     "status": 206,
+     "body": "invalid",
+     "error": null
+    },
+    {
+     "status": 206,
+     "body": "bytes",
+     "deliver": 500,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": "bytes=500-",
+     "if_range": null,
+     "pause_before": 1
+    },
+    {
+     "host": "cdn-g.tajweedformer.com",
+     "range": "bytes=500-",
+     "if_range": null,
+     "pause_before": 2
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-g.tajweedformer.com"
+  },
+  {
+   "name": "a refusal on the standby is asked once and on no other host",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "answer": "none"
+    },
+    {
+     "status": 403,
+     "body": "json",
+     "error": "model_attestation_required"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 1
+    }
+   ],
+   "end": "refused",
+   "stored": 0,
+   "p_after": "cdn-b.tajweedformer.com"
+  },
+  {
+   "name": "a 429 on the first CDN: no other host, asked once",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 429,
+     "body": "json",
+     "error": "model_limit"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    }
+   ],
+   "end": "rate_limited",
+   "stored": 0,
+   "p_after": "cdn.quranlab.ai"
+  },
+  {
+   "name": "every host fails: download_failed after the five resumes",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "answer": "none"
+    },
+    {
+     "answer": "none"
+    },
+    {
+     "answer": "none"
+    },
+    {
+     "answer": "none"
+    },
+    {
+     "answer": "none"
+    },
+    {
+     "answer": "none"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 1
+    },
+    {
+     "host": "cdn-g.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 2
+    },
+    {
+     "host": "cdn-a.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 4
+    },
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 8
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 16
+    }
+   ],
+   "end": "download_failed",
+   "stored": 0,
+   "p_after": "cdn.quranlab.ai"
+  },
+  {
+   "name": "a whole file in answer to a range on another host takes the place when complete",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 700,
+     "end": "stall"
+    },
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 1000,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": "bytes=700-",
+     "if_range": null,
+     "pause_before": 1
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-b.tajweedformer.com"
+  },
+  {
+   "name": "a redirect on the first CDN: the standby, after the first pause",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 302,
+     "body": "empty",
+     "error": null
+    },
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 1000,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 1
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-b.tajweedformer.com"
+  },
+  {
+   "name": "a 403 that is not the API's (a firewall page) mid-file: the third host resumes",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 400,
+     "end": "reset"
+    },
+    {
+     "status": 403,
+     "body": "html",
+     "error": null
+    },
+    {
+     "status": 206,
+     "body": "bytes",
+     "deliver": 600,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": "bytes=400-",
+     "if_range": null,
+     "pause_before": 1
+    },
+    {
+     "host": "cdn-g.tajweedformer.com",
+     "range": "bytes=400-",
+     "if_range": null,
+     "pause_before": 2
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-g.tajweedformer.com"
+  },
+  {
+   "name": "503 network_blocked on the first CDN: the standby",
+   "size": 1000,
+   "etags": {
+    "cdn.quranlab.ai": "\"c-1\"",
+    "cdn-b.tajweedformer.com": "\"b-1\"",
+    "cdn-g.tajweedformer.com": "\"g-1\"",
+    "cdn-a.tajweedformer.com": "\"a-1\""
+   },
+   "p_before": "cdn.quranlab.ai",
+   "answers": [
+    {
+     "status": 503,
+     "body": "json",
+     "error": "network_blocked",
+     "retry_after": 3600
+    },
+    {
+     "status": 200,
+     "body": "bytes",
+     "deliver": 1000,
+     "end": "complete"
+    }
+   ],
+   "requests": [
+    {
+     "host": "cdn.quranlab.ai",
+     "range": null,
+     "if_range": null,
+     "pause_before": 0
+    },
+    {
+     "host": "cdn-b.tajweedformer.com",
+     "range": null,
+     "if_range": null,
+     "pause_before": 1
+    }
+   ],
+   "end": "installed",
+   "stored": 1000,
+   "p_after": "cdn-b.tajweedformer.com"
+  }
+ ],
+ "downloads_if_range": "28.4: if_range is what an SDK may send, and only to the host whose ETag it is; an SDK may send no If-Range at all (web keeps a range map and sends none), so a replay takes null or the value where a value is given, and only null where null is given",
+ "first_manifest_are": "28.4: the manifest of a build: before the install holds a lease for it, from the folder qlab-api names in every lease answer (MODEL_BASE's path /models, the config's model, the build, the config's folder); with a lease held, from that lease's folder; asked through the models order, a base host that is not one of the role's first",
+ "first_manifest": [
+  {
+   "name": "no lease yet: the folder qlab-api names, through the models order",
+   "recommended": {
+    "model": "Quran-Lab/tajweedformer-v4",
+    "model_id": "v4.0",
+    "folder": "sdk/v4.0",
+    "revision": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b"
+   },
+   "lease_base": null,
+   "path": "/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/manifest.json",
+   "asks_with_p_first": [
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "asks_with_p_standby": [
+    "cdn-b.tajweedformer.com",
+    "cdn.quranlab.ai",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ]
+  },
+  {
+   "name": "a lease held whose base is the standby's: that folder, the order unchanged",
+   "recommended": {
+    "model": "Quran-Lab/tajweedformer-v4",
+    "model_id": "v4.0",
+    "folder": "sdk/v4.0",
+    "revision": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b"
+   },
+   "lease_base": "https://cdn-b.tajweedformer.com/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "path": "/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/manifest.json",
+   "asks_with_p_first": [
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "asks_with_p_standby": [
+    "cdn-b.tajweedformer.com",
+    "cdn.quranlab.ai",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ]
+  },
+  {
+   "name": "a lease held whose base is another allowed host: that host first",
+   "recommended": {
+    "model": "Quran-Lab/tajweedformer-v4",
+    "model_id": "v4.0",
+    "folder": "sdk/v4.0",
+    "revision": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b"
+   },
+   "lease_base": "https://eu.cdn.quran-lab.com/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/",
+   "path": "/models/Quran-Lab/tajweedformer-v4/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/manifest.json",
+   "asks_with_p_first": [
+    "eu.cdn.quran-lab.com",
+    "cdn.quranlab.ai",
+    "cdn-b.tajweedformer.com",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ],
+   "asks_with_p_standby": [
+    "eu.cdn.quran-lab.com",
+    "cdn-b.tajweedformer.com",
+    "cdn.quranlab.ai",
+    "cdn-g.tajweedformer.com",
+    "cdn-a.tajweedformer.com"
+   ]
+  }
+ ]
+}

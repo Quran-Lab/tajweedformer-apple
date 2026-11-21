@@ -73,7 +73,9 @@ struct SecInstallKey: InstallKey, @unchecked Sendable {
 
 /// A key held by CryptoKit in memory: the contract vectors' test keys, and processes the Keychain refuses (a
 /// command-line tool, `swift test` without an entitlement), which keep it in a file of the storage folder (`hw 0`).
-struct SoftwareInstallKey: InstallKey {
+// @unchecked: CryptoKit's P256 keys are immutable values, Sendable from the iOS 18.4 and macOS 15.4 SDKs on; the SDKs
+// of Xcode 16.0 to 16.2 (Swift 6.0, the README's oldest toolchain) do not mark them so.
+struct SoftwareInstallKey: InstallKey, @unchecked Sendable {
     let agreement: P256.KeyAgreement.PrivateKey
     var hardware: Bool { false }
     var spki: Data { agreement.publicKey.derRepresentation }

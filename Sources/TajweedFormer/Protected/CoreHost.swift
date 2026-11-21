@@ -37,9 +37,31 @@ struct CoreFailure: Error, Equatable, Sendable {
         case QLC_E_KEYSTORE: return .storageFailed("the install key store failed (\(call))")
         case QLC_E_STORAGE: return .storageFailed("the model's storage failed (\(call), detail \(detail))")
         case QLC_E_BUSY: return .engineFailed(code: status, message: "\(call): a model of this Core is open")
+        // ERRORS_40 24.4 rule 4: out of memory opening the model is engine_failed, "not enough memory"
+        case QLC_E_NOMEM: return .engineFailed(code: status, message: "not enough memory (\(call))")
         case QLC_E_ENGINE where call == "qlc_accel_prepare":
             return .neuralEngineUnavailable("the accelerator program was not prepared (\(Self.accelName(detail)))")
         default: return .engineFailed(code: status, message: "\(call) failed (\(status), detail \(detail))")
+        }
+    }
+
+    /// The name of a Core status (qlcore.h `QLC_E_*`, lower case without the prefix: `busy`, `nomem`, `engine`,
+    /// `arg`, ...), as an error report's `error_code` carries it (ERRORS_40 24.2: "a Core status"; Gate C, 2026-11-20:
+    /// `engine_failed` at a model open hid which of them it was). Nil for a value that is no Core status.
+    static func statusName(_ status: Int) -> String? {
+        switch status {
+        case QLC_E_ARG: return "arg"
+        case QLC_E_NOMEM: return "nomem"
+        case QLC_E_STORAGE: return "storage"
+        case QLC_E_MANIFEST: return "manifest"
+        case QLC_E_NEEDS_CONNECTION: return "needs_connection"
+        case QLC_E_LEASE: return "lease"
+        case QLC_E_FILE: return "file"
+        case QLC_E_ENGINE: return "engine"
+        case QLC_E_STOPPED: return "stopped"
+        case QLC_E_KEYSTORE: return "keystore"
+        case QLC_E_BUSY: return "busy"
+        default: return nil
         }
     }
 
@@ -244,8 +266,9 @@ final class CoreHost: @unchecked Sendable {
         }) ?? Int32(QLC_E_ARG)
     }
 
-    /// 18.4.7.1: whether the lease in force is past its `exp` and in its grace (`qlc_lease_grace`: up to 24 hours more
-    /// while Quran Lab cannot be reached, never after a refusal), and until when (unix seconds, the Core's clock).
+    /// 18.4.7.1: whether the lease in force is past its `exp` and in its grace (`qlc_lease_grace`: a while more, as the
+    /// Core decides, while Quran Lab cannot be reached; never after a refusal), and until when (unix seconds, the
+    /// Core's clock).
     func leaseGrace() -> (inGrace: Bool, until: Int64) {
         (try? call(nil) { () throws(CoreFailure) -> (Bool, Int64) in
             var until: Int64 = 0
@@ -850,7 +873,13 @@ final class CoreAcceleratorStream: AcceleratorBackend, @unchecked Sendable {
     func warmUp() throws(RecognizerError) {
         stream.reset()
         defer { reset() }
-        _ = try [Float](repeating: 0, count: 16_000).withUnsafeBufferPointer { (p) throws(RecognizerError) in try stream.push(p) }
+        // the failure is carried out of the closure: Swift 6.0 (Xcode 16, the README's oldest) rethrows a typed throw
+        // from withUnsafeBufferPointer as `any Error` here
+        var failed: RecognizerError?
+        [Float](repeating: 0, count: 16_000).withUnsafeBufferPointer { p in
+            do throws(RecognizerError) { _ = try stream.push(p) } catch { failed = error }
+        }
+        if let failed { throw failed }
     }
 }
 

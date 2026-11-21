@@ -116,11 +116,9 @@ final class StubInstall: @unchecked Sendable {
         let files = StubBuild.files
         do throws(RecognizerError) {
             if let stop = gate.stop { throw stop.error }
-            for (i, f) in files.enumerated() {
-                installer.background?.later.withLock { $0 = Array(files[(i + 1)...]) }
-                try await installer.ensure(f, in: folder, report: &report, counted: true)
-            }
-            installer.background?.later.withLock { $0 = [] }
+            // as `ModelInstaller.install` brings the CPU set (4.0.1: several files at a time while the app is in the
+            // foreground, then one at a time, handing the files after each to the background with it)
+            try await installer.ensureAll(files, in: folder, report: &report, counted: true)
             if let stop = gate.stop { throw stop.error }
             if let plan = installer.background { _ = await plan.transport.cancel(prefix: BackgroundRange.prefix(folder: plan.folder)) }
             ModelUpdater.pruneWorkingFiles(folder)

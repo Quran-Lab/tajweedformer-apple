@@ -86,7 +86,8 @@ struct CDNClient: Sendable {
     /// rules of `send`: the key and the token, one renewal on 401 `invalid_token`, no redirect, the gate told of a
     /// refusal and of a served request. `validator` is the ETag of the answer that started the partial file, sent
     /// as `If-Range`: a file that changed on the server then comes whole (a 200) and replaces the partial file.
-    func stream(_ url: URL, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL,
+    /// `hash`: the partial file's SHA-256 as its bytes are written (`HTTPClient.stream`).
+    func stream(_ url: URL, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL, hash: PartHasher? = nil,
                 started: @Sendable (_ headers: [String: String], _ whole: Bool) -> Void,
                 received: @Sendable (Int64) -> Void) async throws(CloudError) -> HTTPClient.Streamed {
         func request(_ token: String) -> URLRequest {
@@ -94,7 +95,7 @@ struct CDNClient: Sendable {
         }
         let token = try await auth.token(false)
         do throws(CloudError) {
-            let answer = try await http.stream(request(token), offset: lower, size: size, into: part, started: started, received: received)
+            let answer = try await http.stream(request(token), offset: lower, size: size, into: part, hash: hash, started: started, received: received)
             accepted()
             if let p = answer.networkProtocol { protocolSeen(p) }
             return answer
@@ -106,7 +107,7 @@ struct CDNClient: Sendable {
         }
         let renewed = try await auth.token(true)
         do throws(CloudError) {
-            let answer = try await http.stream(request(renewed), offset: lower, size: size, into: part, started: started, received: received)
+            let answer = try await http.stream(request(renewed), offset: lower, size: size, into: part, hash: hash, started: started, received: received)
             accepted()
             if let p = answer.networkProtocol { protocolSeen(p) }
             return answer
@@ -116,18 +117,24 @@ struct CDNClient: Sendable {
         }
     }
 
+    /// SDK 4.0.1 (28.4): the model folder of the lease this install holds for a build, when it holds one: the build's
+    /// manifest is read from there, through the `models` hosts. Nil: the folder of the build under `base`.
+    var leaseFolder: @Sendable (_ build: String) -> URL? = { _ in nil }
+
     /// One model request, with the token and the key (`ModelRequestAuthorization.headers`). The SDK has a token
     /// before it asks: without one the request is not made. On 401 `invalid_token` the token is renewed once and the
     /// request repeated once; whatever the repeat answers is the answer. A 401 that names why the key is refused
     /// (a `reason` that stops the model) is not renewed. A redirect is never followed: a model request does not
-    /// leave the host it was made to.
-    func send(_ url: URL, range: String? = nil) async throws(CloudError) -> HTTPClient.Response {
+    /// leave the host it was made to. SDK 4.0.1: the request goes through the `models` hosts (28.3), its own host
+    /// first when it is an allowed host that is not one of them (28.4); `accept` says what a 2xx must be.
+    func send(_ url: URL, range: String? = nil,
+              accept: @escaping @Sendable (HTTPClient.Response) -> Bool = Endpoints.jsonAnswer) async throws(CloudError) -> HTTPClient.Response {
         func request(_ token: String) -> URLRequest {
             Self.request(url, range: range, key: auth.key, token: token, unmeteredOnly: waitsForUnmetered)
         }
         let token = try await auth.token(false)
         do throws(CloudError) {
-            let answer = try await http.checked(request(token))
+            let answer = try await http.checked(request(token), role: .models, accept: accept)
             accepted()
             if let p = answer.networkProtocol { protocolSeen(p) }
             return answer
@@ -139,7 +146,7 @@ struct CDNClient: Sendable {
         }
         let renewed = try await auth.token(true)
         do throws(CloudError) {
-            let answer = try await http.checked(request(renewed))
+            let answer = try await http.checked(request(renewed), role: .models, accept: accept)
             accepted()
             if let p = answer.networkProtocol { protocolSeen(p) }
             return answer
@@ -164,13 +171,24 @@ struct CDNClient: Sendable {
     /// one the config named. Its signature covers the size and SHA-256 of every file.
     func manifest(_ id: ModelID, revision: String, version: String? = nil) async throws(RecognizerError) -> ModelManifest {
         let resp: HTTPClient.Response
-        do throws(CloudError) { resp = try await send(fileURL(id, revision: revision, path: ModelManifest.fileName)) } catch {
+        let build = revision.range(of: "^[0-9a-fA-F]{40}$", options: .regularExpression) != nil ? revision : nil
+        // 28.4 (4.0.1): no fixed manifest host. The manifest is `<folder>manifest.json` through the `models` hosts: the
+        // folder of the lease held for the build when there is one, else the build's folder under `base` (the path
+        // every lease names for it; the Core accepts a lease against the signed manifest, so the first lease of a
+        // build needs its manifest first). A manifest that does not verify is unreachable on that host (28.3).
+        let folder = build.flatMap { leaseFolder($0) }
+        let url = folder.map { $0.appendingPathComponent(ModelManifest.fileName) } ?? fileURL(id, revision: revision, path: ModelManifest.fileName)
+        let verifier = self.verifier
+        do throws(CloudError) {
+            resp = try await send(url, accept: { (a: HTTPClient.Response) -> Bool in
+                (200..<300).contains(a.status) && (try? ModelManifest.accept(a.body, verifier: verifier, build: build, version: version)) != nil
+            })
+        } catch {
             if case .rejected(status: 404, _, _, _) = error {
                 throw .modelMissing("revision \(revision) of \(id.repository) has no \(id.folder)/\(ModelManifest.fileName) on the CDN")
             }
             throw error.recognizerError
         }
-        let build = revision.range(of: "^[0-9a-fA-F]{40}$", options: .regularExpression) != nil ? revision : nil
         let m = try ModelManifest.accept(resp.body, verifier: verifier, build: build, version: version)
         guard m.modelID == id.name else { throw .manifestInvalid("the CDN manifest is for \(m.modelID), not \(id.name)") }
         return m
@@ -179,7 +197,8 @@ struct CDNClient: Sendable {
     /// Stored files of one build, by HTTP Range, from `base`: the model folder the build's lease answer named (SDK 4.0,
     /// `ProtectedRuntime.acceptedBase`: https and Quran Lab's own hosts only). There is no other source of files.
     func source(_ id: ModelID, revision: String, base: URL) -> CDNFileSource {
-        CDNFileSource(client: self, id: id, revision: revision, base: base)
+        CDNFileSource(client: self, id: id, revision: revision, base: base,
+                      hosts: http.endpoints.flatMap { e in Endpoints.origin(of: base).map { FileHosts(endpoints: e, base: $0) } })
     }
 }
 
@@ -189,28 +208,64 @@ struct CDNFileSource: StreamingModelFileSource {
     let revision: String
     /// The lease answer's model folder.
     let base: URL
+    /// SDK 4.0.1 (28.4): the `models` hosts each file is asked of, one per attempt, the next after an attempt that was
+    /// unreachable. Nil (a client without the roles' hosts): every attempt goes to the folder's own host, as before.
+    var hosts: FileHosts? = nil
 
-    /// A file of the build in the lease answer's model folder: the only URL a build's file is asked at (the app's own
-    /// requests, and the ranges handed to a background task).
+    /// A file of the build in the lease answer's model folder (its path; the host is the one the attempt asks, 28.4).
     func url(_ path: String) -> URL {
         var u = base
         for part in path.split(separator: "/") { u.appendPathComponent(String(part)) }
         return u
     }
 
-    func stream(_ path: String, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL,
+    /// Where the next attempt of `path` goes, and the `If-Range` it may send: the validator only to the host that
+    /// gave it (28.4; a validator stored before 4.0.1 is the folder's own host's).
+    func attempt(_ path: String, validator: String?) -> (url: URL, host: String, ifRange: String?) {
+        let own = base.host ?? ""
+        guard let hosts else { return (url(path), own, HostValidator.etag(validator, for: own, legacyHost: own)) }
+        let origin = hosts.host(for: path)
+        let host = origin.host ?? own
+        return (Endpoints.rehost(url(path), to: origin), host, HostValidator.etag(validator, for: host, legacyHost: own))
+    }
+
+    /// One attempt of a range of `path`, written to `part` as it arrives. SDK 4.0.1: on the host `FileHosts` says;
+    /// the validator kept is the answer's strong ETag with the host that gave it (`HostValidator`).
+    func stream(_ path: String, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL, hash: PartHasher?,
                 started: @Sendable (_ validator: String?, _ whole: Bool) -> Void,
                 received: @Sendable (Int64) -> Void) async throws(RecognizerError) -> StreamedRange {
+        let (url, host, ifRange) = attempt(path, validator: validator)
+        let keepsHost = hosts != nil
         do throws(CloudError) {
-            let answer = try await client.stream(url(path), lower: lower, upper: upper,
-                                                 size: size, validator: validator, into: part,
-                                                 started: { headers, whole in started(Self.strong(HTTPClient.header(headers, "etag")), whole) },
+            let answer = try await client.stream(url, lower: lower, upper: upper, size: size, validator: ifRange, into: part, hash: hash,
+                                                 started: { headers, whole in
+                                                     let etag = Self.strong(HTTPClient.header(headers, "etag"))
+                                                     started(keepsHost ? HostValidator.make(host, etag) : etag, whole)
+                                                 },
                                                  received: received)
+            hosts?.answered(path, .taken)
+            if let hosts { RequestTrace.note(.models, fallback: hosts.fellBack) }
             return StreamedRange(whole: answer.whole, written: answer.written)
         } catch {
-            throw error.recognizerError
+            guard let hosts else { throw error.recognizerError }
+            hosts.failed(path, error)
+            // the cause of a download that fails names the files' role and whether a file was asked of more than one
+            // host (24.2)
+            RequestTrace.note(.models, fallback: hosts.fellBack)
+            // 28.3: a redirect and a 4xx that is not the API's are unreachable, resumed on the next host like no answer
+            throw FileHosts.resumable(error).recognizerError
         }
     }
+
+    /// The request of one range of `path` for a background task: on the host the next attempt of the file asks, with
+    /// the validator only when that host gave it.
+    func backgroundRequest(_ path: String, lower: Int64, upper: Int64, validator: String?, sendsKey: Bool) async -> URLRequest? {
+        let a = attempt(path, validator: validator)
+        return await client.backgroundRequest(a.url, lower: lower, upper: upper, validator: a.ifRange, sendsKey: sendsKey)
+    }
+
+    /// A background round of `path` ended without its next byte: the next attempt goes to the next host (28.4).
+    func resumeElsewhere(_ path: String) { hosts?.failed(path, .offline("the background transfer ended without its next byte")) }
 
     /// An ETag that can stand for the file's bytes: a strong one. A weak one (`W/"..."`) is no validator for a range.
     static func strong(_ etag: String?) -> String? {
@@ -221,7 +276,7 @@ struct CDNFileSource: StreamingModelFileSource {
     func bytes(_ path: String, lower: Int64, upper: Int64, size: Int64) async throws(RecognizerError) -> Data {
         let resp: HTTPClient.Response
         do throws(CloudError) {
-            resp = try await client.send(url(path), range: "bytes=\(lower)-\(upper)")
+            resp = try await client.send(url(path), range: "bytes=\(lower)-\(upper)", accept: { (200..<300).contains($0.status) })
         } catch {
             throw error.recognizerError
         }

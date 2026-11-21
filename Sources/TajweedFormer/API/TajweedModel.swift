@@ -26,7 +26,10 @@ public final class TajweedModel: Sendable {
     init(_ folder: ModelFolder, client: TajweedClient?) {
         state = Locked(State(folder: folder))
         self.client = client
+        ModelsInUse.add(self, folder.directory)
     }
+
+    deinit { ModelsInUse.remove(self) }
 
     var folder: ModelFolder { state.withLock { $0.folder } }
 
@@ -210,6 +213,21 @@ public final class TajweedModel: Sendable {
         await r?.cancelTake()
         QuranLab.cloud?.analytics.closeSession()
         client?.forget(self)
+        ModelsInUse.remove(self)
+    }
+
+    /// 4.0.1 (Gate C, 2026-11-20): the Model `client.model()` made and does not hand out (its warm-up threw) is
+    /// closed, never dropped open. Its engine goes, and with `closingCore` the Core's open model of its folder is
+    /// closed too when nothing runs on it (no Model the Client holds uses that folder). It was never the app's, so no
+    /// session analytics are ended for it.
+    func discard(closingCore: Bool) async {
+        let (r, f) = state.withLock { (s: inout State) -> (TajweedRecognizer?, ModelFolder) in
+            defer { s.recognizer = nil; s.closed = true }
+            return (s.recognizer, s.folder)
+        }
+        await r?.cancelTake()
+        if closingCore { ProtectedRuntime.current.withLock { $0 }?.closeIdleModel(of: f) }
+        ModelsInUse.remove(self)
     }
 
     // MARK: internals
@@ -551,3 +569,18 @@ final class ClipSource: SessionSource {
     }
 }
 
+/// 4.0.1: the folders in use in this process, so that removing another model id's files
+/// (`ModelStore.removeOtherModels`) never takes one: the folder of every Model that is open (made and not closed),
+/// and the folder of the model id a Client is opening or downloading (`TajweedClient.model`, `prefetch`), from
+/// before it picks the folder until the Model holds it.
+enum ModelsInUse {
+    private static let models = Locked<[ObjectIdentifier: URL]>([:])
+    private static let opening = Locked<[UUID: URL]>([:])
+
+    static func add(_ model: TajweedModel, _ folder: URL) { models.withLock { $0[ObjectIdentifier(model)] = folder } }
+    static func remove(_ model: TajweedModel) { models.withLock { $0[ObjectIdentifier(model)] = nil } }
+    /// A Client opens or downloads the model whose files are in `folder` (its id's folder in the store), until `release`.
+    static func hold(_ token: UUID, _ folder: URL) { opening.withLock { $0[token] = folder } }
+    static func release(_ token: UUID) { opening.withLock { $0[token] = nil } }
+    static var all: [URL] { models.withLock { Array($0.values) } + opening.withLock { Array($0.values) } }
+}

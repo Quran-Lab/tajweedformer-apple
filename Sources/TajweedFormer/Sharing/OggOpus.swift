@@ -169,14 +169,22 @@ final class OggOpusWriter {
         }
         nonFiniteSamples += Int64(bad)
         let n = samples.count
-        try clean.withUnsafeBufferPointer { (c) throws(RecognizerError) in
+        // the failure is carried out of the closure: Swift 6.0 (Xcode 16, the README's oldest) rethrows a typed throw
+        // from withUnsafeBufferPointer as `any Error` here
+        var failed: RecognizerError?
+        clean.withUnsafeBufferPointer { c in
             let input = UnsafeBufferPointer(rebasing: c[0..<n])
-            if let resampler {
-                try resampler.process(input) { (x) throws(RecognizerError) in try self.feedEncoder(x) }
-            } else {
-                try self.feedEncoder(input)
+            do throws(RecognizerError) {
+                if let resampler {
+                    try resampler.process(input) { (x) throws(RecognizerError) in try self.feedEncoder(x) }
+                } else {
+                    try self.feedEncoder(input)
+                }
+            } catch {
+                failed = error
             }
         }
+        if let failed { throw failed }
         try writePages(final: false)
     }
 

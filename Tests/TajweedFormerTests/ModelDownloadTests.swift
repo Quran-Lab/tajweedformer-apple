@@ -236,7 +236,8 @@ final class ModelDownloadTests: XCTestCase {
 
     /// The file changed on the server while the partial file waited (another ETag): the range request carries the
     /// kept validator, the server answers with the whole file, and that replaces the partial file. Nothing of the
-    /// old 150 bytes is joined to it, and the CDN form verifies and is installed.
+    /// old 150 bytes is joined to it, and the CDN form verifies and is installed. 4.0.1: the whole file's SHA-256 is
+    /// made as it is written, and becomes the partial file's when it takes its place; the file is not read again.
     func testAFileThatChangedOnTheServerReplacesThePartialFile() async throws {
         let size = Self.stored.count
         let dir = try await interrupted(etag: "\"one\"")
@@ -244,24 +245,207 @@ final class ModelDownloadTests: XCTestCase {
         try Data(repeating: 0x5a, count: 150).write(to: part(dir))
         serve { seen in Self.served(seen, etag: "\"two\"") }
         let core = CoreStandIn()
+        let readAgain = PartHasher.readAgain.withLock { $0 }
         let error = await Self.ensure(installer(core: core, folder: dir), dir)
         XCTAssertNil(error)
         let asked = Self.weightRequests
         XCTAssertEqual(asked.map { $0.headers["range"] }, ["bytes=150-\(size - 1)"], "one request: the rest of the file")
         XCTAssertEqual(asked.first?.headers["if-range"], "\"one\"", "with the validator of the answer that started the partial file")
+        XCTAssertEqual(PartHasher.readAgain.withLock { $0 }, readAgain, "the whole file's hash was made as it arrived")
         assertInstalledOnlyAsDeviceForm(dir)
     }
 
     /// The same file on the server: the kept validator matches, the server sends the rest, and it is appended.
+    /// 4.0.1: the 150 bytes on disk are hashed once when the call starts, the rest as it arrives, and the file is not
+    /// read again after its last byte.
     func testAnUnchangedFileGoesOnFromThePartialFile() async throws {
         let size = Self.stored.count
         let dir = try await interrupted(etag: "\"one\"")
         serve { seen in Self.served(seen) }
+        let readAgain = PartHasher.readAgain.withLock { $0 }, resumed = PartHasher.resumedBytes.withLock { $0 }
         let error = await Self.ensure(installer(core: CoreStandIn(), folder: dir), dir)
         XCTAssertNil(error)
         XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-\(size - 1)"])
         XCTAssertEqual(Self.weightRequests.first?.headers["if-range"], "\"one\"")
+        XCTAssertEqual(PartHasher.resumedBytes.withLock { $0 } - resumed, 150, "the bytes kept from the earlier call, hashed first")
+        XCTAssertEqual(PartHasher.readAgain.withLock { $0 }, readAgain, "no second read of the file after its last byte")
         assertInstalledOnlyAsDeviceForm(dir)
+    }
+
+    /// The hash made as the bytes arrive decides as the whole file's did: a partial file whose kept bytes are not the
+    /// file's (no validator, so the rest is appended to them) fails its SHA-256, goes, and the file starts again;
+    /// the Core never sees it. Covered with the server's own bytes in `testWithoutAValidatorTheHashOfTheWholeFileDecides`;
+    /// here the kept bytes themselves are wrong, which only the resumed hash can see.
+    func testAResumedHashCoversTheBytesKeptOnDisk() async throws {
+        let size = Self.stored.count
+        let dir = try await interrupted(etag: nil)
+        try Data(repeating: 0x33, count: 150).write(to: part(dir))
+        serve { seen in Self.served(seen, etag: nil) }
+        let core = CoreStandIn()
+        let error = await Self.ensure(installer(core: core, folder: dir), dir)
+        XCTAssertNil(error)
+        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-\(size - 1)", "bytes=0-\(size - 1)"],
+                       "the kept bytes made the file fail its SHA-256, so it started again")
+        XCTAssertEqual(core.installed.withLock { $0 }, [Self.weights], "the Core was handed the verified CDN form only")
+        assertInstalledOnlyAsDeviceForm(dir)
+    }
+
+    // MARK: 4.0.1: several files at a time
+
+    /// A build's files of different sizes, in the manifest's order, each a CDN form of random bytes.
+    static func files(_ sizes: [(String, Int)]) -> (files: [ModelManifest.File], data: [String: Data]) {
+        var g = SystemRandomNumberGenerator()
+        var files: [ModelManifest.File] = [], data: [String: Data] = [:]
+        for (name, size) in sizes {
+            let bytes = Data((0..<size).map { _ in UInt8.random(in: 0...255, using: &g) })
+            data[name] = bytes
+            files.append(ModelManifest.File(path: name, size: Int64(size), sha256: Data(SHA256.hash(data: bytes)).hex, role: "weights", encoding: "qle1",
+                                            decoded: .init(path: String(name.dropLast(4)), size: Int64(max(1, size - 100)), sha256: String(repeating: "0", count: 64))))
+        }
+        return (files, data)
+    }
+
+    /// Many files: at most four are on their way at once, the largest first, so the big file starts at once and the
+    /// small ones fill the other places; no fifth request is made while four wait. The Core installs every file
+    /// once, one at a time, in the manifest's order (the build's layout before the weights it keys, 18.7.4), and
+    /// only the device forms stay.
+    func testAtMostFourFilesAtOnceTheLargestFirstAndTheCoreInManifestOrder() async throws {
+        let (files, data) = Self.files([("layout.json.qle", 2_000), ("layers.zfw.qle", 300_000), ("frontend.zfw.qle", 40_000),
+                                        ("tokens.txt.qle", 1_000), ("c16_l64/graph.zfg.qle", 60_000), ("c16_l64/frames.zfw.qle", 50_000),
+                                        ("calibration.qle", 3_000)])
+        let gate = StubProtocol.Gate()
+        StubProtocol.reset { seen in
+            let name = seen.url.path.components(separatedBy: "/sdk/v4.0/").last ?? ""
+            guard let d = data[name] else { return Reply(status: 404) }
+            var reply = Self.served(seen, data: d)
+            reply.hold = gate
+            return reply
+        }
+        let dir = try folder(), core = CoreStandIn()
+        let i = installer(core: core, folder: dir)
+        let call = Task { () -> RecognizerError? in
+            var report = InstallReport()
+            do throws(RecognizerError) {
+                try await i.ensureAll(files, in: dir, report: &report, counted: false)
+                return nil
+            } catch {
+                return error
+            }
+        }
+        let deadline = Date().addingTimeInterval(20)
+        while StubProtocol.seen.count < 4, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let first = StubProtocol.seen.map { $0.url.path.components(separatedBy: "/sdk/v4.0/").last ?? "" }
+        XCTAssertEqual(first.count, 4, "four on their way, and no fifth while they wait: \(first)")
+        XCTAssertEqual(Set(first), ["layers.zfw.qle", "c16_l64/graph.zfg.qle", "c16_l64/frames.zfw.qle", "frontend.zfw.qle"],
+                       "the four largest (the four start together, so the order they reach the server in is the network's)")
+        XCTAssertEqual(core.installed.withLock { $0 }, [], "nothing installed while the files wait")
+        gate.open()
+        let error = await call.value
+        XCTAssertNil(error, "\(String(describing: error))")
+        XCTAssertEqual(StubProtocol.seen.count, files.count, "each file asked for once")
+        XCTAssertEqual(core.installed.withLock { $0 }, files.map(\.path), "the Core's installs in the manifest's order, each once")
+        let left = (fm.enumerator(atPath: dir.path)?.compactMap { $0 as? String } ?? []).filter { !$0.hasSuffix("c16_l64") }.sorted()
+        XCTAssertEqual(left, files.map { $0.localPath + ".qld" }.sorted(), "the device forms only")
+    }
+
+    /// The queue's order is the largest first, then the manifest's order between files of one size.
+    func testTheQueueIsTheLargestFirst() {
+        let (files, _) = Self.files([("layout.json.qle", 2_000), ("layers.zfw.qle", 300_000), ("tokens.txt.qle", 1_000),
+                                     ("c16_l64/frames.zfw.qle", 50_000), ("calibration.qle", 2_000)])
+        XCTAssertEqual(ModelInstaller.queue(files).map { files[$0].path },
+                       ["layers.zfw.qle", "c16_l64/frames.zfw.qle", "layout.json.qle", "calibration.qle", "tokens.txt.qle"])
+    }
+
+    /// The first failure ends the call with its own error at once: a file refused by the server (asked once, as
+    /// ever) ends a call whose big file is waiting out a pause after its connection ended; the big file's transfer
+    /// stops, and the bytes it wrote stay in its partial file for the next call, which goes on from them.
+    func testTheFirstFailureEndsTheCallAndTheOthersKeepWhatTheyWrote() async throws {
+        let (files, data) = Self.files([("layers.zfw.qle", 300_000), ("tokens.txt.qle", 1_000), ("frontend.zfw.qle", 40_000)])
+        let refuse = Locked(true)
+        // the refusal waits until the big file's connection has ended after its first bytes
+        let afterTheBreak = StubProtocol.Gate()
+        StubProtocol.reset { seen in
+            let name = seen.url.path.components(separatedBy: "/sdk/v4.0/").last ?? ""
+            guard let d = data[name] else { return Reply(status: 404) }
+            if name == "tokens.txt.qle", refuse.withLock({ $0 }) {
+                var reply = Reply.json(["error": "model_not_allowed", "message": "no"], status: 403)
+                reply.hold = afterTheBreak
+                return reply
+            }
+            var reply = Self.served(seen, data: d)
+            if name == "layers.zfw.qle", Self.range(seen)?.lower == 0 { reply.breakAfter = 150 }
+            return reply
+        }
+        let dir = try folder(), core = CoreStandIn()
+        let i = installer(pauses: [30, 30, 30, 30, 30], core: core, folder: dir)
+        let started = Date()
+        let call = Task { () -> RecognizerError? in
+            var report = InstallReport()
+            do throws(RecognizerError) {
+                try await i.ensureAll(files, in: dir, report: &report, counted: false)
+                return nil
+            } catch {
+                return error
+            }
+        }
+        let bigPart = dir.appendingPathComponent("layers.zfw.qle.part")
+        let deadline = Date().addingTimeInterval(20)
+        while ModelInstaller.sizeOnDisk(bigPart) < 150, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        afterTheBreak.open()
+        let failure = await call.value
+        XCTAssertEqual(failure.map { TajweedError(from: $0).code }, "server_rejected", "the refusal's own error")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 20, "the big file's pause of 30 s was not waited")
+        XCTAssertEqual(ModelInstaller.sizeOnDisk(dir.appendingPathComponent("layers.zfw.qle.part")), 150, "what the big file wrote stays")
+        XCTAssertEqual(StubProtocol.seen.filter { $0.url.lastPathComponent == "tokens.txt.qle" }.count, 1, "a refusal is asked once")
+        // the next call goes on from the partial file
+        refuse.withLock { $0 = false }
+        StubProtocol.reset { seen in
+            let name = seen.url.path.components(separatedBy: "/sdk/v4.0/").last ?? ""
+            return data[name].map { Self.served(seen, data: $0) } ?? Reply(status: 404)
+        }
+        var again = InstallReport()
+        do throws(RecognizerError) { try await i.ensureAll(files, in: dir, report: &again, counted: false) } catch { XCTFail("\(error)") }
+        XCTAssertEqual(StubProtocol.seen.first { $0.url.lastPathComponent == "layers.zfw.qle" }?.headers["range"], "bytes=150-299999",
+                       "the big file goes on from its partial file")
+        XCTAssertTrue(again.resumed)
+        XCTAssertEqual(Set(core.installed.withLock { $0 }), Set(files.map(\.path)))
+    }
+
+    /// A file's share of the progress counts its bytes once: a file the app's leaving stopped is counted again from
+    /// its partial file by the install that goes on one file at a time, and the install's progress takes from that
+    /// only what is above the bytes counted for it before; a file that starts again steps back no further than them.
+    func testAFilesShareOfTheProgressCountsItsBytesOnce() {
+        let told = Locked<[Int64]>([])
+        let meter = ProgressMeter { done, _ in told.withLock { $0.append(done) } }
+        meter.start(total: 1_000)
+        let counted = Locked<Int64>(0)
+        let first = ModelInstaller.share(of: meter, size: 600, floor: 0, counted: counted)
+        first.add(300)
+        XCTAssertEqual(told.withLock { $0.last }, 300)
+        XCTAssertEqual(counted.withLock { $0 }, 300, "what the install's progress holds for the file")
+        // the file goes on one file at a time: counted again from its partial file of 300 bytes, then 200 more arrive
+        let again = ModelInstaller.share(of: meter, size: 600, floor: counted.withLock { $0 }, counted: Locked(0))
+        again.add(300)
+        XCTAssertEqual(told.withLock { $0.last }, 300, "the 300 bytes counted before are not counted twice")
+        again.add(200)
+        XCTAssertEqual(told.withLock { $0.last }, 500)
+        again.add(-500)
+        XCTAssertEqual(told.withLock { $0.last }, 300, "a file that starts again steps back to what was counted before it went on")
+    }
+
+    /// Progress counted by several transfers at once is told in the order it was counted: never a step back.
+    func testProgressFromSeveralTransfersNeverStepsBack() async {
+        let told = Locked<[Int64]>([])
+        let meter = ProgressMeter { done, _ in told.withLock { $0.append(done) } }
+        meter.start(total: 8_000)
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 { group.addTask { for _ in 0..<1_000 { meter.add(1) } } }
+        }
+        let values = told.withLock { $0 }
+        XCTAssertEqual(values.last, 8_000)
+        XCTAssertTrue(zip(values, values.dropFirst()).allSatisfy { $0 <= $1 }, "the counts as told never go down")
     }
 
     /// Without a kept validator (a server that sends no ETag) the range is asked for as before, without `If-Range`.

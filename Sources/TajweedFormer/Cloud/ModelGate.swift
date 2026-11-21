@@ -86,6 +86,11 @@ final class ModelGate: Sendable {
         var message: String
         var reason: String
         var from: Source
+        /// 4.0.1 (28.7): the role of the request the refusal answered and whether it was asked of more than one host,
+        /// for the report of a later call that fails on this refusal (`QuranLabCloud.refusalCause`). Absent in a
+        /// refusal an earlier SDK remembered.
+        var hostRole: String? = nil
+        var fallback: Bool? = nil
 
         var error: RecognizerError { .serverRejected(status: status, code: code, message: message, reason: reason) }
     }
@@ -279,7 +284,10 @@ final class ModelGate: Sendable {
     /// removed, before the call that received it returns its error; else nothing.
     func note(_ e: CloudError, from: Source) {
         guard case .rejected(let status, let code, let message, let reason) = e, let reason, Self.stops(status: status, reason: reason) else { return }
-        let r = Refusal(status: status, code: code, message: message, reason: reason, from: from)
+        // 4.0.1 (28.7): the request that brought it (this runs inside its operation)
+        let t = RequestTrace.last
+        let r = Refusal(status: status, code: code, message: message, reason: reason, from: from, hostRole: t?.role.rawValue,
+                        fallback: t?.fallback)
         // a new refusal is the server's newest word: it is remembered also over a file that cannot be read now
         let changed = state.withLock { (s: inout StoredRead<Refusal>) -> Bool in
             defer { s = .value(r) }
