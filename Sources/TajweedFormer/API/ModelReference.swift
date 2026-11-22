@@ -80,7 +80,11 @@ final class ModelReference: ReferenceTable, @unchecked Sendable {
         // not the fetch's: units() opens it then, or says why.
         if let runtime = ProtectedRuntime.current.withLock({ $0 }), runtime.openFolder == nil {
             let f = folder, ctx = context()
-            await Task.detached(priority: .userInitiated) { _ = try? runtime.openModel(f, context: ctx) }.value
+            // SDK 4.0.3: a wait for another Client's take on the Core's model suspends here; the open never blocks
+            await runtime.awaitOpenable(f, context: ctx)
+            await Task.detached(priority: .userInitiated) {
+                ProtectedRuntime.$asyncWaited.withValue(true) { _ = try? runtime.openModel(f, context: ctx) }
+            }.value
         }
     }
 
@@ -107,6 +111,10 @@ final class ModelReference: ReferenceTable, @unchecked Sendable {
                 throw Self.missing("not_open", "the model could not be opened (\(error))")
             }
         }
+        // SDK 4.0.3: this folder's model opened between the two reads above (fetch()'s reopen or a take's open, a moment
+        // after an install closed it): the table reads through it. Without this, units() said not_open while the model
+        // was open
+        if open == nil { open = runtime.openModel(of: folder) }
         guard let model = open else { throw Self.missing("not_open", "the model is not open") }
         switch model.reference(surah: surah, ayah: ayah) {
         case .success(let r):

@@ -233,8 +233,18 @@ final class ProtectedRuntime: @unchecked Sendable {
     private let retryFile: JSONFile<LeaseRetry>
     private let refreshing = Locked<Task<Void, Never>?>(nil)
     private let flight = LeaseFlight()
-    /// The one open model (the Core has one at a time) and the build folder it came from.
+    /// The model this runtime opened or shares, and the build folder it came from: its hold on it. SDK 4.0.3: which model
+    /// the Core has open is the Core's (`CoreHost.openSlot`), the same for every runtime of the Core.
     private let open = Locked<(model: CoreModel, folder: URL)?>(nil)
+    /// SDK 4.0.3: how long an open waits for another runtime's model to end its take (a Client closed while the app keeps
+    /// its Model). One value for the SDK, as the other SDKs wait. Never a blocking wait on the main thread, and an async
+    /// call waits by suspending (`asyncOpen`), never by holding a thread.
+    static let openWaitSeconds: TimeInterval = 3
+    /// `openWaitSeconds`; tests shorten it.
+    var openWait: TimeInterval = ProtectedRuntime.openWaitSeconds
+    /// SDK 4.0.3: set by `asyncOpen` for the call it runs: the wait was done by suspending, and an open under it never
+    /// blocks its thread (it fails at once when the model is still in another Client's take).
+    @TaskLocal static var asyncWaited = false
     /// The build folder used last (the timer's refresh uses its manifest).
     private let lastFolder = Locked<ModelFolder?>(nil)
     /// Told every verified stop (the Client's model gate), every lease outcome (analytics) and every issue to report.
@@ -299,6 +309,13 @@ final class ProtectedRuntime: @unchecked Sendable {
         } catch {
             throw error.recognizerError
         }
+    }
+
+    /// The Core this runtime uses, else the live one of its folder and install key (`LiveCores`); never makes one.
+    private var liveHost: CoreHost? {
+        if let h = hostBox.withLock({ $0 }) { return h }
+        guard let key = keys.current() else { return nil }
+        return LiveCores.live(LiveCores.key(storage: storage, installHash: key.installHash))
     }
 
     var leaseRecord: LeaseRecord? { leaseFile.read().takingUnreadableAsMissing }
@@ -936,7 +953,7 @@ final class ProtectedRuntime: @unchecked Sendable {
                     // reference table of the build in use). Then, as qlcore.h says, the model is closed between takes,
                     // the file installed, and the model opens again at the next take (the take runner's CPU engine, the
                     // accelerator's reload).
-                    try closeModelForInstall()
+                    try closeModelForInstall(host)
                     closed = true
                     continue
                 }
@@ -949,14 +966,18 @@ final class ProtectedRuntime: @unchecked Sendable {
     /// Waits for the open model to have no take on it (at most `timeout`, checked every quarter second), then closes
     /// it. A model in use all that time leaves the install for later (`offline`: the update and
     /// the promotion's download are tried again).
-    private func closeModelForInstall(timeout: TimeInterval = 30) throws(RecognizerError) {
+    /// SDK 4.0.3: the Core's open model, whichever runtime opened it (`CoreHost.openSlot`): a model a closed Client's
+    /// Model keeps open makes the Core refuse the install as this runtime's own does.
+    private func closeModelForInstall(_ host: CoreHost, timeout: TimeInterval = 30) throws(RecognizerError) {
         let until = Date().addingTimeInterval(timeout)
         while true {
-            guard let o = open.withLock({ $0 }) else { return }
-            if o.model.closeIfIdle() {
-                open.withLock { if $0?.model === o.model { $0 = nil } }
-                return
+            let closed = host.openSlot.withLock { (s: CoreHost.OpenSlot) -> Bool in
+                guard let m = s.model else { return true }
+                guard m.closeIfIdle() else { return false }
+                open.withLock { if $0?.model === m { $0 = nil } }
+                return true
             }
+            if closed { return }
             if Date() >= until { throw .offline("the model is in a take; its files are installed later") }
             Thread.sleep(forTimeInterval: 0.25)
         }
@@ -970,30 +991,124 @@ final class ProtectedRuntime: @unchecked Sendable {
 
     /// The open model of `folder` and `context`, opened now when it is not (the open model of another context or build
     /// is closed first). Its vocabulary is the folder's (R4), or it is not run.
+    ///
+    /// SDK 4.0.3: which model is open is the Core's, not this Client's. A Client closed while the app keeps its Model
+    /// leaves that model open on the Core the next Client takes (`LiveCores`), and the Core opens one model at a time
+    /// (`QLC_E_BUSY` for a second). Every runtime of the Core reads one slot (`CoreHost.openSlot`), and the check, the
+    /// close and the open happen under its lock:
+    /// - the open model of this folder and context is shared, whoever opened it (each take runs its own stream on it);
+    /// - a model this runtime opened, of another folder or context, is closed first, as before (one at a time);
+    /// - a model another runtime opened (also one this runtime shares) is closed once nothing runs on it, and while a
+    ///   take runs on it the open waits (at most `openWait`, the lock let go): that take is never cut by this runtime.
+    ///   Past the wait the open fails with `session_open`. On the main thread it never waits and fails at once:
+    ///   `reference.units()` is synchronous and opens the model, and an app may call it there (the system ends an app
+    ///   whose main thread stalls). Under an async call (`asyncOpen`) it never waits either: that call waited already,
+    ///   by suspending.
+    /// A close whose last call still runs, or a model let go a moment ago, keeps the Core busy for a moment: the open is
+    /// tried again within the same wait. Tried before (to 4.0.2): a slot per runtime, without a lock. A second Client
+    /// met the first one's model as `engine_failed` (`busy`) at `model_open`, and so did two opens of one Client at once.
     func openModel(_ folder: ModelFolder, context: String) throws(RecognizerError) -> CoreModel {
         guard let raw = folder.manifest.raw, let host = try self.host() else { throw .offline("needs_connection: no lease on this device yet") }
         lastFolder.withLock { $0 = folder }
-        if let o = open.withLock({ $0 }), o.folder == folder.directory, o.model.context == context, o.model.isOpen, o.model.host === host {
-            return o.model
+        // this runtime's model on an earlier Core (a new install key made a new one) is closed first, as before
+        if let o = open.withLock({ $0 }), o.model.host !== host { closeModel() }
+        enum Step {
+            case opened(CoreModel, fresh: Bool)
+            /// another runtime's model is in use, or the Core is still busy with a model being closed
+            case wait(CoreFailure?)
+            case failed(CoreFailure)
+            case incompatible
         }
-        closeModel()
-        let model: CoreModel
-        do throws(CoreFailure) {
-            model = try host.open(manifest: raw, in: folder.directory, context: context, threads: 0)
-        } catch {
-            if error.status == QLC_E_FILE {
-                // a device form that fails its tag: the folder's device forms go, and the next model() installs again
-                removeDeviceForms(folder.directory)
+        let until = Date().addingTimeInterval(Thread.isMainThread || Self.asyncWaited ? 0 : openWait)
+        while true {
+            let step = host.openSlot.withLock { (s: CoreHost.OpenSlot) -> Step in
+                let mine = open.withLock { $0?.model }
+                if let m = s.model, m.isOpen, m.folder == folder.directory, m.context == context {
+                    open.withLock { $0 = (m, folder.directory) }
+                    return .opened(m, fresh: m !== mine)
+                }
+                if let m = s.model {
+                    if s.opener === self {
+                        // this runtime opened it: closed at once, as before (a take on it fails)
+                        m.close()
+                        open.withLock { if $0?.model === m { $0 = nil } }
+                    } else if !m.closeIfIdle() {
+                        // another runtime opened it (a closed Client's Model the app keeps): its take is waited for
+                        return .wait(nil)
+                    }
+                }
+                let model: CoreModel
+                do throws(CoreFailure) {
+                    model = try host.open(manifest: raw, in: folder.directory, context: context, threads: 0)
+                } catch {
+                    return error.isBusy ? .wait(error) : .failed(error)
+                }
+                if let names = model.tokens, names != folder.vocabulary.symbols {
+                    model.close()
+                    return .incompatible
+                }
+                s.model = model
+                s.opener = self
+                open.withLock { $0 = (model, folder.directory) }
+                return .opened(model, fresh: true)
             }
-            throw error.recognizerError
+            switch step {
+            case .opened(let model, let fresh):
+                // the recited index once per runtime and Core, also for a model another runtime opened
+                if fresh { prepareRecited(host, folder) }
+                return model
+            case .wait(let busy):
+                guard Date() < until else {
+                    // the Core stayed busy with no model it knows of in use: the Core's own answer
+                    if let busy { throw busy.recognizerError }
+                    // another Client's take holds the model (a Model of a closed Client the app keeps)
+                    throw .sessionActive
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            case .failed(let error):
+                if error.status == QLC_E_FILE {
+                    // a device form that fails its tag: the folder's device forms go, and the next model() installs again
+                    removeDeviceForms(folder.directory)
+                }
+                throw error.recognizerError
+            case .incompatible:
+                throw .modelIncompatible("the Core's vocabulary of this build is not the one the SDK carries for its tokens hash")
+            }
         }
-        if let names = model.tokens, names != folder.vocabulary.symbols {
-            model.close()
-            throw .modelIncompatible("the Core's vocabulary of this build is not the one the SDK carries for its tokens hash")
+    }
+
+    /// SDK 4.0.3: an async call's wait for the Core's model, by suspending (never holding a thread): while a model
+    /// another runtime opened, of another folder or context, has a call or a take on it, at most `openWait`. Returns at
+    /// once when there is nothing to wait for.
+    func awaitOpenable(_ folder: ModelFolder, context: String) async {
+        guard let host = liveHost else { return }
+        let until = Date().addingTimeInterval(openWait)
+        while Date() < until {
+            let inUse = host.openSlot.withLock { (s: CoreHost.OpenSlot) -> Bool in
+                // none; one this runtime opened (closed at once, as before); this folder and context (shared)
+                guard let m = s.model, s.opener !== self else { return false }
+                if m.isOpen, m.folder == folder.directory, m.context == context { return false }
+                return !m.isIdle
+            }
+            if !inUse { return }
+            try? await Task.sleep(nanoseconds: 50_000_000)
         }
-        open.withLock { $0 = (model, folder.directory) }
-        prepareRecited(host, folder)
-        return model
+    }
+
+    /// SDK 4.0.3: an async API's call that opens the Core's model (`model()`'s warm-up, `prepare`, a take's start): the
+    /// wait for another Client's take is done here by suspending (`awaitOpenable`), and the open in `body` never blocks
+    /// its thread (`asyncWaited`).
+    static func asyncOpen<T: Sendable>(_ folder: ModelFolder, context: String,
+                             _ body: () async throws(RecognizerError) -> T) async throws(RecognizerError) -> T {
+        if let runtime = current.withLock({ $0 }) { await runtime.awaitOpenable(folder, context: context) }
+        let r: Result<T, RecognizerError> = await $asyncWaited.withValue(true) { () async -> Result<T, RecognizerError> in
+            do throws(RecognizerError) {
+                return .success(try await body())
+            } catch {
+                return .failure(error)
+            }
+        }
+        return try r.get()
     }
 
     // MARK: R2, the accelerator
@@ -1027,15 +1142,33 @@ final class ProtectedRuntime: @unchecked Sendable {
     /// The build's prebuilt recited index (role `recited`, its SHA-256 pinned in the signed manifest) into the Core,
     /// once per Core; then the takes a killed process left are finished and counted (17.6). A build without the
     /// index leaves the detector off: the app's `reportRecited` counts.
+    /// SDK 4.0.3: once per Core, whichever runtime loads it (`CoreHost.recitedIndexed`). A runtime that shares a Core
+    /// another runtime loaded it on (a Client closed while the app keeps its Model) uses the index as it is and finishes
+    /// nothing: the take open in the journal is that Client's, maybe running now, not one a killed process left.
     private func prepareRecited(_ host: CoreHost, _ folder: ModelFolder) {
         guard !recitedReady(host), RecitedSwitch.detectorOn, let raw = folder.manifest.raw,
               let f = folder.manifest.files(role: "recited").first,
               f.isEncrypted ? ModelInstaller.present(f, in: folder.directory) : ModelInstaller.verified(f, in: folder.directory) else { return }
-        do throws(CoreFailure) {
-            try host.recitedIndex(manifest: raw, in: folder.directory)
-        } catch {
+        enum Load { case already, loaded, failed(CoreFailure) }
+        let load = host.recitedIndexed.withLock { (indexed: inout Bool) -> Load in
+            if indexed { return .already }
+            do throws(CoreFailure) {
+                try host.recitedIndex(manifest: raw, in: folder.directory)
+            } catch {
+                return .failed(error)
+            }
+            indexed = true
+            return .loaded
+        }
+        switch load {
+        case .failed(let error):
             onIssue("other", "recited_index:\(error.status)")
             return
+        case .already:
+            recitedHosts.withLock { $0.append(ObjectIdentifier(host)) }
+            return
+        case .loaded:
+            break
         }
         recitedHosts.withLock { $0.append(ObjectIdentifier(host)) }
         var ids = pendingTakes()
@@ -1048,24 +1181,38 @@ final class ProtectedRuntime: @unchecked Sendable {
         }
     }
 
-    /// The model open now when it is `folder`'s (the reference reader reads through it).
+    /// The model open now when it is `folder`'s (the reference reader reads through it). SDK 4.0.3: also one another
+    /// runtime of this Core opened (a closed Client's Model the app keeps).
     func openModel(of folder: ModelFolder) -> CoreModel? {
-        guard let o = open.withLock({ $0 }), o.folder == folder.directory, o.model.isOpen else { return nil }
-        return o.model
+        if let o = open.withLock({ $0 }), o.folder == folder.directory, o.model.isOpen { return o.model }
+        guard let m = liveHost?.openSlot.withLock({ $0.model }), m.folder == folder.directory, m.isOpen else { return nil }
+        return m
     }
 
     /// 4.0.1 (Gate C, 2026-11-20): the open model of `folder` closed when nothing runs on it (no call, no take), its
     /// plaintext wiped: a model `client.model()` opened and did not hand out is never left open with no owner. Another
-    /// folder's open model, or one in use, is left as it is.
+    /// folder's open model, or one in use, is left as it is. SDK 4.0.3: the Core's open model, whichever runtime opened it.
     func closeIdleModel(of folder: ModelFolder) {
-        guard let o = open.withLock({ $0 }), o.folder == folder.directory else { return }
-        if o.model.closeIfIdle() { open.withLock { if $0?.model === o.model { $0 = nil } } }
+        var models: [CoreModel] = []
+        if let m = open.withLock({ $0?.model }) { models.append(m) }
+        if let m = liveHost?.openSlot.withLock({ $0.model }), !models.contains(where: { $0 === m }) { models.append(m) }
+        for m in models where m.folder == folder.directory {
+            // under the lock of its Core's slot, so no open of that Core shares it while it closes
+            m.host.openSlot.withLock { (_: CoreHost.OpenSlot) in
+                if m.closeIfIdle() { open.withLock { if $0?.model === m { $0 = nil } } }
+            }
+        }
     }
 
-    /// The folder of the Core's open model, when one is open.
-    var openFolder: URL? { open.withLock { $0?.folder } }
+    /// The folder of the Core's open model, when one is open. SDK 4.0.3: whichever runtime of the Core opened it.
+    var openFolder: URL? {
+        if let m = open.withLock({ $0?.model }), m.isOpen { return m.folder }
+        guard let m = liveHost?.openSlot.withLock({ $0.model }), m.isOpen else { return nil }
+        return m.folder
+    }
 
-    /// Closes the open model: its plaintext is wiped and released. A take running on it fails.
+    /// Closes this runtime's open model (its own, or the one it shares): its plaintext is wiped and released. A take
+    /// running on it fails.
     func closeModel() {
         let o = open.withLock { (o: inout (model: CoreModel, folder: URL)?) -> CoreModel? in
             defer { o = nil }

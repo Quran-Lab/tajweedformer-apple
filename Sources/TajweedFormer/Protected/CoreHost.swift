@@ -148,6 +148,29 @@ final class CoreHost: @unchecked Sendable {
     /// outside `calls` (the reference data at first use, an accelerator program's prepare): the storage callbacks find
     /// one folder at a time.
     private let buildLock = NSLock()
+    /// SDK 4.0.3: the Core's one open model, the same for every runtime (Client) that holds this Core (`LiveCores`).
+    let openSlot = OpenSlot()
+    /// SDK 4.0.3: whether the build's recited index is in this Core (`ProtectedRuntime.prepareRecited`), whichever runtime
+    /// loaded it. The load and its recovery of the takes a killed process left happen once per Core.
+    let recitedIndexed = Locked(false)
+
+    /// The Core's open model as every runtime of the Core sees it. Held weakly: the runtime that opened it and the
+    /// engines on it keep it (the model holds the Core, so a strong hold here would keep both with no owner). `lock` is
+    /// held for a check, a close and an open together, never while waiting for a take to end.
+    final class OpenSlot: @unchecked Sendable {
+        let lock = NSLock()
+        /// The model the Core opened last; it is the open one while its handle lives (`CoreModel.closeIfIdle` says).
+        weak var model: CoreModel?
+        /// The runtime that opened `model`. A runtime that shares it (a later Client) never treats it as its own: a take
+        /// of the Client that opened it may run on it.
+        weak var opener: ProtectedRuntime?
+
+        func withLock<T, E: Error>(_ body: (OpenSlot) throws(E) -> T) throws(E) -> T {
+            lock.lock()
+            defer { lock.unlock() }
+            return try body(self)
+        }
+    }
 
     /// The Core's release and target (`qlc_version`: "4.0.0-c1 ios-arm64"), public.
     static var version: String { String(cString: qlc_version()) }
@@ -688,6 +711,15 @@ final class CoreModel: @unchecked Sendable {
         lock.lock()
         slots.removeAll { $0 === slot }
         lock.unlock()
+    }
+
+    /// SDK 4.0.3: whether `closeIfIdle` would close it now, or it is closed: no call runs, no take holds it, no take is
+    /// open on its streams and no close is under way. Nothing changes.
+    var isIdle: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard handle != nil else { return true }
+        return inFlight == 0 && !closing && holds == 0 && !slots.contains(where: { $0.inTake })
     }
 
     /// Closes the model at once when no call runs, no take holds it and no take is open on any of its streams (an

@@ -201,7 +201,8 @@ public final class TajweedModel: Sendable {
             // warm already (an earlier prepare, or takes with these options): nothing more to do
             let now = await r.backendNext
             if now.kind == .accelerator { return now }
-            try await r.prepare()
+            // SDK 4.0.3: a wait for another Client's take on the Core's model suspends (ProtectedRuntime.asyncOpen)
+            try await ProtectedRuntime.asyncOpen(fetched, context: context) { () async throws(RecognizerError) in try await r.prepare() }
             _ = await r.awaitReady(timeout: Self.prepareWait)
             return await r.backendNext
         } catch {
@@ -335,7 +336,7 @@ public final class TajweedModel: Sendable {
         let selection = Set(TajweedSessionOptions.defaultHeads.compactMap { HeadID(rawValue: $0) })
         do throws(RecognizerError) {
             let r = try recognizer(f, context: context, backend: .auto, selection: selection)
-            try await r.prepare()
+            try await ProtectedRuntime.asyncOpen(f, context: context) { () async throws(RecognizerError) in try await r.prepare() }
         } catch {
             throw TajweedError(from: error, stage: "model_open")
         }
@@ -365,8 +366,10 @@ public final class TajweedModel: Sendable {
         f = try await files(for: ctx)
         do throws(RecognizerError) {
             let r = try recognizer(f, context: ctx, backend: .auto, selection: selection)
-            try await r.prepare()
-            return await r.prepareAcceleratorNow(again: again, timeout: timeout)
+            return try await ProtectedRuntime.asyncOpen(f, context: ctx) { () async throws(RecognizerError) -> TajweedBackend in
+                try await r.prepare()
+                return await r.prepareAcceleratorNow(again: again, timeout: timeout)
+            }
         } catch {
             throw TajweedError(from: error, stage: "accelerator")
         }
@@ -431,7 +434,7 @@ public final class TajweedModel: Sendable {
         let f = try await files(for: context)
         do throws(RecognizerError) {
             let r = try engine(f, context: context, backend: options.backend, selection: selection)
-            try await r.startTake()
+            try await ProtectedRuntime.asyncOpen(f, context: context) { () async throws(RecognizerError) in try await r.startTake() }
             let backend = await r.backendNow
             let bounds = state.withLock { $0.bounds }
             return TajweedSession(recognizer: r, vocabulary: f.vocabulary, selection: selection, options: options, backend: backend,
