@@ -92,7 +92,7 @@ final class EndpointsDownloadVectorTests: XCTestCase {
                                auth: .fixed(key: "qlk_v1_test", token: "qlt_test"),
                                verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
         var installer = ModelInstaller(source: client.source(ModelID("v4.0", repository: "Quran-Lab/m"), revision: "b", base: Self.base),
-                                       rangeSize: 8 << 20, retryPauses: [0, 0, 0, 0, 0])
+                                       retryPauses: [0, 0, 0, 0, 0])
         let core = ModelDownloadTests.CoreStandIn()
         let folder = CloudFixtures.storage().appendingPathComponent("models/v4.0/.download-b")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

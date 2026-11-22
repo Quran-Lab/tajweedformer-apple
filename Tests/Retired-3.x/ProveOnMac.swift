@@ -418,7 +418,7 @@ enum ProveOnMac {
     /// `client.prefetch` with its byte progress; nil when it finished, else the error it threw.
     static func prefetch(_ client: TajweedClient, _ progress: ProveProgress) async -> TajweedError? {
         do throws(TajweedError) {
-            try await client.prefetch(unmeteredOnly: false, onProgress: { done, total in progress.note(done, total) })
+            try await client.prefetch(onProgress: { done, total in progress.note(done, total) })
             return nil
         } catch {
             return error

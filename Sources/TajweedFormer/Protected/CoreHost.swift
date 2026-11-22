@@ -22,12 +22,16 @@ struct CoreFailure: Error, Equatable, Sendable {
         self.init(status: Int(status), detail: Int(detail), call: call)
     }
 
+    /// How the error of a prepare or a load the Core refused for the lease in force begins (`QLC_E_LEASE` with
+    /// `QLC_D_LEASE_NO_ACCEL`): the promotion takes it for 21.6's lease, not for a failure (`prepareFailure`).
+    static let leaseNoAccelText = "the lease in force does not allow accelerator programs"
+
     /// The SDK's error for it. The Core names no file, format or key in a failure (18.6.5); neither does this.
     var recognizerError: RecognizerError {
         switch status {
         case QLC_E_NEEDS_CONNECTION: return .offline("needs_connection: no valid lease for this model on the device")
         case QLC_E_LEASE where detail == QLC_D_LEASE_NO_ACCEL:
-            return .neuralEngineUnavailable("the lease in force does not allow accelerator programs (\(call))")
+            return .neuralEngineUnavailable(Self.leaseNoAccelText + " (\(call))")
         case QLC_E_LEASE where detail == QLC_D_LEASE_EXPIRED:
             return .offline("needs_connection: the lease has expired (\(call))")
         case QLC_E_LEASE: return .offline("the lease was refused by the Core (\(call), detail \(detail)); a new one is needed")
@@ -462,6 +466,8 @@ final class CoreModel: @unchecked Sendable {
     private var closing = false
     private var inFlight = 0
     private var slots: [StreamSlot] = []
+    /// SDK 4.0.2: the takes that hold the model from their start (`hold()`), before their first chunk is pushed.
+    private var holds = 0
 
     init(host: CoreHost, handle: OpaquePointer, context: String, folder: URL) {
         self.host = host
@@ -654,6 +660,23 @@ final class CoreModel: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// SDK 4.0.2: a take holds the model from its start to its end (finished, cancelled or failed), so an install never
+    /// closes it between the start and the first chunk (the microphone's set-up, the first chunk's audio): it waits or
+    /// is put off, as for a take under way. To 4.0.1 the model was in a take only from its first push, and an install
+    /// in between closed it under the take, whose first push then failed (`engine_failed`, "the model was closed").
+    func hold() {
+        lock.lock()
+        holds += 1
+        lock.unlock()
+    }
+
+    /// The end of a `hold()`.
+    func letGo() {
+        lock.lock()
+        holds = max(0, holds - 1)
+        lock.unlock()
+    }
+
     /// The stream's end: destroyed now, unless the model's close destroyed it already.
     func destroy(_ slot: StreamSlot) {
         guard enter() != nil else { return }
@@ -667,15 +690,15 @@ final class CoreModel: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Closes the model at once when no call runs and no take is open on any of its streams (an install needs the
-    /// Core without an open model). False when something runs: nothing changed.
+    /// Closes the model at once when no call runs, no take holds it and no take is open on any of its streams (an
+    /// install needs the Core without an open model). False when something runs: nothing changed.
     func closeIfIdle() -> Bool {
         lock.lock()
         guard handle != nil else {
             lock.unlock()
             return true
         }
-        guard inFlight == 0, !closing, !slots.contains(where: { $0.inTake }) else {
+        guard inFlight == 0, !closing, holds == 0, !slots.contains(where: { $0.inTake }) else {
             lock.unlock()
             return false
         }
@@ -802,6 +825,7 @@ final class CoreStream: @unchecked Sendable {
 final class CoreStreamEngine: CPUStreamEngine, @unchecked Sendable {
     let stream: CoreStream
     var model: CoreModel { stream.model }
+    var coreModel: CoreModel? { stream.model }
     var chunkMs: Int { stream.chunkMs }
     var heads: UInt32 { stream.heads }
 
@@ -828,6 +852,7 @@ final class CoreStreamEngine: CPUStreamEngine, @unchecked Sendable {
 /// stream of the same model beside it.
 final class CoreAcceleratorStream: AcceleratorBackend, @unchecked Sendable {
     let stream: CoreStream
+    var coreModel: CoreModel? { stream.model }
     /// The prepare's backend name ("coreml:memory" or "coreml:file").
     let name: String
     private var seconds: [Double] = []

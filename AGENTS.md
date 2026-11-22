@@ -30,7 +30,7 @@ Everything an assistant needs to integrate this SDK correctly: use only the name
 </td>
 <td valign="top">
 
-**Nothing to host**<br>The SDK downloads the right model for each device (55.5 MB to start) from our CDN in six regions, verifies it and keeps it up to date.
+**Nothing to host**<br>The SDK downloads the right model for each device (55.5 MB to start) from Quran Lab's servers, verifies it and keeps it up to date.
 
 </td>
 <td valign="top">
@@ -65,17 +65,17 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
 - **Coming from 3.x:** [docs/migrating-to-4.md](docs/migrating-to-4.md) says what changes. SDK 3.x stops receiving
   the V4 model on 15 January 2027, 00:00 UTC, and model versions from V4.1 on are published only encrypted, for SDK 4.0.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon (arm64 devices, the arm64 Simulator, arm64 Macs).
-- **Status:** 4.0.1. Each release is compiled and its tests run on a Mac with Xcode
+- **Status:** 4.0.2. Each release is compiled and its tests run on a Mac with Xcode
   (docs/mac-checklist-4.0.md). It carries every fix of 3.1.5, the download work
   included. If Quran Lab's main servers can't be reached, the SDK uses backup servers automatically.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.1. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.2. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.1"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.2"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -211,8 +211,8 @@ section 18). Making the Client downloads nothing: the model downloads only when 
    the first run the model works offline; when the device is online the SDK keeps itself up to date in the
    background, and opening the model never waits for that. An install attested with App Attest is
    hardware-verified, the class that may use the Neural Engine.
-4. **The download.** Ciphertext only (the build's CDN form), resumable, every file checked against the signed
-   manifest. The Core installs each file to this install's device form (the plaintext's SHA-256 is checked inside
+4. **The download.** Ciphertext only (the build's CDN form), one request per file, resumable, every file checked
+   against the signed manifest. The Core installs each file to this install's device form (the plaintext's SHA-256 is checked inside
    the Core), and the downloaded copy is deleted.
 5. **The model opens** in the Core's memory from the device form and the lease, also offline. When
    `client.model()` throws `needs_connection`, the SDK needs Quran Lab to continue, and nothing is decrypted. A model
@@ -223,31 +223,35 @@ file up again by itself: at most five times per file in one call, after 1, 2, 4,
 no answer, the connection ended, the server failed, no byte came for 30 seconds (a slow connection that keeps
 delivering is never cut), or the answer said success and was not the file. An attempt that brings no new byte counts
 like any other. A refusal and a redirect are never asked again. Then `client.model()` or `client.prefetch()` throws,
-and the next call goes on from what is on the device. An answer is the file only as a 206 for the range asked for of
-a file of the manifest's size, or as a whole file of that size; anything else is a failed attempt and costs no stored
-byte. A partial file is continued only as the file it was started as (the server's ETag is sent back with the range,
-and a file that changed comes whole and takes the partial file's place once all of it has arrived). An update, the
-Neural Engine's build and `prefetch(unmeteredOnly: true)` wait for an unmetered network for as long as they run; a
-first install goes on any network. Cancelling a call ends that call's wait: the download goes on while another call
-waits for it or a `prefetch` asked for it.
+and the next call goes on from what is on the device. Each file is asked for whole, with one request, and written to
+the device as it arrives; a transfer that was cut is resumed with one request for the rest, from the last byte on the
+device. An answer is the file only as the whole file of the manifest's size, or, for a resume, as a 206 for the rest
+of it; anything else is a failed attempt and costs no stored byte. A partial file is continued only as the file it
+was started as (the server's ETag is sent back with the resume, and a file that changed comes whole and takes the
+partial file's place once all of it has arrived). Every download
+and upload goes on whatever network the device has: a first install, an update, another context's files, the
+Neural Engine's build, `prefetch()` and shared recordings alike. Nothing waits for Wi-Fi, and there is no option for
+it; the system may still pause a transfer by its own settings (Low Data Mode, background limits). Cancelling a call
+ends that call's wait: the download goes on while another call waits for it or a `prefetch` asked for it.
 
 On iOS a download that is under way when the learner leaves the app gets the time the system gives a task under
 way (about half a minute), and when the app has entered the background what is left of it goes on in a background
-session, range by range, while the app is suspended; when the app is back the ranges that arrived are joined and
-the download goes on in the app. The ranges are of the CDN form from the model folder the lease named, so nothing a
-background session keeps is plaintext. A background transfer's request is kept by the system in its own store until
-the transfer ends: it carries the install's token, which is not renewed while the app is away (the app fetches a
-range itself when the server refused it for its token), and the developer key unless Quran Lab's signed config says
-that a background transfer sends the token alone. On that path alone the system follows a redirect without asking
+session while the app is suspended: one transfer per file, for the rest of it from the last byte on the device. The
+background session takes a file of any size, so a file is never cut into pieces. When the app is back the transfers
+still under way go on, and the app waits for each and joins what it brings, so nothing they fetched is fetched again;
+a transfer that brings nothing for a minute is given up and the app goes on with the file itself. The transfers are
+of the CDN form from the model folder the lease named, so nothing a background session keeps is plaintext. A
+background transfer's request is kept by the system in its own store until the transfer ends: it carries the
+install's token, which is not renewed while the app is away (the app fetches the file itself when the server refused
+it for its token), and the developer key unless Quran Lab's signed config says that a background transfer sends the
+token alone. On that path alone the system follows a redirect without asking
 the SDK: the SDK then refuses the bytes and reports the host it ended on.
 
 A model has a version (`model.version`) and a folder is one build of it (`model.build`, diagnostics only). The SDK
 refuses a manifest whose signature does not verify (`signature_invalid`), that needs a newer SDK or is not an
 encrypted build (`model_incompatible`), or that is not the build the config named (`checksum_mismatch`).
-`client.prefetch(unmeteredOnly:onProgress:)` downloads ahead of use, resumable, with the bytes done and the total.
-With `unmeteredOnly: true` it downloads on Wi-Fi or Ethernet and does nothing on cellular, a personal hotspot, a
-network in Low Data Mode or no network (call it again later); its requests also tell the system so, and the system
-holds to it for the whole download. A download that `prefetch` started goes on when the call is cancelled.
+`client.prefetch(onProgress:)` downloads ahead of use, resumable, with the bytes done and the total, on whatever
+network the device has. A download that `prefetch` started goes on when the call is cancelled.
 `client.storage` says what is on disk; `client.removeModels()` removes the model files.
 
 When Quran Lab refuses the key or the app on the lease route, the refusal is signed: the Core clears its lease and
@@ -268,7 +272,9 @@ The Neural Engine: in SDK 4.0 only the Core may hand an accelerator program to C
 allows, else through a short-lived file in the app's container that is removed after the load), and only with a
 lease that allows accelerator programs. The SDK downloads the accelerator build only when the lease allows it, then
 promotes it as before: compiled by the Core, warmed, checked against the CPU engine on the self-test clips, used from
-the next session. It needs iOS 18 or macOS 15, and the SDK never attempts it on the Simulator. Core ML keeps its own
+the next session. A lease that does not allow accelerator programs is not a failure of the device or the build: the
+CPU engine runs, nothing is counted against the build, and the preparation goes on from where it stood once a lease
+allows them (4.0.2). It needs iOS 18 or macOS 15, and the SDK never attempts it on the Simulator. Core ML keeps its own
 compiled form for the Neural Engine in the app's `Library/Caches`.
 
 ## Quran Lab platform
@@ -282,7 +288,8 @@ sends, when, and what an app can change is in
 
 Telemetry is on by default and anonymous by construction: sums and histograms per UTC day (per model version, build,
 context and backend: takes, minutes of audio, speech and silence, tokens per head, compute time, latency and
-real-time factor; downloads; launches; promotions), never audio, recognised text or any identifier. It goes as
+real-time factor; downloads; launches; promotions; per model host, the files, bytes and requests fetched there, the
+failures, the time to the first answer and the speed, in buckets), never audio, recognised text or any identifier. It goes as
 deltas during the day, each with a random `report_id` so a retry is counted once.
 
 The SDK keeps anonymous daily totals for your statistics at sdk.quranlab.ai: sessions and takes, seconds of audio and
@@ -316,10 +323,14 @@ by itself: the compiled form that Core ML keeps for the Neural Engine of a packa
 `await client.diagnose()` is one report of where the SDK stands, safe to paste into an issue (`.json`): the SDK's
 version and the newest one, whether the key is accepted, the config, the model's version and build, the context,
 the backend, the microphone permission, what is on disk, the last error's code, the dropped chunks and the
-connection (`unmetered`, `metered`, `none` or `unknown`); from 4.0.1 also `endpoints` (see
-[docs/api.md](docs/api.md)). Every error
+connection (`unmetered`, `metered`, `none` or `unknown`; a report only, nothing waits on it); from 4.0.1 also
+`endpoints` (see [docs/api.md](docs/api.md)). Every error
 the SDK throws is a `TajweedError` with a stable `code` (26 codes, the same in the four SDKs), a `message`, a `fix`
-and a `docs` link.
+and a `docs` link. From 4.0.2 it also carries `cause`: what failed, as tokens (`stage`, `reason`, and when known
+`httpStatus`, `errorName`, `errorCode`), the same as the error report Quran Lab gets, for the app's logs and support
+requests; nil for the codes that only say the app used the API wrongly. On `needs_connection`, `cause.needs` says what
+the SDK needs Quran Lab for: `model` (the model files are not on the device yet: connect to download them) or `lease`
+(the model is on the device and needs Quran Lab's answer to open).
 
 ## Sharing recitations
 
@@ -406,7 +417,10 @@ give it its own `storage` folder (`TajweedClientOptions(storage:)`).
 - **The install key.** The protected model's key is in the Secure Enclave (this device only, after first unlock);
   on a Mac without a Secure Enclave and on the Simulator it is a software key in this device's Keychain, and a
   process the Keychain refuses (a command line tool, an unsigned test run) keeps it in a file of the SDK's folder.
-  The Core's saved state is sealed under another Keychain key of this device.
+  The Core's saved state is sealed under another Keychain key of this device. The key that marks the model files
+  as this install's download is kept the same way: in the Keychain, else in a file of the SDK's folder. On a Mac the
+  SDK's Keychain calls never ask the user: a process whose login keychain is locked (a command line tool run over
+  SSH) uses the file at once (4.0.2).
 - **Apple silicon only.** arm64 devices, the arm64 simulator and arm64 Macs; iOS 15 and macOS 12 or later; Xcode 16
   (Swift tools 6.0).
 - **One Client per process.** A second `TajweedClient` while the first is not closed throws `client_exists`.

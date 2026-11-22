@@ -40,6 +40,10 @@ final class LeaseFailoverTests: XCTestCase {
         let log = Locked<[(host: String, route: String, body: [String: Any]?)]>([])
         let script = Locked<[String: [Step]]>([:])
         let stops = Locked(0)
+        /// SDK 4.0.2 (a rig made with `holds`): the HTTP client's clock, which the hosts' Retry-After holds go by, and a
+        /// new process on the same storage (a runtime over a new HTTP client that reads the holds back).
+        let now = Locked(Date(timeIntervalSince1970: 1_800_000_000))
+        var restart: (() -> ProtectedRuntime)?
 
         init(manifest: ModelManifest, clocks: P.MovingClocks, answer: [String: Any], lease: Data, key: SoftwareInstallKey,
              signer: (public: Data, private: Curve25519.Signing.PrivateKey)) {
@@ -134,7 +138,7 @@ final class LeaseFailoverTests: XCTestCase {
     /// the Core's test release. The install starts with its certificate (the vectors' attempts do); a new one (after
     /// install_cert_invalid) and a renewed token ask `POST /v1/attest` through the api order, as the Client's token
     /// provider does (the vector's `attest` and `token` routes).
-    func rig() throws -> Rig {
+    func rig(holds: Bool = false) throws -> Rig {
         guard CoreHost.version.hasPrefix("4.0.0-c1 ") else {
             throw XCTSkip("the linked Core is \(CoreHost.version), not the test release 4.0.0-c1")
         }
@@ -167,8 +171,17 @@ final class LeaseFailoverTests: XCTestCase {
         }
         let map = rig.servers.mapValues(\.origin)
         StagingHooks.hostOrigins.withLock { $0 = map }
-        let endpoints = EndpointSet(api: EndpointSet.builtInOrigins(.api), models: [URL(string: "https://cdn.test")!])
-        let http = HTTPClient(session: HostSession.make(), endpoints: endpoints)
+        let storage = Fixtures.storage()
+        let state = P.MemoryState()
+        let holdsFile = holds ? storage.appendingPathComponent("cloud/retry-after.json") : nil
+        let testNow = rig.now
+        let httpClock: @Sendable () -> Date = { holds ? testNow.withLock { $0 } : Date() }
+        let makeHTTP = { () -> HTTPClient in
+            HTTPClient(session: HostSession.make(),
+                       endpoints: EndpointSet(api: EndpointSet.builtInOrigins(.api), models: [URL(string: "https://cdn.test")!],
+                                              clock: httpClock, holdsFile: holdsFile))
+        }
+        let http = makeHTTP()
         let apiURL = try XCTUnwrap(rig.servers[Self.names[0]]).origin
         let certified = Locked(0)
         let server = LeaseServer(transport: http, apiURL: apiURL, key: "qlk_v1_apps-one_sig", platform: "ios",
@@ -185,7 +198,12 @@ final class LeaseFailoverTests: XCTestCase {
                                      return cert
                                  },
                                  trustedKeys: [signer.public])
-        rig.runtime = ProtectedRuntime(storage: Fixtures.storage(), server: server, keys: P.FixedKeys(key), state: P.MemoryState(), clocks: clocks)
+        rig.runtime = ProtectedRuntime(storage: storage, server: server, keys: P.FixedKeys(key), state: state, clocks: clocks)
+        rig.restart = {
+            let next = LeaseServer(transport: makeHTTP(), apiURL: server.apiURL, key: server.key, platform: server.platform,
+                                   token: server.token, certify: server.certify, trustedKeys: server.trustedKeys)
+            return ProtectedRuntime(storage: storage, server: next, keys: P.FixedKeys(key), state: state, clocks: clocks)
+        }
         rig.runtime.onStop = { @Sendable [weak rig] _ in rig?.stops.withLock { $0 += 1 } }
         return rig
     }
@@ -250,7 +268,9 @@ final class LeaseFailoverTests: XCTestCase {
         default:
             guard case .offline = failure else { return XCTFail("\(name): unreachable, got \(String(describing: failure))") }
             if let ra = c["retry_after"] as? Int {
-                XCTAssertEqual(rig.runtime.retryState.notBefore, rig.clocks.wallMs() / 1000 + Int64(ra), "\(name): the next attempt waits \(ra) s")
+                // 18.4.7.3 (SDK 4.0.2): the Retry-After is the floor of a wait drawn from 600 to 1800 s
+                let wait = rig.runtime.retryState.notBefore - rig.clocks.wallMs() / 1000
+                XCTAssertTrue((max(600, Int64(ra))...max(1800, Int64(ra))).contains(wait), "\(name): the next attempt waits \(wait) s, at least \(ra)")
             }
         }
         // a lease request goes to every host with the challenge it was asked with (28.5)
@@ -379,7 +399,7 @@ final class LeaseFailoverTests: XCTestCase {
                        "the build's manifest is read from the lease's folder")
         let dir = Fixtures.storage().appendingPathComponent("models/v4.0/\(rig.manifest.build)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        var installer = ModelInstaller(source: source, rangeSize: 8 << 20, retryPauses: [0, 0, 0, 0, 0])
+        var installer = ModelInstaller(source: source, retryPauses: [0, 0, 0, 0, 0])
         let runtime = rig.runtime!, manifest = rig.manifest
         installer.install = EncryptedInstall { (f: ModelManifest.File) throws(RecognizerError) in
             try runtime.install(manifest, decodedPath: f.localPath, in: dir)
@@ -396,24 +416,76 @@ final class LeaseFailoverTests: XCTestCase {
         XCTAssertEqual(models.order(.models, at: Date()).hosts.first, cdns["cdn-b.tajweedformer.com"]?.origin, "cdn-b answered: it is P")
     }
 
+    // MARK: 28.11, the lease route held by a Retry-After (SDK 4.0.2)
+
+    /// 28.11 item 6 and 18.4.7.3 item 4 (dd76474): a 429 with Retry-After 90 on the lease route asks no other host;
+    /// for 90 s a call with no lease fails as that answer did and sends nothing (no challenge either), in this process
+    /// and in a new one started 10 s after the 429; then one request, and a lease. The held calls move no retry wait.
+    func testA429OnTheLeaseRouteHoldsItAcrossARestart() async throws {
+        let rig = try rig(holds: true)
+        defer { rig.stop() }
+        rig.serve([
+            "challenge": [Self.names[0]: rig.reply("challenge", ["status": 200, "body": "json"])],
+            "model-key": [Self.names[0]: .json(["error": "rate_limited", "message": "too many requests, retry later"], status: 429,
+                                               headers: ["retry-after": "90"])],
+        ])
+        let manifest = rig.manifest
+        let call = { (r: ProtectedRuntime) async -> String? in
+            do throws(RecognizerError) {
+                _ = try await r.ensureLease(manifest)
+                return nil
+            } catch {
+                return TajweedError(from: error).code
+            }
+        }
+        let advance = { (s: TimeInterval) in rig.now.withLock { $0 = $0.addingTimeInterval(s) } }
+        let first = await call(rig.runtime)
+        XCTAssertNotNil(first)
+        XCTAssertEqual(rig.asked("model-key"), [Self.names[0]], "a 429 asks no other host")
+        let row = rig.runtime.retryState
+        XCTAssertEqual(row.failures, 1)
+        rig.clear()
+        advance(5)
+        let held = await call(rig.runtime)
+        XCTAssertEqual(held, first, "the call fails as the 429 did")
+        XCTAssertEqual(rig.asked(), [], "and sends nothing")
+        XCTAssertEqual(rig.runtime.retryState, row, "a held call is no failed attempt")
+        advance(5)
+        let again = try XCTUnwrap(rig.restart?())
+        XCTAssertEqual(again.retryState, row, "the new process reads the row back")
+        let afterRestart = await call(again)
+        XCTAssertEqual(afterRestart, first)
+        advance(79)
+        let last = await call(again)
+        XCTAssertEqual(last, first)
+        XCTAssertEqual(rig.asked(), [], "the new process sends nothing on the route for the remaining 80 s")
+        rig.serve(Self.healthy(rig))
+        advance(1)
+        let ok = await call(again)
+        XCTAssertNil(ok, "after the Retry-After one request, and a lease")
+        XCTAssertEqual(rig.asked("model-key"), [Self.names[0]])
+        XCTAssertEqual(again.retryState, LeaseRetry(), "the lease ends the row")
+    }
+
     // MARK: 28.5's Retry-After, and the cause of a lease request (24.2)
 
-    /// The lease request unreachable on every host: the next attempt waits the largest Retry-After any host gave (120,
-    /// not the first host's 30), and the failure's cause is the first host's answer with host_role api and fallback.
+    /// The lease request unreachable on every host: the next attempt waits at least the largest Retry-After any host gave
+    /// (2400, not the first host's 30; 18.4.7.3: the floor of the drawn wait), and the failure's cause is the first
+    /// host's answer with host_role api and fallback.
     func testTheLargestRetryAfterAndTheCauseOfALeaseRequest() async throws {
         let rig = try rig()
         defer { rig.stop() }
         rig.serve([
             "challenge": [Self.names[0]: rig.reply("challenge", ["status": 200, "body": "json"])],
             "model-key": [Self.names[0]: .json(["error": "lease_unavailable"], status: 503, headers: ["retry-after": "30"]),
-                          Self.names[1]: .json(["error": "lease_unavailable"], status: 503, headers: ["retry-after": "120"])],
+                          Self.names[1]: .json(["error": "lease_unavailable"], status: 503, headers: ["retry-after": "2400"])],
         ])
         do {
             _ = try await rig.runtime.renew(rig.manifest)
             XCTFail("no lease from any host")
         } catch {}
         XCTAssertEqual(rig.asked("model-key"), Self.names)
-        XCTAssertEqual(rig.runtime.retryState.notBefore, rig.clocks.wallMs() / 1000 + 120)
+        XCTAssertEqual(rig.runtime.retryState.notBefore, rig.clocks.wallMs() / 1000 + 2400)
         let cause = try XCTUnwrap(rig.runtime.lastFailure.withLock { $0 }?.cause)
         XCTAssertEqual(cause.stage, "lease")
         XCTAssertEqual(cause.reason, "lease_unavailable")

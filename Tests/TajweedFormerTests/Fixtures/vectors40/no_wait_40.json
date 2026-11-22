@@ -1,0 +1,247 @@
+{
+ "format": "quranlab.no-wait-40/1",
+ "about": "NO_WAIT_40.md (section 33): nothing waits for Wi-Fi (SDK 4.0.2). Made by tools/nowait40.py --write; do not edit by hand. Each SDK replays the cases that name it, against a stand-in server, with its connection report set to the case's.",
+ "connections": [
+  "unmetered",
+  "metered",
+  "none",
+  "unknown"
+ ],
+ "contexts": {
+  "default": "c16_l64",
+  "other": "c24_l256"
+ },
+ "cases": [
+  {
+   "name": "first_install_metered",
+   "about": "a first install on mobile data goes ahead, as it always did",
+   "on_device": {},
+   "call": "model",
+   "context": "c16_l64",
+   "connection": "metered",
+   "data_saver": false,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "opens",
+   "platforms": [
+    "apple",
+    "android",
+    "web",
+    "c"
+   ]
+  },
+  {
+   "name": "first_install_unknown",
+   "about": "the platform cannot tell the network",
+   "on_device": {},
+   "call": "model",
+   "context": "c16_l64",
+   "connection": "unknown",
+   "data_saver": false,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "opens",
+   "platforms": [
+    "apple",
+    "android",
+    "web",
+    "c"
+   ]
+  },
+  {
+   "name": "prefetch_metered",
+   "about": "prefetch() has no network option and downloads on mobile data",
+   "on_device": {},
+   "call": "prefetch",
+   "context": "c16_l64",
+   "connection": "metered",
+   "data_saver": false,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "downloaded",
+   "platforms": [
+    "apple",
+    "android",
+    "web",
+    "c"
+   ]
+  },
+  {
+   "name": "prefetch_data_saver",
+   "about": "the data saver or Low Data Mode is on: the SDK still sends its requests (the system may hold them)",
+   "on_device": {},
+   "call": "prefetch",
+   "context": "c16_l64",
+   "connection": "metered",
+   "data_saver": true,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "downloaded",
+   "platforms": [
+    "apple",
+    "android",
+    "web"
+   ]
+  },
+  {
+   "name": "other_context_metered",
+   "about": "the 4.0.1 report: prefetch() installed the default context, then a session on another context on mobile data; its files download and the session opens (4.0.1: model_missing at every retry)",
+   "on_device": {
+    "c16_l64": "complete"
+   },
+   "call": "session",
+   "context": "c24_l256",
+   "connection": "metered",
+   "data_saver": false,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "opens",
+   "platforms": [
+    "apple",
+    "android",
+    "web",
+    "c"
+   ]
+  },
+  {
+   "name": "other_context_low_data",
+   "about": "the same with the data saver or Low Data Mode on",
+   "on_device": {
+    "c16_l64": "complete"
+   },
+   "call": "session",
+   "context": "c24_l256",
+   "connection": "metered",
+   "data_saver": true,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "opens",
+   "platforms": [
+    "apple",
+    "android",
+    "web"
+   ]
+  },
+  {
+   "name": "other_context_none",
+   "about": "the same with no network at all: needs_connection, and the cause says the model files are missing (not model_missing)",
+   "on_device": {
+    "c16_l64": "complete"
+   },
+   "call": "session",
+   "context": "c24_l256",
+   "connection": "none",
+   "data_saver": false,
+   "requests": null,
+   "network_condition": "none",
+   "outcome": "error",
+   "code": "needs_connection",
+   "needs": "model",
+   "platforms": [
+    "apple",
+    "android",
+    "web",
+    "c"
+   ]
+  },
+  {
+   "name": "update_metered",
+   "about": "a newer build of the default context named by the config: the update downloads on mobile data",
+   "on_device": {
+    "c16_l64": "complete",
+    "newer_build_offered": true
+   },
+   "call": "update",
+   "context": "c16_l64",
+   "connection": "metered",
+   "data_saver": false,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "installed",
+   "platforms": [
+    "apple",
+    "android",
+    "web",
+    "c"
+   ]
+  },
+  {
+   "name": "accelerator_metered",
+   "about": "the accelerator build (Core ML, an NPU program), the lease allowing programs, after a session: it downloads on mobile data and the pipeline goes on",
+   "on_device": {
+    "c16_l64": "complete",
+    "lease_accel": true
+   },
+   "call": "accelerator",
+   "context": "c16_l64",
+   "connection": "metered",
+   "data_saver": false,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "goes_on",
+   "platforms": [
+    "apple",
+    "android"
+   ]
+  },
+  {
+   "name": "sharing_upload_metered",
+   "about": "a finished shared recording uploads on mobile data (no upload option waits)",
+   "on_device": {
+    "c16_l64": "complete",
+    "shared_recording": "finished"
+   },
+   "call": "upload",
+   "context": "c16_l64",
+   "connection": "metered",
+   "data_saver": false,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "uploaded",
+   "platforms": [
+    "apple",
+    "android",
+    "web",
+    "c"
+   ]
+  },
+  {
+   "name": "first_install_none",
+   "about": "no network at all on a first install: needs_connection, the cause says the model",
+   "on_device": {},
+   "call": "model",
+   "context": "c16_l64",
+   "connection": "none",
+   "data_saver": false,
+   "requests": null,
+   "network_condition": "none",
+   "outcome": "error",
+   "code": "needs_connection",
+   "needs": "model",
+   "platforms": [
+    "apple",
+    "android",
+    "web",
+    "c"
+   ]
+  },
+  {
+   "name": "queued_by_401_metered",
+   "about": "a download 4.0.1 left waiting for an unmetered network (an owed download marked unmetered only, a background task made with an unmetered-only request) goes on after the update",
+   "on_device": {
+    "queued_401": "unmetered_only"
+   },
+   "call": "start",
+   "context": "c16_l64",
+   "connection": "metered",
+   "data_saver": false,
+   "requests": true,
+   "network_condition": "none",
+   "outcome": "downloaded",
+   "platforms": [
+    "apple",
+    "android"
+   ]
+  }
+ ]
+}

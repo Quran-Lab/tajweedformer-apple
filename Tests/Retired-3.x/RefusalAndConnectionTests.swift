@@ -33,8 +33,8 @@ enum StubbedModelServer {
     }
 }
 
-/// `diagnose().connection` and `prefetch(unmeteredOnly:)`, which follows it (RULINGS point 2), with the connection
-/// set by the test in place of the system's.
+/// `diagnose().connection`, with the connection set by the test in place of the system's. (SDK 4.0.2, section 33: the
+/// test that `prefetch(unmeteredOnly:)` waited on a metered network is removed with the option.)
 final class ConnectionTests: XCTestCase {
     override func tearDown() {
         ConnectionKind.override.withLock { $0 = nil }
@@ -43,43 +43,6 @@ final class ConnectionTests: XCTestCase {
 
     func testTheFourValues() {
         XCTAssertEqual(ConnectionKind.allCases.map(\.rawValue), ["unmetered", "metered", "none", "unknown"])
-        XCTAssertEqual(ConnectionKind.allCases.filter(\.downloadsWhenUnmeteredOnly), [.unmetered, .unknown])
-    }
-
-    /// With `unmeteredOnly`, prefetch downloads on `unmetered` and on `unknown`, and waits on `metered` and on
-    /// `none`: nothing is asked of the download server and no model is on the device. Without the option it
-    /// downloads on any connection. `diagnose()` reports the same connection.
-    func testPrefetchUnmeteredOnlyDownloadsOnUnmeteredAndUnknownAndWaitsOnMeteredAndNone() async throws {
-        var downloaded: [String] = [], waited: [String] = []
-        for kind in ConnectionKind.allCases {
-            let build = try StubbedModelServer.serve()
-            ConnectionKind.override.withLock { $0 = { kind } }
-            let client = try StubbedModelServer.client()
-            try await client.prefetch(unmeteredOnly: true)
-            let d = await client.diagnose()
-            XCTAssertEqual(d.connection, kind.rawValue)
-            let asked = StubProtocol.seen.contains { $0.path.hasSuffix("/sdk/v4.0/manifest.json") }
-            if client.storage.models.isEmpty {
-                waited.append(kind.rawValue)
-                XCTAssertFalse(asked, "\(kind.rawValue): nothing is asked of the download server")
-                XCTAssertNil(d.model, kind.rawValue)
-                // the app asks again without the option: it downloads on any connection
-                try await client.prefetch()
-                XCTAssertEqual(client.storage.models.map(\.build), [build], "\(kind.rawValue): without the option")
-            } else {
-                downloaded.append(kind.rawValue)
-                XCTAssertTrue(asked, kind.rawValue)
-                XCTAssertEqual(client.storage.models.map(\.build), [build], kind.rawValue)
-                XCTAssertEqual(d.model?.build, build, kind.rawValue)
-            }
-            // once the model is on the device the call is a no-op on any connection
-            let before = StubProtocol.seen.count
-            try await client.prefetch(unmeteredOnly: true)
-            XCTAssertEqual(StubProtocol.seen.count, before, "\(kind.rawValue): nothing more is asked")
-            client.close()
-        }
-        XCTAssertEqual(downloaded, ["unmetered", "unknown"])
-        XCTAssertEqual(waited, ["metered", "none"])
     }
 
     /// Without a test's value the report says what the system says: one of the four.

@@ -38,6 +38,216 @@ final class HostFailoverTests: XCTestCase {
     static let ok = StubProtocol.Reply.json(["ok": true])
     static let unavailable = StubProtocol.Reply.json(["error": "service_unavailable"], status: 503)
 
+    /// A model file's path held on its first host by a 503 with `Retry-After` kept from an earlier process: the next
+    /// process goes to the next host without asking the held one, and sends no silent `failover` report (one goes out
+    /// only when the first host was asked in this process and was unreachable). The held attempt still counts as one
+    /// of the file's tries, as before: with no retry left the call fails there.
+    func testAHeldHostIsNotAFailoverReport() async throws {
+        typealias M = ModelDownloadTests
+        let clock = Locked(Date(timeIntervalSince1970: 1_800_000_000))
+        let holds = CloudFixtures.storage().appendingPathComponent("cloud/retry-after.json")
+        let folder = try XCTUnwrap(URL(string: "https://cdn.test/models/Quran-Lab/m/b/sdk/v4.0/"))
+        func process() -> (EndpointSet, HTTPClient, Locked<Int>) {
+            let e = EndpointSet(api: [Self.a, Self.b, Self.g], models: [Self.cdn, Self.cdnB], clock: { clock.withLock { $0 } }, holdsFile: holds)
+            let reports = Locked(0)
+            e.onFailover.withLock { $0 = { f, stage in if stage != nil, f.to != nil { reports.withLock { $0 += 1 } } } }
+            return (e, HTTPClient(session: StubProtocol.session(), endpoints: e), reports)
+        }
+        func install(_ http: HTTPClient, pauses: [TimeInterval]) async -> RecognizerError? {
+            let dir = CloudFixtures.storage().appendingPathComponent("models/v4.0/.download-b")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let cdn = CDNClient(http: http, base: Self.cdn.appendingPathComponent("models"), auth: .fixed(key: "qlk_v1_test", token: "qlt_test"),
+                                verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+            var i = ModelInstaller(source: cdn.source(ModelID("v4.0", repository: "Quran-Lab/m"), revision: "b", base: folder), retryPauses: pauses)
+            i.install = M.CoreStandIn().install(in: dir)
+            return await M.ensure(i, dir)
+        }
+        // an earlier process: the first host answers the file 503 with Retry-After 3600, kept with the SDK's state
+        let (_, first, _) = process()
+        Self.serve(["cdn.test": .json(["error": "unavailable"], status: 503, headers: ["Retry-After": "3600"])])
+        let part = CloudFixtures.storage().appendingPathComponent("held.part")
+        FileManager.default.createFile(atPath: part.path, contents: nil)
+        let url = folder.appendingPathComponent(M.weights)
+        _ = try? await first.stream(URLRequest(url: url), offset: 0, size: Int64(M.stored.count), into: part, started: { _, _ in }, received: { _ in })
+        // a new process 10 s later: the hold is read back; the next host is asked, the held one is not
+        clock.withLock { $0 = $0.addingTimeInterval(10) }
+        StubProtocol.reset { s in M.served(s, data: M.stored) }
+        let (e, http, reports) = process()
+        let error = await install(http, pauses: [0])
+        XCTAssertNil(error, "\(String(describing: error))")
+        XCTAssertEqual(Self.asked, ["cdn-b.test"], "the next host, and not the held one")
+        XCTAssertEqual(reports.withLock { $0 }, 0, "no failover report: the held host was not asked in this process")
+        XCTAssertEqual(e.preferred(.models), "cdn-b.test")
+        // the retry accounting is as before: the held attempt is one of the file's tries
+        StubProtocol.reset { s in M.served(s, data: M.stored) }
+        let (_, again, _) = process()
+        let failed = await install(again, pauses: [])
+        XCTAssertNotNil(failed, "with no retry left the held attempt ends the call")
+        XCTAssertEqual(Self.asked, [], "and nothing was asked")
+    }
+
+    /// 28.7 on the manifest's request, per request: the request that gets a 503 with `Retry-After`
+    /// from its first host asked it, and reports when the next host answers. A later request of the same path that
+    /// skips that host for the hold (the probe back in the same process, and a new process) asked no first host: no
+    /// report, even when the next host it asks is unreachable and a third answers.
+    func testAManifestRequestThatSkippedAHeldHostIsNoFailoverReport() async throws {
+        let clock = Locked(Date(timeIntervalSince1970: 1_800_000_000))
+        let cdnG = try XCTUnwrap(URL(string: "https://cdn-g.test"))
+        let holds = CloudFixtures.storage().appendingPathComponent("cloud/retry-after.json")
+        func process() -> (HTTPClient, Locked<Int>) {
+            let e = EndpointSet(api: [Self.a, Self.b, Self.g], models: [Self.cdn, Self.cdnB, cdnG], clock: { clock.withLock { $0 } }, holdsFile: holds)
+            let reports = Locked(0)
+            e.onFailover.withLock { $0 = { f, stage in if stage != nil, f.to != nil { reports.withLock { $0 += 1 } } } }
+            return (HTTPClient(session: StubProtocol.session(), endpoints: e), reports)
+        }
+        let url = try XCTUnwrap(URL(string: "https://cdn.test/models/Quran-Lab/m/b/sdk/v4.0/manifest.json"))
+        let (http, reports) = process()
+        Self.serve(["cdn.test": .json(["error": "unavailable"], status: 503, headers: ["Retry-After": "7200"]), "cdn-b.test": Self.ok, "cdn-g.test": Self.ok])
+        _ = try await http.checked(URLRequest(url: url), role: .models)
+        XCTAssertEqual(Self.asked, ["cdn.test", "cdn-b.test"])
+        XCTAssertEqual(reports.withLock { $0 }, 1, "the request that got the 503 asked its first host, and reports")
+        // the probe back, 31 minutes later in the same process: the list in order, its first host held
+        clock.withLock { $0 = $0.addingTimeInterval(31 * 60) }
+        Self.serve(["cdn.test": Self.ok, "cdn-b.test": Self.unavailable, "cdn-g.test": Self.ok])
+        _ = try await http.checked(URLRequest(url: url), role: .models)
+        XCTAssertEqual(Self.asked, ["cdn-b.test", "cdn-g.test"], "the held host is skipped")
+        XCTAssertEqual(reports.withLock { $0 }, 1, "a request that skipped its first host for a hold sends no report")
+        // a new process: the hold read back, the same
+        clock.withLock { $0 = $0.addingTimeInterval(60) }
+        let (again, reportsAgain) = process()
+        Self.serve(["cdn.test": Self.ok, "cdn-b.test": Self.unavailable, "cdn-g.test": Self.ok])
+        _ = try await again.checked(URLRequest(url: url), role: .models)
+        XCTAssertEqual(Self.asked, ["cdn-b.test", "cdn-g.test"])
+        XCTAssertEqual(reportsAgain.withLock { $0 }, 0)
+    }
+
+    /// ERRORS_40 24.2 `fallback` (SDK 4.0.2): true only when the request was asked of more than one host; a host skipped
+    /// for a hold was not asked. The first host held, the next asked and failing: `fallback` false, for the manifest's
+    /// request and for a model file.
+    func testAHostSkippedForAHoldIsNoFallback() async throws {
+        typealias M = ModelDownloadTests
+        let clock = Locked(Date(timeIntervalSince1970: 1_800_000_000))
+        let holds = CloudFixtures.storage().appendingPathComponent("cloud/retry-after.json")
+        let folder = try XCTUnwrap(URL(string: "https://cdn.test/models/Quran-Lab/m/b/sdk/v4.0/"))
+        let manifest = folder.appendingPathComponent("manifest.json"), file = folder.appendingPathComponent(M.weights)
+        func client() -> HTTPClient {
+            HTTPClient(session: StubProtocol.session(),
+                       endpoints: EndpointSet(api: [Self.a, Self.b, Self.g], models: [Self.cdn, Self.cdnB], clock: { clock.withLock { $0 } }, holdsFile: holds))
+        }
+        // an earlier process: both paths answered 503 with Retry-After by the first host
+        let first = client()
+        Self.serve(["cdn.test": .json(["error": "unavailable"], status: 503, headers: ["Retry-After": "3600"]), "cdn-b.test": Self.unavailable])
+        _ = try? await first.checked(URLRequest(url: manifest), role: .models)
+        let part = CloudFixtures.storage().appendingPathComponent("held.part")
+        FileManager.default.createFile(atPath: part.path, contents: nil)
+        _ = try? await first.stream(URLRequest(url: file), offset: 0, size: Int64(M.stored.count), into: part, started: { _, _ in }, received: { _ in })
+        // a new process: the first host held for both, the next asked and failing
+        clock.withLock { $0 = $0.addingTimeInterval(10) }
+        let http = client()
+        Self.serve(["cdn.test": Self.ok, "cdn-b.test": Self.unavailable])
+        let manifestFallback = await RequestTrace.scope { () async -> Bool? in
+            _ = try? await http.checked(URLRequest(url: manifest), role: .models)
+            return RequestTrace.last?.fallback
+        }
+        XCTAssertEqual(Self.asked, ["cdn-b.test"])
+        XCTAssertEqual(manifestFallback, false, "the manifest: one host asked")
+        Self.serve(["cdn.test": Self.ok, "cdn-b.test": Self.unavailable])
+        let dir = CloudFixtures.storage().appendingPathComponent("models/v4.0/.download-b")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let cdn = CDNClient(http: http, base: Self.cdn.appendingPathComponent("models"), auth: .fixed(key: "qlk_v1_test", token: "qlt_test"),
+                            verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+        var i = ModelInstaller(source: cdn.source(ModelID("v4.0", repository: "Quran-Lab/m"), revision: "b", base: folder), retryPauses: [0])
+        i.install = M.CoreStandIn().install(in: dir)
+        let installer = i
+        let (error, fileFallback) = await RequestTrace.scope { () async -> (RecognizerError?, Bool?) in
+            let e = await M.ensure(installer, dir)
+            return (e, RequestTrace.last?.fallback)
+        }
+        XCTAssertNotNil(error)
+        XCTAssertEqual(Self.asked, ["cdn-b.test"], "the held host was not asked")
+        XCTAssertEqual(fileFallback, false, "a model file: one host asked")
+    }
+
+    /// 28.7 and ERRORS_40 `failover`: the first host is asked and unreachable, and
+    /// the next host's path is held by a 429 (here noted while the request runs: a 429's hold is the path's on every
+    /// host, so one read back at a start holds the first host too). The request ends on the held 429 and asks no one
+    /// else: no `failover` report, and `fallback` false. The control: the first unreachable, the second held by a 503,
+    /// the third answers: a report, and `fallback` true. For a model file and for the manifest's request.
+    func testAHeldFourTwentyNineAfterAnUnreachableFirstHostIsNoFailover() async throws {
+        typealias M = ModelDownloadTests
+        let cdnG = try XCTUnwrap(URL(string: "https://cdn-g.test"))
+        let folder = try XCTUnwrap(URL(string: "https://cdn.test/models/Quran-Lab/m/b/sdk/v4.0/"))
+        let manifestPath = folder.appendingPathComponent("manifest.json").path, filePath = folder.appendingPathComponent(M.weights).path
+        struct Run { let error: Bool; let reports: Int; let fallback: Bool?; let asked: [String] }
+        // `second`: what holds the path on cdn-b while the request runs (a 429 for the whole path, or a 503 for that host)
+        func run(manifest: Bool, second: Int) async -> Run {
+            let clock = Locked(Date(timeIntervalSince1970: 1_800_000_000))
+            let e = EndpointSet(api: [Self.a, Self.b, Self.g], models: [Self.cdn, Self.cdnB, cdnG], clock: { clock.withLock { $0 } })
+            let reports = Locked(0)
+            e.onFailover.withLock { $0 = { f, stage in if stage != nil, f.to != nil { reports.withLock { $0 += 1 } } } }
+            let http = HTTPClient(session: StubProtocol.session(), endpoints: e)
+            let path = manifest ? manifestPath : filePath
+            StubProtocol.reset { s in
+                if s.url.host == "cdn.test" {
+                    // the first host is unreachable; meanwhile the path is held on cdn-b
+                    e.holds.note("models:" + path, host: Self.cdnB, status: second, retryAfter: "90", now: clock.withLock { $0 })
+                    return .json(["error": "unavailable"], status: 503)
+                }
+                return manifest ? Self.ok : M.served(s, data: M.stored)
+            }
+            if manifest {
+                let fallback = await RequestTrace.scope { () async -> Bool? in
+                    _ = try? await http.checked(URLRequest(url: folder.appendingPathComponent("manifest.json")), role: .models)
+                    return RequestTrace.last?.fallback
+                }
+                return Run(error: false, reports: reports.withLock { $0 }, fallback: fallback, asked: Self.asked)
+            }
+            let dir = CloudFixtures.storage().appendingPathComponent("models/v4.0/.download-b")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let cdn = CDNClient(http: http, base: Self.cdn.appendingPathComponent("models"), auth: .fixed(key: "qlk_v1_test", token: "qlt_test"),
+                                verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+            var i = ModelInstaller(source: cdn.source(ModelID("v4.0", repository: "Quran-Lab/m"), revision: "b", base: folder), retryPauses: [0, 0])
+            i.install = M.CoreStandIn().install(in: dir)
+            let installer = i
+            let (error, fallback) = await RequestTrace.scope { () async -> (Bool, Bool?) in
+                let failure = await M.ensure(installer, dir)
+                return (failure != nil, RequestTrace.last?.fallback)
+            }
+            return Run(error: error, reports: reports.withLock { $0 }, fallback: fallback, asked: Self.asked)
+        }
+        for manifest in [false, true] {
+            let what = manifest ? "the manifest" : "a model file"
+            let held = await run(manifest: manifest, second: 429)
+            XCTAssertEqual(held.asked, ["cdn.test"], "\(what): it ended on the held 429 and asked no one else")
+            if !manifest { XCTAssertTrue(held.error, "\(what): the held 429 is the call's answer") }
+            XCTAssertEqual(held.reports, 0, "\(what): no other host answered: no failover report")
+            XCTAssertNotNil(held.fallback, "\(what): the request names its hosts for the report's cause")
+            XCTAssertEqual(held.fallback, false, "\(what): one host was asked")
+            let control = await run(manifest: manifest, second: 503)
+            XCTAssertEqual(control.asked, ["cdn.test", "cdn-g.test"], "\(what): the 503's host skipped, the third asked")
+            XCTAssertFalse(control.error, what)
+            XCTAssertEqual(control.reports, 1, "\(what): the first host was asked and unreachable, another answered: a report")
+            XCTAssertEqual(control.fallback, true, "\(what): two hosts were asked")
+        }
+    }
+
+    /// 28.4: a lease folder's host that the config's `models` list in force leaves
+    /// out is asked first, even when it is a built-in host; a base host the list names keeps its place in the order
+    /// (`P` first). To 4.0.2 a built-in host counted as the role's whatever the list said, and was never asked first.
+    func testABaseHostTheListInForceLeavesOutIsAskedFirst() throws {
+        let builtIn = EndpointSet.builtInOrigins(.models)
+        XCTAssertGreaterThanOrEqual(builtIn.count, 3)
+        let left = builtIn[0]
+        let listed = Array(builtIn.dropFirst())
+        let endpoints = JSONValue(any: ["models": listed.compactMap { $0.host }])
+        let set = EndpointSet(api: EndpointSet.builtInOrigins(.api), models: builtIn, config: { .some(endpoints) })
+        XCTAssertEqual(set.hosts(.models), listed, "the config's list is in force")
+        XCTAssertFalse(set.isRoleHost(.models, left), "a built-in host the list leaves out is not one of the role's now")
+        XCTAssertEqual(FileHosts(endpoints: set, base: left).host(for: "layers.zfw.qle"), left, "the base host is asked first")
+        let named = try XCTUnwrap(listed.last)
+        XCTAssertEqual(FileHosts(endpoints: set, base: named).host(for: "layers.zfw.qle"), listed[0], "a listed base host keeps its place: P first")
+    }
+
     /// Check 1: the first host down (no answer, then a 503): the second answers, and the next request goes to it first.
     func testTheFirstHostDownTheSecondAnswersAndIsAskedFirstAfter() async throws {
         for (down, reason, status) in [(StubProtocol.Reply.down, "network", nil as Int?), (Self.unavailable, "http", 503)] {

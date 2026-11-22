@@ -31,6 +31,10 @@ final class FileHosts: @unchecked Sendable {
         /// The first host's failure, when its attempt was unreachable: its 24.3 reason and status.
         var first: (reason: String, status: Int?)?
         var reported = false
+        /// SDK 4.0.2: the first host was held by a `Retry-After` and not asked in this process: when another host
+        /// answers, `lastFailover` is told as before, and no silent report goes out (one goes out only when the first
+        /// host was asked and was unreachable).
+        var firstHeld = false
     }
 
     private let lock = NSLock()
@@ -54,15 +58,15 @@ final class FileHosts: @unchecked Sendable {
     /// The host the next attempt of `path` asks.
     func host(for path: String) -> URL {
         lock.withLock {
-            var f = file(path)
-            let h = f.order[f.k % f.order.count]
-            f.asked.insert(h)
+            let f = file(path)
             files[path] = f
-            return h
+            return f.order[f.k % f.order.count]
         }
     }
 
-    /// Whether a file of this build was asked of more than one host (24.2 `fallback`).
+    /// Whether a file of this build was asked of more than one host (24.2 `fallback`). SDK 4.0.2: a host is counted when
+    /// its attempt ended with its answer or as unreachable, never when it was skipped for a `Retry-After` hold without a
+    /// request (ERRORS_40: asked of more than one host).
     var fellBack: Bool { lock.withLock { files.values.contains { $0.asked.count > 1 } } }
 
     /// The attempt of `path` was answered (taken, a refusal or a slow down): its host becomes `P`. A file whose first
@@ -71,9 +75,10 @@ final class FileHosts: @unchecked Sendable {
     /// itself (a list of one host, or the order come round) is no failover: nothing more is told.
     func answered(_ path: String, _ cls: AnswerClass) {
         let now = endpoints.clock()
-        let (host, probe, failover) = lock.withLock { () -> (URL, Bool, EndpointSet.Failover?) in
+        let (host, probe, failover, held) = lock.withLock { () -> (URL, Bool, EndpointSet.Failover?, Bool) in
             var f = file(path)
             let h = f.order[f.k % f.order.count]
+            f.asked.insert(h)
             var told: EndpointSet.Failover?
             if f.k > 0, let first = f.first, !f.reported, h != f.order[0] {
                 f.reported = true
@@ -81,10 +86,11 @@ final class FileHosts: @unchecked Sendable {
                                             at: Int64(now.timeIntervalSince1970))
             }
             files[path] = f
-            return (h, f.probe, told)
+            return (h, f.probe, told, f.firstHeld)
         }
         endpoints.settle(.models, host, at: now, probe: probe)
-        if let failover { endpoints.failedOver(failover, stage: "download") }
+        // a first host held and not asked: `lastFailover` as before, and no report (its stage is the report's switch)
+        if let failover { endpoints.failedOver(failover, stage: held ? nil : "download") }
     }
 
     /// The attempt of `path` failed with `e`. A refusal or a 429 is an answer of its host (`answered`); a failure that
@@ -94,15 +100,24 @@ final class FileHosts: @unchecked Sendable {
     func failed(_ path: String, _ e: CloudError) {
         switch Self.answerClass(e) {
         case .some(.refused): answered(path, .refused)
-        case .some(.slowDown): answered(path, .slowDown)
+        case .some(.slowDown):
+            // SDK 4.0.2 (28.7, contract 7cdb1ee): a 429 the SDK held without a request is the call's answer, and no
+            // host answered it: no host of `fallback`, no failover, and `P` stays where it was
+            if case .rejected(_, _, let message, _) = e, message.hasPrefix(RetryAfterHolds.heldMessage) { return }
+            answered(path, .slowDown)
         case .some:
             let now = endpoints.clock()
+            let notAsked: Bool
+            if case .offline(let why) = e { notAsked = why == HTTPClient.heldNotAsked } else { notAsked = false }
             let unanswered = lock.withLock { () -> EndpointSet.Failover? in
                 var f = file(path)
+                // a host skipped for a hold was not asked: it is no host of `fallback`
+                if !notAsked { f.asked.insert(f.order[f.k % f.order.count]) }
                 var told: EndpointSet.Failover?
                 if f.k == 0, f.first == nil {
                     let first = Endpoints.unreachableReason(.failure(e))
                     f.first = first
+                    f.firstHeld = notAsked
                     told = EndpointSet.Failover(role: .models, from: f.order[0].host ?? "", to: nil, reason: first.reason,
                                                 status: first.status, at: Int64(now.timeIntervalSince1970))
                 }

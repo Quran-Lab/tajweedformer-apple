@@ -63,16 +63,24 @@ final class GraceVectorTests: XCTestCase {
         }
     }
 
-    /// 18.4.7 (1c971ab): Retry-After is whole seconds 1 to 21600; the next attempt waits it, then the backoff goes on.
+    /// 18.4.7 (1c971ab): Retry-After is whole seconds 1 to 21600. 18.4.7.3 (SDK 4.0.2, dd76474): it is the floor of the
+    /// drawn wait, never a replacement: a 30 still waits the drawn time, a 3000 waits 3000 (to 4.0.1 the 30 replaced
+    /// the step).
     func testRetryAfter() {
         XCTAssertEqual(LeaseRetry.retryAfter("30"), 30)
         XCTAssertEqual(LeaseRetry.retryAfter(" 21600 "), 21_600)
         for bad in [nil, "0", "21601", "-5", "Wed, 21 Oct 2026 07:28:00 GMT", "3.5"] { XCTAssertEqual(LeaseRetry.retryAfter(bad), 0, bad ?? "nil") }
         var r = LeaseRetry()
-        r.failed(now: 1000, retryAfter: 30)
-        XCTAssertEqual(r.notBefore, 1030)
-        r.failed(now: 2000)
-        XCTAssertEqual(r.notBefore, 2000 + LeaseRetry.steps[1])
+        r.failed(now: 1000, retryAfter: 30, draw: { _ in 700 })
+        XCTAssertEqual(r.notBefore, 1700)
+        r.failed(now: 2000, draw: { _ in 1800 })
+        XCTAssertEqual(r.notBefore, 3800)
+        var s = LeaseRetry()
+        s.failed(now: 1000, retryAfter: 3000, draw: { _ in 1800 })
+        XCTAssertEqual(s.notBefore, 4000)
+        s.failed(now: 5000, retryAfter: 30, draw: { _ in 600 })
+        XCTAssertEqual(s.notBefore, 5600, "a later failure draws afresh")
+        XCTAssertEqual(s.failures, 2)
     }
 
     /// The reason a report of an open in grace names (ERRORS_40 24.3): the cause's, else the status's.

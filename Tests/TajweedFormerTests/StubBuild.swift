@@ -80,25 +80,23 @@ final class StubInstall: @unchecked Sendable {
 
     init(storage: URL = CloudFixtures.storage(), transport: (any BackgroundRangeTransport)? = nil, policy: BackgroundDownloadPolicy = .off,
          handOver: DownloadHandOver = DownloadHandOver(), base: URL = StubBuild.base, pauses: [TimeInterval] = [0, 0, 0, 0, 0],
-         rangeSize: Int64 = 100, sendsKey: Bool = true, unmeteredOnly: Bool = false) {
+         sendsKey: Bool = true) {
         self.storage = storage
         let gate = ModelGate(storage: storage)
         self.gate = gate
-        var client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: URL(string: "https://cdn.quranlab.ai/models")!,
-                               auth: .fixed(key: CloudFixtures.key, token: "qlt_v1.eyJ2IjoxfQ.sig"),
-                               verifier: ManifestVerifier(trustedKeys: [], requireSignature: false),
-                               refused: { gate.note($0, from: .model) }, accepted: { gate.accepted(.model) })
-        client.unmeteredOnly = unmeteredOnly
-        let made = client
+        let made = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: URL(string: "https://cdn.quranlab.ai/models")!,
+                             auth: .fixed(key: CloudFixtures.key, token: "qlt_v1.eyJ2IjoxfQ.sig"),
+                             verifier: ManifestVerifier(trustedKeys: [], requireSignature: false),
+                             refused: { gate.note($0, from: .model) }, accepted: { gate.accepted(.model) })
         let source = made.source(ModelID("v4.0", repository: "Quran-Lab/tajweedformer-v4"), revision: StubBuild.build, base: base)
-        var i = ModelInstaller(source: source, rangeSize: rangeSize, retryPauses: pauses)
+        var i = ModelInstaller(source: source, retryPauses: pauses)
         let redirects = self.redirects, abandoned = self.abandoned, dropped = self.dropped
         sink = RangeDelivery.Sink(storage: storage, refused: { gate.note($0, from: .model) },
                                   redirected: { host in redirects.withLock { $0.append("model_redirected:" + host) } })
         if let transport, policy != .off {
             i.background = BackgroundPlan(transport: transport, policy: policy, handOver: handOver, folder: relative,
-                                          request: { (path: String, lower: Int64, upper: Int64, validator: String?) async -> URLRequest? in
-                                              await made.backgroundRequest(source.url(path), lower: lower, upper: upper, validator: validator,
+                                          request: { (path: String, lower: Int64, upper: Int64, size: Int64, validator: String?) async -> URLRequest? in
+                                              await made.backgroundRequest(source.url(path), lower: lower, upper: upper, size: size, validator: validator,
                                                                              sendsKey: sendsKey)
                                           },
                                           abandoned: { n in abandoned.withLock { $0 += n } },

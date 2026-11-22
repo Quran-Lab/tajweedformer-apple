@@ -54,10 +54,13 @@ protocol CPUStreamEngine: AnyObject {
     func reset()
     func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer]
     func finish() throws(RecognizerError) -> [HeadsBuffer]
+    var coreModel: CoreModel? { get }
 }
 
 extension CPUStreamEngine {
     var isOpen: Bool { true }
+    /// The Core model it runs on, which a take holds from its start (`TakeRunner.holdModel`); nil for a stand-in.
+    var coreModel: CoreModel? { nil }
 }
 
 
@@ -550,6 +553,29 @@ final class TakeRunner {
 
     /// Closes the CPU engine (its private weight pages go back to the OS).
     func closeCPU() { cpu = nil }
+
+    /// SDK 4.0.2: the Core models a learner's take holds from its start (`CoreModel.hold`) until `letGoModel()`.
+    private var held: [CoreModel] = []
+
+    /// A learner's take holds the Core model it runs on from its start, before its first chunk: an install that comes
+    /// in between (`reference.fetch()`, an accelerator build, an update) waits or is put off instead of closing the
+    /// model under the take. Called after `start`; `letGoModel()` at the take's end, whatever ended it.
+    func holdModel() {
+        letGoModel()
+        let models = [cpu?.coreModel, accelerator?.backend.coreModel].compactMap { $0 }
+        for m in models where !held.contains(where: { $0 === m }) {
+            m.hold()
+            held.append(m)
+        }
+    }
+
+    /// The end of `holdModel()` (the take finished, was cancelled or failed); a no-op without a hold.
+    func letGoModel() {
+        for m in held { m.letGo() }
+        held = []
+    }
+
+    deinit { letGoModel() }
 
     /// Stops a blank verification still running and drops its engine (waits at most a second for its current piece).
     func dropVerification() {

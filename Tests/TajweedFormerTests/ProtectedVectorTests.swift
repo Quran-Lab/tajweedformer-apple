@@ -232,19 +232,53 @@ final class ProtectedVectorTests: XCTestCase {
         XCTAssertEqual(LeaseRefusal.classify(status: 503, body: body(["error": "not_configured"])), .later)
     }
 
-    /// 18.4.7: failures retry after 1, 5 and 30 minutes, then every 2 hours, growing to at most every 6 hours.
-    func testTheLeaseRetrySteps() {
+    /// 18.4.7.3 (SDK 4.0.2, dd76474): every failure waits a time drawn afresh, uniformly, from 600 to 1800 s; a
+    /// Retry-After of 30 at every failure changes none of it (4.0.1 waited the 30).
+    func testTheLeaseRetryWait() {
+        var asked: [ClosedRange<Int64>] = []
         var r = LeaseRetry()
-        var waits: [Int64] = []
-        for _ in 0..<8 {
-            r.failed(now: 1000)
-            waits.append(r.notBefore - 1000)
+        for _ in 0..<7 { r.failed(now: 1000, retryAfter: 30, draw: { (range: ClosedRange<Int64>) -> Int64 in asked.append(range); return range.upperBound }) }
+        XCTAssertEqual(asked, Array(repeating: 600...1800, count: 7))
+        XCTAssertEqual(r.notBefore - 1000, 1800)
+        // drawn afresh from the platform's random source at each failure: always inside the range, never the 30, and
+        // spread (installs that failed together do not come back together)
+        var drawn: Set<Int64> = []
+        for _ in 0..<50 {
+            var x = LeaseRetry()
+            var waits: [Int64] = []
+            for _ in 0..<5 {
+                x.failed(now: 0, retryAfter: 30)
+                waits.append(x.notBefore)
+            }
+            XCTAssertTrue(waits.allSatisfy { (600...1800).contains($0) }, "\(waits)")
+            XCTAssertFalse(waits.contains(30))
+            XCTAssertGreaterThan(Set(waits).count, 1, "a fresh draw at each failure: \(waits)")
+            drawn.insert(waits[0])
         }
-        XCTAssertEqual(waits, [60, 300, 1800, 7200, 14_400, 21_600, 21_600, 21_600])
+        XCTAssertGreaterThan(drawn.count, 10, "the waits are spread")
         XCTAssertFalse(r.due(now: 1000))
-        XCTAssertTrue(r.due(now: 1000 + 21_600))
+        XCTAssertTrue(r.due(now: 1000 + 1800))
         r.succeeded()
         XCTAssertTrue(r.due(now: 0))
+    }
+
+    /// 28.11 item 3 (SDK 4.0.2): the row as a start reads it back; a next attempt more than 21600 s ahead of the clock
+    /// (a clock that moved back) is now; a nearer one is kept.
+    func testTheLeaseRowReadBack() throws {
+        var r = LeaseRetry()
+        r.failed(now: 10_000, draw: { _ in 1000 })
+        XCTAssertEqual(r.readBack(now: 10_500), r, "a wait that runs is kept")
+        let back = r.readBack(now: 10_000 - 30_000)
+        XCTAssertEqual(back.notBefore, 10_000 - 30_000, "a clock that moved back: the attempt is due now")
+        XCTAssertEqual(back.failures, 1)
+        // kept on disk by the runtime: a new runtime on the same storage reads it back
+        let storage = Fixtures.storage()
+        let f = JSONFile<LeaseRetry>(url: storage.appendingPathComponent("cloud/lease-retry.json"))
+        f.write(r)
+        let again = ProtectedRuntime(storage: storage, server: nil, keys: InstallKeyring(storage: storage),
+                                     clocks: ProtectedCoreTests.MovingClocks(wallS: 10_200))
+        XCTAssertEqual(again.retryState, r)
+        XCTAssertFalse(again.retryState.due(now: 10_200))
     }
 
     // MARK: the vocabulary

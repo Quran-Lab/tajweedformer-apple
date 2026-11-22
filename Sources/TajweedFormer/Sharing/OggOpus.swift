@@ -298,6 +298,8 @@ final class OggOpusWriter {
 
     private func page(_ packets: [Data], granule: Int64, flags: UInt8, audio: Bool = true) throws(RecognizerError) {
         let d = OggPage.make(packets, granule: granule, serial: serial, sequence: sequence, flags: flags)
+        // tests: a full disk (section 29)
+        guard !ShareFiles.refusesWrites.withLock({ $0 }) else { throw .storageFailed("cannot write a page: the disk is full") }
         if handle == nil {
             segment += 1
             segmentPackets = 0

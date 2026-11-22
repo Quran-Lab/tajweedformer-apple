@@ -119,6 +119,32 @@ extension HTTPClient {
     /// method, path, query, headers and body. The first answer that is taken, a refusal or a slow down is the answer,
     /// and its host becomes `P`; an unreachable one sends the request to the next host at once. When every host was
     /// unreachable, the FIRST host's answer (or failure) is the request's, as before 4.0.1, and `P` stays.
+    /// SDK 4.0.2 (28.11 item 2, 18.4.7.3 item 4): the answer a request of `url` gets now without asking, when its
+    /// route is held by a `Retry-After` (a 429's on the route, or a 503's on every host of its role); nil when it may go.
+    /// A call that needs other requests first (a challenge, an App Attest attestation) asks this before them.
+    func held(_ url: URL) -> Response? {
+        guard let endpoints, let role = endpoints.role(of: url) else { return nil }
+        let route = RetryAfterHolds.route(of: url, role: role)
+        let now = endpoints.clock()
+        var first: (until: Date, wholeRoute: Bool)?
+        for host in endpoints.order(role, at: now).hosts {
+            guard let h = endpoints.holds.hold(route, host: host, now: now) else { return nil }
+            if h.wholeRoute {
+                return RetryAfterHolds.heldAnswer(until: h.until, now: now, wholeRoute: true, code: endpoints.holds.lastCode(route))
+            }
+            first = first ?? h
+        }
+        guard let first else { return nil }
+        return RetryAfterHolds.heldAnswer(until: first.until, now: now, wholeRoute: false, code: endpoints.holds.lastCode(route, status: 503))
+    }
+
+    /// Throws what a request of `url` would fail with now when its route is held (`held`).
+    func failIfHeld(_ url: URL) throws(CloudError) {
+        guard let r = held(url) else { return }
+        LeaseAttemptTrace.current?.metHold()
+        throw Self.failure(status: r.status, body: r.body)
+    }
+
     func routed(_ request: URLRequest, role named: EndpointRole?, accept: @escaping @Sendable (Response) -> Bool)
         async throws(CloudError) -> Response {
         guard let endpoints, let url = request.url, let origin = Endpoints.origin(of: url),
@@ -128,29 +154,68 @@ extension HTTPClient {
         let (order, probe) = endpoints.order(role, at: start, first: first)
         var firstResult: Result<Response, CloudError>?
         var asked: [URL] = []
+        // 28.11 item 2 (SDK 4.0.2): a route a 429 asked to wait asks no host before its Retry-After; a host a 503 asked
+        // to wait is not asked, the next host is
+        let route = RetryAfterHolds.route(of: url, role: role)
+        var held: (until: Date, wholeRoute: Bool)?
+        // 28.7 (SDK 4.0.2, contract 7cdb1ee): a request that skipped its first host for a hold asked no first host, and
+        // its next host's answer is no failover report (`lastFailover` is told as before)
+        var skippedFirst = false
         for host in order {
+            if let h = endpoints.holds.hold(route, host: host, now: endpoints.clock()) {
+                if h.wholeRoute {
+                    LeaseAttemptTrace.current?.metHold()
+                    // the request ends on the held 429 (28.3): no failover; `fallback` counts the hosts it asked (24.2)
+                    if !asked.isEmpty { RequestTrace.note(role, fallback: asked.count > 1) }
+                    return RetryAfterHolds.heldAnswer(until: h.until, now: endpoints.clock(), wholeRoute: true, code: endpoints.holds.lastCode(route))
+                }
+                if host == order.first { skippedFirst = true }
+                held = held ?? h
+                continue
+            }
             var r = request
             r.url = Endpoints.rehost(url, to: host)
             asked.append(host)
             let result: Result<Response, CloudError>
+            let sent = Date()
             do throws(CloudError) { result = .success(try await once(r, limited: true)) } catch { result = .failure(error) }
             if firstResult == nil { firstResult = result }
             let cls: AnswerClass
             switch result {
             case .success(let resp):
-                cls = Endpoints.answerClass(status: resp.status, body: resp.body, taken: accept(resp))
+                let taken = accept(resp)
+                cls = Endpoints.answerClass(status: resp.status, body: resp.body, taken: taken)
+                // SDK 4.0.2 (STEERING_40 34.6, contract 0d9f5d7): a model request of this kind (the build's manifest)
+                // counts on its host as a file does: its request, its bytes, one of `files` when it is the answer taken
+                if role == .models, let to = modelHosts.withLock({ $0 }), let name = host.host {
+                    to(ModelHostSample(host: name, ttfbMs: Int((Date().timeIntervalSince(sent) * 1000).rounded()), bytes: Int64(resp.body.count),
+                                       bodySeconds: 0, unreachable: cls == .unreachable, lastByte: taken && (200..<300).contains(resp.status)))
+                }
                 // 28.5: a lease attempt waits the largest Retry-After any host gave when every host was unreachable
                 LeaseAttemptTrace.current?.hostAnswered(retryAfter: resp.header("Retry-After"))
-            case .failure: cls = .unreachable
+                endpoints.holds.note(route, host: host, status: resp.status, retryAfter: resp.header("Retry-After"), body: resp.body,
+                                     now: endpoints.clock())
+            case .failure(let e):
+                cls = .unreachable
+                if role == .models, let to = modelHosts.withLock({ $0 }), let name = host.host {
+                    to(ModelHostSample(host: name, ttfbMs: nil, bytes: 0, bodySeconds: 0, unreachable: !Task.isCancelled && Self.unreachable(e),
+                                       lastByte: false))
+                }
             }
             if cls != .unreachable {
                 endpoints.settle(role, host, at: start, probe: probe)
                 RequestTrace.note(role, fallback: asked.count > 1)
-                if asked.count > 1, let firstResult { failedOver(endpoints, role, url, asked[0], to: host, firstResult) }
+                if asked.count > 1, let firstResult { failedOver(endpoints, role, url, asked[0], to: host, firstResult, report: !skippedFirst) }
                 return try result.get()
             }
             // a caller that gave up asks no other host
             if Task.isCancelled { return try result.get() }
+        }
+        // every host held: the hold's answer, and no host is asked
+        if asked.isEmpty, let held {
+            LeaseAttemptTrace.current?.metHold()
+            return RetryAfterHolds.heldAnswer(until: held.until, now: endpoints.clock(), wholeRoute: false,
+                                              code: endpoints.holds.lastCode(route, status: 503))
         }
         RequestTrace.note(role, fallback: asked.count > 1)
         guard let firstResult else { return try await once(request, limited: true) }
@@ -159,12 +224,13 @@ extension HTTPClient {
     }
 
     /// The first host was unreachable: told to the endpoint set (`lastFailover`, the `failover` report).
+    /// `report`: whether the request asked its first host (a silent `failover` report goes out only then, 28.7).
     private func failedOver(_ endpoints: EndpointSet, _ role: EndpointRole, _ url: URL, _ from: URL, to: URL?,
-                            _ first: Result<Response, CloudError>) {
+                            _ first: Result<Response, CloudError>, report: Bool = true) {
         let (reason, status) = Endpoints.unreachableReason(first)
         let f = EndpointSet.Failover(role: role, from: from.host ?? "", to: to?.host, reason: reason, status: status,
                                      at: Int64(endpoints.clock().timeIntervalSince1970))
-        endpoints.failedOver(f, stage: Endpoints.stage(role, path: url.path))
+        endpoints.failedOver(f, stage: report ? Endpoints.stage(role, path: url.path) : nil)
     }
 }
 

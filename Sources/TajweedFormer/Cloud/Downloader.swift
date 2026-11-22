@@ -12,7 +12,7 @@ struct ModelRequestAuthorization: Sendable {
     /// for at least another hour). With `renew` the token in hand is dropped and a new one is asked for.
     let token: @Sendable (_ renew: Bool) async throws(CloudError) -> String
 
-    /// The headers of a model request: the manifest, every file, every Range request.
+    /// The headers of a model request: the manifest, every file, every resume.
     /// `key` nil: the token alone (a background transfer, when the signed config says so; 3.1.5).
     static func headers(key: String?, token: String) -> [(name: String, value: String)] {
         (key.map { [(name: "x-qlab-key", value: $0)] } ?? []) + [(name: "authorization", value: "Bearer \(token)")]
@@ -41,57 +41,57 @@ struct CDNClient: Sendable {
     /// A model request: the key and the token in their headers, the range when it asks for one, and the mark that
     /// the server speaks HTTP/3, so the first request can go by HTTP/3 and does not wait for the server to say so
     /// in an earlier answer. Only model requests carry the mark.
-    /// `ifRange`: the validator of the partial file a range continues (`If-Range`). `unmeteredOnly`: the request of
-    /// an update or of the accelerator's build, which waits for an unmetered network: the system then refuses to
-    /// send it over a cellular network, a personal hotspot or a network in Low Data Mode, for as long as it runs.
-    static func request(_ url: URL, range: String?, key: String?, token: String, ifRange: String? = nil,
-                        unmeteredOnly: Bool = false) -> URLRequest {
+    /// `ifRange`: the validator of the partial file a range continues (`If-Range`).
+    /// SDK 4.0.2 (section 33): every model request may go over any network the device has, a metered or a constrained
+    /// one (Low Data Mode) too: a first install, an update, another context's files, the accelerator's build. The SDK
+    /// never marks one as waiting for an unmetered network; the system may still hold a request by its own settings.
+    /// To 4.0.1 an update's requests and the accelerator build's were marked so, and another context's files counted
+    /// as an update: on mobile data a Session on that context got `model_missing` at every retry.
+    static func request(_ url: URL, range: String?, key: String?, token: String, ifRange: String? = nil) -> URLRequest {
         var r = URLRequest(url: url)
         for h in ModelRequestAuthorization.headers(key: key, token: token) { r.setValue(h.value, forHTTPHeaderField: h.name) }
         if let range { r.setValue(range, forHTTPHeaderField: "range") }
         if let ifRange { r.setValue(ifRange, forHTTPHeaderField: "if-range") }
         r.assumesHTTP3Capable = true
-        if unmeteredOnly {
-            r.allowsExpensiveNetworkAccess = false
-            r.allowsConstrainedNetworkAccess = false
-        }
+        r.allowsExpensiveNetworkAccess = true
+        r.allowsConstrainedNetworkAccess = true
         return r
     }
 
-    /// The requests of this client wait for an unmetered network (an update, the accelerator's build). A first
-    /// install goes on any network. Stricter than to 3.1.1 on purpose: the network was read once when an update
-    /// started, and an update that began on Wi-Fi and lost it went on over a metered network; now it stops there
-    /// and goes on when the device is on an unmetered network again.
-    var unmeteredOnly = false
-    /// The same, asked while the install runs: `client.prefetch(unmeteredOnly:)` wants its download on unmetered
-    /// networks only, so its requests carry the system's marks and the system holds to it for the whole download
-    /// (3.1.5; before, the connection was read once when the call started).
-    var alsoUnmetered: @Sendable () -> Bool = { false }
-    private var waitsForUnmetered: Bool { unmeteredOnly || alsoUnmetered() }
+    /// SDK 4.0.2 (SPEC 16.7): the Range of a request of the bytes `lower...upper` of a model file of `size` bytes: none
+    /// for the whole file (one GET), `bytes=N-` for the rest of it from byte N (a resume), and `bytes=N-M` only where a
+    /// range a 4.0.1 background task kept begins at M+1 (it is joined, not asked again). `size` nil: `bytes=N-M`.
+    /// Tried before (to 4.0.1): `bytes=N-M` for fixed ranges of 8 MiB, one after another.
+    static func range(lower: Int64, upper: Int64, size: Int64?) -> String? {
+        guard let size, upper >= size - 1 else { return "bytes=\(lower)-\(upper)" }
+        return lower == 0 ? nil : "bytes=\(lower)-"
+    }
 
-    /// The request of one range for a background task: the install's token as it is now (asked for as for any
-    /// model request; nil when none can be had), the range, the validator and the mark of a request that waits
-    /// for an unmetered network. A background task keeps the request it was made with, and the system keeps that
-    /// request in its own store until the task ends. `sendsKey`: whether it carries the developer key beside the
+    /// The request of one stretch of a file for a background task: the install's token as it is now (asked for as for
+    /// any model request; nil when none can be had), the range (`range(lower:upper:size:)`) and the validator. A background task keeps the request
+    /// it was made with, and the system keeps that request in its own store until the task ends. `sendsKey`: whether it carries the developer key beside the
     /// token; that is the signed config's `flags.model_requests_key_in_background` (true when absent), so that
     /// Quran Lab can make a background transfer carry the short-lived token alone. Requests the app makes itself
     /// always carry both.
-    func backgroundRequest(_ url: URL, lower: Int64, upper: Int64, validator: String?, sendsKey: Bool = true) async -> URLRequest? {
+    func backgroundRequest(_ url: URL, lower: Int64, upper: Int64, size: Int64? = nil, validator: String?,
+                           sendsKey: Bool = true) async -> URLRequest? {
         guard let token = try? await auth.token(false) else { return nil }
-        return Self.request(url, range: "bytes=\(lower)-\(upper)", key: sendsKey ? auth.key : nil, token: token, ifRange: validator,
-                            unmeteredOnly: waitsForUnmetered)
+        let range = Self.range(lower: lower, upper: upper, size: size)
+        return Self.request(url, range: range, key: sendsKey ? auth.key : nil, token: token, ifRange: range == nil ? nil : validator)
     }
 
-    /// The bytes `lower...upper` of a model file, written to `part` as they arrive (`HTTPClient.stream`), under the
-    /// rules of `send`: the key and the token, one renewal on 401 `invalid_token`, no redirect, the gate told of a
+    /// The bytes `lower...upper` of a model file, written to `part` as they arrive (`HTTPClient.stream`), with the Range
+    /// of `range(lower:upper:size:)` (SDK 4.0.2: none for the whole file, `bytes=N-` to resume), under the rules of
+    /// `send`: the key and the token, one renewal on 401 `invalid_token`, no redirect, the gate told of a
     /// refusal and of a served request. `validator` is the ETag of the answer that started the partial file, sent
     /// as `If-Range`: a file that changed on the server then comes whole (a 200) and replaces the partial file.
     /// `hash`: the partial file's SHA-256 as its bytes are written (`HTTPClient.stream`).
     func stream(_ url: URL, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL, hash: PartHasher? = nil,
                 started: @Sendable (_ headers: [String: String], _ whole: Bool) -> Void,
                 received: @Sendable (Int64) -> Void) async throws(CloudError) -> HTTPClient.Streamed {
+        let range = Self.range(lower: lower, upper: upper, size: size)
         func request(_ token: String) -> URLRequest {
-            Self.request(url, range: "bytes=\(lower)-\(upper)", key: auth.key, token: token, ifRange: validator, unmeteredOnly: waitsForUnmetered)
+            Self.request(url, range: range, key: auth.key, token: token, ifRange: range == nil ? nil : validator)
         }
         let token = try await auth.token(false)
         do throws(CloudError) {
@@ -130,7 +130,7 @@ struct CDNClient: Sendable {
     func send(_ url: URL, range: String? = nil,
               accept: @escaping @Sendable (HTTPClient.Response) -> Bool = Endpoints.jsonAnswer) async throws(CloudError) -> HTTPClient.Response {
         func request(_ token: String) -> URLRequest {
-            Self.request(url, range: range, key: auth.key, token: token, unmeteredOnly: waitsForUnmetered)
+            Self.request(url, range: range, key: auth.key, token: token)
         }
         let token = try await auth.token(false)
         do throws(CloudError) {
@@ -257,11 +257,12 @@ struct CDNFileSource: StreamingModelFileSource {
         }
     }
 
-    /// The request of one range of `path` for a background task: on the host the next attempt of the file asks, with
+    /// The request of one stretch of `path` for a background task: on the host the next attempt of the file asks, with
     /// the validator only when that host gave it.
-    func backgroundRequest(_ path: String, lower: Int64, upper: Int64, validator: String?, sendsKey: Bool) async -> URLRequest? {
+    func backgroundRequest(_ path: String, lower: Int64, upper: Int64, size: Int64? = nil, validator: String?,
+                           sendsKey: Bool) async -> URLRequest? {
         let a = attempt(path, validator: validator)
-        return await client.backgroundRequest(a.url, lower: lower, upper: upper, validator: a.ifRange, sendsKey: sendsKey)
+        return await client.backgroundRequest(a.url, lower: lower, upper: upper, size: size, validator: a.ifRange, sendsKey: sendsKey)
     }
 
     /// A background round of `path` ended without its next byte: the next attempt goes to the next host (28.4).
@@ -276,7 +277,8 @@ struct CDNFileSource: StreamingModelFileSource {
     func bytes(_ path: String, lower: Int64, upper: Int64, size: Int64) async throws(RecognizerError) -> Data {
         let resp: HTTPClient.Response
         do throws(CloudError) {
-            resp = try await client.send(url(path), range: "bytes=\(lower)-\(upper)", accept: { (200..<300).contains($0.status) })
+            resp = try await client.send(url(path), range: CDNClient.range(lower: lower, upper: upper, size: size),
+                                         accept: { (200..<300).contains($0.status) })
         } catch {
             throw error.recognizerError
         }

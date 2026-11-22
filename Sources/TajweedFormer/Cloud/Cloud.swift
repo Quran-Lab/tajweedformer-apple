@@ -43,6 +43,8 @@ final class QuranLabCloud: Sendable {
     private let deletionAsked = Locked(false)
     /// Error reports: every failure that reaches the app and every silent one of 24.1.
     let errorReports: ErrorReporter
+    /// SDK 4.0.2 (28.11 item 4): the rows of 429s of the routes that can wait (`events`, `issues`, `uploads`).
+    let slowDown: SlowDownRows
     /// Why the last config request failed (nil once one succeeds): the cause a model call without a config names.
     let configFailure = Locked<ErrorCause?>(nil)
     /// The 30-second send point of error reports is set (24.6: one timer for the SDK).
@@ -141,8 +143,7 @@ final class QuranLabCloud: Sendable {
     init(key: String?, options: QuranLab.Options, storage: URL,
          attester: any AppAttesting = DeviceCheckAttester(),
          attestKeys: any AttestKeyStoring = KeychainAttestKeyStore(),
-         installKeys: any InstallKeyStoring = KeychainInstallKeyStore(),
-         networkAllowed: (@Sendable (Bool) async -> Bool)? = nil,
+         installKeys: (any InstallKeyStoring)? = nil,
          clock: @escaping @Sendable () -> Date = { Date() }) {
         let cloud = options.cloud ?? CloudOptions()
         self.options = cloud
@@ -158,8 +159,10 @@ final class QuranLabCloud: Sendable {
         self.config = config
         // SDK 4.0.1 (section 28): the roles' hosts, the config in force's `endpoints` (its hosts only while it is in
         // force), and the sticky host of each role for this process
+        // SDK 4.0.2 (28.11 item 3): each route's Retry-After hold as the last process left it
         let endpoints = EndpointSet(api: cloud.apiHosts, models: cloud.modelHosts,
-                                    config: { config.current.map { $0.endpoints } }, clock: clock)
+                                    config: { config.current.map { $0.endpoints } }, clock: clock,
+                                    holdsFile: storage.appendingPathComponent("cloud/retry-after.json"))
         self.endpoints = endpoints
         let http = HTTPClient(session: cloud.urlSession ?? HTTPClient.makeSession(), endpoints: endpoints)
         self.http = http
@@ -168,15 +171,17 @@ final class QuranLabCloud: Sendable {
         let tokens = key.map {
             // a token the server issues is an answer that accepts the key
             TokenProvider(http: http, apiURL: cloud.apiURL, key: $0, app: app, teamID: cloud.appleTeamID,
-                          attester: attester, attestKeys: attestKeys, storage: storage, issued: { gate.accepted(.api) })
+                          attester: attester, attestKeys: attestKeys, storage: storage, clock: clock, issued: { gate.accepted(.api) })
         }
         self.tokens = tokens
         // the protocol of the last model request is this Client's own
         ModelDownloadRecord.reset()
         let issueQueue = IssueQueue(storage: storage)
         let reportsIssues = cloud.issueReports
+        let slowDown = SlowDownRows(file: storage.appendingPathComponent("cloud/slow-down.json"), now: clock())
+        self.slowDown = slowDown
         outbox = ContributionOutbox(storage: storage, http: http, apiURL: cloud.apiURL, tokens: tokens, config: config,
-                                    options: cloud, app: app, clock: clock, redirected: { host in
+                                    options: cloud, app: app, clock: clock, slowDown: slowDown, redirected: { host in
                                         // SPEC 15.4: a background upload that the system redirected is reported with
                                         // the host it ended on, and nothing else of the address
                                         guard reportsIssues, config.current?.flags.issues ?? true else { return }
@@ -188,6 +193,15 @@ final class QuranLabCloud: Sendable {
                                                   deviceClass: DeviceContext.deviceClass, soc: DeviceContext.soc,
                                                   osMajor: DeviceContext.osMajor, ramTier: DeviceContext.ramTier),
                                    clock: clock)
+        // SDK 4.0.2 (STEERING_40 34.6): each model request's host counts, kept with the telemetry day; nothing is counted
+        // while the signed config has telemetry off
+        let hostCounts = analytics
+        http.modelHosts.withLock {
+            $0 = { [config] sample in
+                guard config.current?.flags.analytics ?? true else { return }
+                hostCounts.record(.modelHost(sample))
+            }
+        }
         issues = issueQueue
         incidents = IncidentLedger(storage: storage)
         // contract section 24: the error reports. The install's first process is the one that found no marker of an
@@ -243,7 +257,11 @@ final class QuranLabCloud: Sendable {
             // a stop the Core verified (signed by a pinned key, for this request): remembered like every stop of 15.3
             if case .serverRejected(let s, let c, let m, let r) = e { gate.note(.rejected(status: s, code: c, message: m, reason: r), from: .api) }
         }
-        runtime.onLease = { (o: LeaseOutcome) in leaseAnalytics.recordLease(o) }
+        runtime.onLease = { (o: LeaseOutcome) in
+            leaseAnalytics.recordLease(o)
+            // 21.6 item 2: a lease the Core accepted is asked again whether it allows accelerator programs
+            if o == .ok { AcceleratorRegistry.leaseAccepted() }
+        }
         runtime.onSilent = { (c: ErrorCause) in
             // contract 24.1 item 2: a background lease renewal that failed; the model is on the device and keeps its
             // lease until it ends, and a plain network failure is not reported
@@ -263,11 +281,12 @@ final class QuranLabCloud: Sendable {
         ProtectedRuntime.current.withLock { $0 = runtime }
         let store = ModelStore(root: storage.appendingPathComponent("models"),
                                verifier: ManifestVerifier(trustedKeys: cloud.signingKeys, requireSignature: true),
-                               updates: options.updates, installKeys: installKeys)
+                               // 4.0.2: a Mac process the Keychain refuses keeps the key in this storage's file
+                               updates: options.updates,
+                               installKeys: installKeys ?? KeychainInstallKeyStore(file: KeychainInstallKeyStore.fileURL(storage: storage)))
         self.store = store
         // what the storage folder already holds gets the protection class of the SDK's files (3.1.4)
         StorageProtection.adopt(storage)
-        let wifiOnly = cloud.updatesOnWiFiOnly
         let analytics = self.analytics, issues = self.issues
         let issueContext = (app: app, enabled: cloud.issueReports)
         let explicitBase = cloud.cdnURL
@@ -315,12 +334,6 @@ final class QuranLabCloud: Sendable {
         },
                                inferenceContext: { config.current?.inferenceContext },
                                coreML: DownloadProfile.osRunsCoreML && options.neuralEngine,
-                               rangeSize: cloud.rangeSize,
-                               networkAllowed: networkAllowed ?? { first in
-                                   // the first install (no model yet) goes on any network: the app cannot work without it
-                                   if first || !wifiOnly { return true }
-                                   return await ModelUpdater.onUnmeteredNetwork()
-                               },
                                record: { e in analytics.record(e) },
                                report: { e, rev in
                                    guard issueContext.enabled else { return }
@@ -329,7 +342,6 @@ final class QuranLabCloud: Sendable {
                                },
                                stopped: { gate.stop },
                                retryPauses: cloud.retryPauses,
-                               unmeteredUpdates: wifiOnly,
                                background: background,
                                keyInBackground: { config.current?.flags.model_requests_key_in_background ?? true })
         errorReports.onNew.withLock { $0 = { [weak self] in self?.errorReportMade() } }
@@ -681,7 +693,8 @@ final class QuranLabCloud: Sendable {
         }
         guard key != nil, !isStopped else { return (0, 0) }
         var events = 0, sentIssues = 0
-        if flags.analytics {
+        // 28.11 item 4 (SDK 4.0.2): a route a 429 asked to wait sends at the first send point after its row's wait
+        if flags.analytics, slowDown.allows("events", now: clock()) {
             // one operation for the causes it makes (4.0.1, RequestTrace: `events` names its request's role and fallback)
             events = await RequestTrace.scope { await self.flushEvents() }
         }
@@ -705,7 +718,9 @@ final class QuranLabCloud: Sendable {
                     r.setValue("application/json", forHTTPHeaderField: "content-type")
                     return r
                 }
+                self.slowDown.accepted("events")
             } catch {
+                if case .rejected(429, _, _, _) = error { self.slowedDown("events") }
                 // contract 24.1 item 2: a telemetry report the server refused (400, 413) is dropped
                 if case .rejected(let s, _, _, _) = error, s == 400 || s == 413 {
                     self.noteSilent(ErrorCause(stage: "events", reason: "http", httpStatus: s).traced())
@@ -761,28 +776,46 @@ final class QuranLabCloud: Sendable {
     @discardableResult
     func sendErrorReports() async -> Int {
         guard key != nil, !isStopped, config.current?.flags.issues ?? true else { return 0 }
+        // 28.11 item 4: after a 429 of the issues route, its row's wait first
+        guard slowDown.allows("issues", now: clock()) else { return 0 }
         return await errorReports.send { (d: Data) async -> Int? in
             do throws(CloudError) {
-                return try await self.authed { (token: String) throws(CloudError) -> URLRequest in
+                let status = try await self.authed { (token: String) throws(CloudError) -> URLRequest in
                     var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/issues"), body: nil, auth: token)
                     r.httpBody = d
                     r.setValue("application/json", forHTTPHeaderField: "content-type")
                     return r
                 }.status
+                self.slowDown.accepted("issues")
+                return status
             } catch {
+                if case .rejected(429, _, _, _) = error { self.slowedDown("issues") }
                 if case .rejected(let s, _, _, _) = error { return s }
                 return nil
             }
         }
     }
 
+    /// 28.11 item 4: a 429 on a route that can wait: one more in its row, with the answer's `Retry-After` when it named one.
+    func slowedDown(_ route: String) {
+        slowDown.slowed(route, retryAfter: http.endpoints?.holds.lastRetryAfter(route), now: clock())
+    }
+
     func sendIssues(regular: Bool = true) async -> Int {
+        // 28.11 item 4: after a 429 of the issues route, its row's wait first
+        guard slowDown.allows("issues", now: clock()) else { return 0 }
         let send = { (d: Data) async throws(CloudError) -> Void in
-            _ = try await self.authed { (token: String) throws(CloudError) -> URLRequest in
-                var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/issues"), body: nil, auth: token)
-                r.httpBody = d
-                r.setValue("application/json", forHTTPHeaderField: "content-type")
-                return r
+            do throws(CloudError) {
+                _ = try await self.authed { (token: String) throws(CloudError) -> URLRequest in
+                    var r = try HTTPClient.jsonRequest(self.options.apiURL.appendingPathComponent("v1/issues"), body: nil, auth: token)
+                    r.httpBody = d
+                    r.setValue("application/json", forHTTPHeaderField: "content-type")
+                    return r
+                }
+                self.slowDown.accepted("issues")
+            } catch {
+                if case .rejected(429, _, _, _) = error { self.slowedDown("issues") }
+                throw error
             }
         }
         var n = await incidents.flush(send: send)
@@ -882,14 +915,14 @@ final class QuranLabCloud: Sendable {
     }
 
     /// Installs the model for `context` now (the first launch, or another context on demand), and activates it.
-    func install(_ id: ModelID, context: String?, activate: Bool, keep: Bool = false, unmeteredOnly: Bool = false) async -> ModelUpdater.Outcome {
+    func install(_ id: ModelID, context: String?, activate: Bool, keep: Bool = false) async -> ModelUpdater.Outcome {
         guard key != nil else { return .deferred("no developer key configured") }
         // a remembered refusal that cannot be read: nothing is downloaded until it reads
         if let why = gate.unreadable { return .failed(ModelGate.unreadableError(why)) }
         if config.current == nil { _ = await refreshConfig() }
         guard let target = targetRevision(id) else { return .deferred("no revision in the config yet") }
         let outcome = await updater.update(id, to: target, version: targetVersion(id), keyID: targetKeyID(id), context: context, activate: activate,
-                                           keep: keep, unmeteredOnly: unmeteredOnly)
+                                           keep: keep)
         // 4.0.1 (3.0.2's rule): the model of this id is installed and the one in use, so the store folders of every
         // other model id go. An install pinned to a model version stays as it is.
         if activate, case .installed(let model, _) = outcome, config.pinnedVersion == nil { await removeOtherModels(inUse: model) }

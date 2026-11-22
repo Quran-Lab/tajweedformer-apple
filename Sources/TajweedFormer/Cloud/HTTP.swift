@@ -34,26 +34,23 @@ struct CloudOptions: Sendable {
     var signingKeys: [Data]
     /// Send error reports (independent of `analytics`). The remote config can also turn them off.
     var issueReports: Bool
-    /// Download model updates only on Wi-Fi or wired networks (not cellular, not Low Data Mode).
-    var updatesOnWiFiOnly: Bool
     /// The Apple team id, for App Attest. Nil means read it from the app's keychain access group.
     var appleTeamID: String?
     /// Nil means `AppIdentity.main`.
     var app: AppIdentity?
     /// Nil means a session made for the SDK. Tests pass one with a stub URLProtocol.
     var urlSession: URLSession?
-    /// Bytes per range request.
-    var rangeSize: Int64
     /// The pauses, in seconds, before a model file's download is taken up again after a failure of the network:
     /// one per retry, so their count is the most retries a file gets in one call. Tests pass short ones.
     /// (To 3.1.1 there was an option `parallelDownloads` here that nothing read. It is gone: from 4.0.1 the
     /// foreground fetches up to `ModelInstaller.parallelFiles` files at a time, one request at a time per file;
-    /// `parallelBackgroundRanges` is what the background session runs at a time.)
+    /// `parallelBackgroundRanges` is what the background session runs at a time. To 4.0.1 there was `rangeSize`,
+    /// the bytes of each range request (8 MiB): from 4.0.2 a file is one request, SPEC 16.7.)
     var retryPauses: [TimeInterval]
     /// Whether, and when, a model download uses the background session (`BackgroundDownloads.swift`). Ignored
     /// when `urlSession` is set, unless `backgroundTransport` is.
     var backgroundDownloads: BackgroundDownloadPolicy
-    /// The range tasks the background session runs at a time.
+    /// The tasks the background session runs at a time (one per file from 4.0.2).
     var parallelBackgroundRanges: Int
     /// Nil: the background session. Tests pass a stand-in.
     var backgroundTransport: (any BackgroundRangeTransport)?
@@ -71,11 +68,9 @@ struct CloudOptions: Sendable {
                 cdnURL: URL? = nil,
                 signingKeys: [Data] = [ManifestVerifier.quranLabPublicKey],
                 issueReports: Bool = true,
-                updatesOnWiFiOnly: Bool = true,
                 appleTeamID: String? = nil,
                 app: AppIdentity? = nil,
                 urlSession: URLSession? = nil,
-                rangeSize: Int64 = 8 << 20,
                 retryPauses: [TimeInterval] = ModelInstaller.standardRetryPauses,
                 backgroundDownloads: BackgroundDownloadPolicy = CloudOptions.backgroundDownloadsByDefault,
                 parallelBackgroundRanges: Int = 4,
@@ -86,11 +81,9 @@ struct CloudOptions: Sendable {
         self.cdnURL = cdnURL
         self.signingKeys = signingKeys
         self.issueReports = issueReports
-        self.updatesOnWiFiOnly = updatesOnWiFiOnly
         self.appleTeamID = appleTeamID
         self.app = app
         self.urlSession = urlSession
-        self.rangeSize = rangeSize
         self.retryPauses = retryPauses
         self.backgroundDownloads = backgroundDownloads
         self.parallelBackgroundRanges = parallelBackgroundRanges
@@ -210,6 +203,19 @@ struct HTTPClient: Sendable {
     /// The roles' hosts and their sticky hosts (SDK 4.0.1, section 28): a request made on a role's host goes through
     /// the role's order (`routed`). Nil: every request goes to the host it names, as before.
     var endpoints: EndpointSet? = nil
+    /// SDK 4.0.2 (STEERING_40 34.6): told what each model file request did on its host (`stream`), for the per-host
+    /// download counts of the telemetry day. Shared by every copy of this client.
+    let modelHosts = Locked<(@Sendable (ModelHostSample) -> Void)?>(nil)
+
+    /// What `stream` measured of one model request (34.6).
+    final class StreamProbe: @unchecked Sendable {
+        var sent: Date?
+        var answered: Date?
+        var ended: Date?
+        var written: Int64 = 0
+        /// The body ended because the request was cancelled.
+        var cancelled = false
+    }
 
     struct Response: Sendable {
         let status: Int
@@ -352,6 +358,11 @@ struct HTTPClient: Sendable {
         let networkProtocol: String?
     }
 
+    /// The failure of a model request whose path a 503 with `Retry-After` holds on its host (28.11 item 2): no request
+    /// went out. A failed attempt like any unreachable one (its count and pause, the next host), but no failover of
+    /// this process (`FileHosts`: no silent report).
+    static let heldNotAsked = "HTTP 503 (held by its Retry-After; not asked)"
+
     /// The bytes a streamed request gathers before it writes them to the file.
     static let pieceBytes = 64 << 10
 
@@ -387,10 +398,13 @@ struct HTTPClient: Sendable {
     /// What is the file (SPEC 16.1), and nothing else is:
     /// - a 206 whose Content-Range starts at `offset` and names `size` as its total: its bytes are appended to the
     ///   partial file, at most as many as the range it names;
-    /// - a 200, the whole file sent in place of the range, only at the manifest's size: a Content-Length, where
-    ///   one is given without a content coding, must equal `size`; the body is written to a file BESIDE the
-    ///   partial file, at most `size` bytes of it, and takes the partial file's place only when all of it has
-    ///   arrived.
+    /// - a 200 to the request of a whole file (`offset` 0, SDK 4.0.2: one GET per file, SPEC 16.7), only at the
+    ///   manifest's size: its bytes are written to the empty partial file as they arrive, as a range's are, so a
+    ///   transfer that is cut keeps what it brought and is resumed from there;
+    /// - a 200 in place of a resume (`offset` > 0: the file changed, or the server ignored the Range), only at the
+    ///   manifest's size: a Content-Length, where one is given without a content coding, must equal `size`; the body
+    ///   is written to a file BESIDE the partial file, at most `size` bytes of it, and takes the partial file's place
+    ///   only when all of it has arrived.
     /// Anything else that says success is a failed attempt, `badAnswer`: a 204, another length, another start or
     /// total, no Content-Range, a body that runs past its size, an answer that brings no byte. A failed attempt
     /// costs no stored byte: the partial file is as it was, and the caller tries again by its rule.
@@ -411,9 +425,59 @@ struct HTTPClient: Sendable {
     func stream(_ request: URLRequest, offset: Int64, size: Int64, into file: URL, hash: PartHasher? = nil,
                 started: @Sendable (_ headers: [String: String], _ whole: Bool) -> Void,
                 received: @Sendable (Int64) -> Void) async throws(CloudError) -> Streamed {
+        // SDK 4.0.2 (STEERING_40 34.6): every request that went out is told to `modelHosts`, however it ended
+        let probe = StreamProbe()
+        do throws(CloudError) {
+            let answer = try await measuredStream(request, offset: offset, size: size, into: file, hash: hash, probe: probe,
+                                                  started: started, received: received)
+            tell(probe, request, lastByte: answer.whole || offset + answer.written == size, failure: nil)
+            return answer
+        } catch {
+            tell(probe, request, lastByte: false, failure: error)
+            throw error
+        }
+    }
+
+    /// A model request's sample for the per-host counts (34.6), when it went out.
+    private func tell(_ probe: StreamProbe, _ request: URLRequest, lastByte: Bool, failure: CloudError?) {
+        guard let sent = probe.sent, let host = request.url?.host, let to = modelHosts.withLock({ $0 }) else { return }
+        let ttfb = probe.answered.map { Int(($0.timeIntervalSince(sent) * 1000).rounded()) }
+        let body = probe.answered.map { (probe.ended ?? Date()).timeIntervalSince($0) } ?? 0
+        // contract ec46782: a cancel (the call's, the app's leaving) is never unreachable
+        let cancelled = probe.cancelled || Task.isCancelled
+        to(ModelHostSample(host: host, ttfbMs: ttfb, bytes: probe.written, bodySeconds: max(0, body),
+                           unreachable: !cancelled && (failure.map(Self.unreachable) ?? false), lastByte: lastByte && failure == nil))
+    }
+
+    /// Whether a model request that failed with `e` ended unreachable (28.3 item 3; 34.6 as contract ec46782 reads it):
+    /// no answer, a cut or stalled body, a 5xx, a redirect, an answer that said success and was not the file, a 4xx that
+    /// is not the API's. A refusal and a 429 are answers, and a write that failed on the device is the device's.
+    static func unreachable(_ e: CloudError) -> Bool {
+        switch e {
+        case .offline, .badAnswer, .invalid: return true
+        case .rejected(let status, let code, _, _): return status >= 500 || code == redirectCode || code.hasPrefix("http_")
+        case .noKey, .storage: return false
+        }
+    }
+
+    private func measuredStream(_ request: URLRequest, offset: Int64, size: Int64, into file: URL, hash: PartHasher?, probe: StreamProbe,
+                                started: @Sendable (_ headers: [String: String], _ whole: Bool) -> Void,
+                                received: @Sendable (Int64) -> Void) async throws(CloudError) -> Streamed {
         let fm = FileManager.default
         let watch = NoRedirect()
+        // 28.11 item 2 (SDK 4.0.2): a model file's request waits for a Retry-After of the model hosts as every route's does
+        //
+        let origin = request.url.flatMap { Endpoints.origin(of: $0) }
+        let route = request.url.map { RetryAfterHolds.route(of: $0, role: .models) } ?? "models:"
+        if let endpoints, let origin, let h = endpoints.holds.hold(route, host: origin, now: endpoints.clock()) {
+            let left = Int(h.until.timeIntervalSince(endpoints.clock()).rounded(.up))
+            if h.wholeRoute {
+                throw .rejected(status: 429, code: endpoints.holds.lastCode(route), message: "\(RetryAfterHolds.heldMessage) (\(left) s)")
+            }
+            throw .offline(Self.heldNotAsked)
+        }
         // SDK 4.0.1: with the roles' hosts, a model host has 10 s without a byte before the answer's status (28.3)
+        probe.sent = Date()
         let opened = try await head(request, watch: watch, limit: endpoints == nil ? nil : Self.silenceLimit.withLock { $0 })
         let incoming = opened.bytes, response = opened.response
         guard let http = response as? HTTPURLResponse else { throw .invalid("not an HTTP response") }
@@ -422,6 +486,10 @@ struct HTTPClient: Sendable {
             if let k = k as? String, let v = v as? String { headers[k] = v }
         }
         let status = http.statusCode
+        probe.answered = Date()
+        if let endpoints, let origin {
+            endpoints.holds.note(route, host: origin, status: status, retryAfter: Self.header(headers, "Retry-After"), now: endpoints.clock())
+        }
         if watch.refused.withLock({ $0 }) || Self.redirects.contains(status) {
             throw .rejected(status: status, code: Self.redirectCode,
                             message: "the server answered with a redirect (HTTP \(status)), which the SDK never follows")
@@ -435,6 +503,11 @@ struct HTTPClient: Sendable {
                     if body.count >= 65_536 { break }
                 }
             } catch {}
+            // a 429's `error` (`model_limit`): what a request held by its Retry-After answers meanwhile (28.11)
+            if status == 429, let endpoints, let origin {
+                endpoints.holds.note(route, host: origin, status: status, retryAfter: Self.header(headers, "Retry-After"),
+                                     body: Data(body), now: endpoints.clock())
+            }
             throw Self.failure(status: status, body: Data(body))
         }
         // what the answer must be to be the file, and the most bytes it may bring
@@ -459,22 +532,26 @@ struct HTTPClient: Sendable {
         default:
             throw .badAnswer("HTTP \(status) is not a file")
         }
-        let target = whole ? Self.wholeFile(beside: file) : file
+        // a whole file asked from its first byte goes straight to the (empty) partial file; one sent in place of a
+        // resume goes beside it until all of it is in
+        let beside = whole && offset > 0
+        let target = beside ? Self.wholeFile(beside: file) : file
         let handle: FileHandle
         do {
-            if whole { try? fm.removeItem(at: target) }
+            if beside { try? fm.removeItem(at: target) }
             if !fm.fileExists(atPath: target.path) { fm.createFile(atPath: target.path, contents: nil) }
             handle = try FileHandle(forWritingTo: target)
-            let begin = whole ? Int64(0) : offset
+            let begin = beside ? Int64(0) : offset
             try handle.truncate(atOffset: UInt64(begin))
             try handle.seek(toOffset: UInt64(begin))
         } catch {
             throw .storage("cannot open \(target.lastPathComponent): \(error.localizedDescription)")
         }
-        if !whole { started(headers, false) }
-        // the hash of what this answer writes: the partial file's own (a range), or one of its own (a whole file)
-        let writing = whole ? (hash == nil ? nil : PartHasher()) : hash
-        let first = whole ? Int64(0) : offset
+        if !beside { started(headers, false) }
+        // the hash of what this answer writes: the partial file's own (a range, a whole file from its first byte), or
+        // one of its own (a whole file beside the partial file)
+        let writing = beside ? (hash == nil ? nil : PartHasher()) : hash
+        let first = beside ? Int64(0) : offset
         var written: Int64 = 0
         var buffer = [UInt8]()
         buffer.reserveCapacity(Self.pieceBytes)
@@ -493,11 +570,12 @@ struct HTTPClient: Sendable {
                     storage = Self.write(&buffer, to: handle, hash: writing, at: first + written)
                     if storage != nil { break }
                     written += Int64(Self.pieceBytes)
-                    if !whole { received(Int64(Self.pieceBytes)) }
+                    if !beside { received(Int64(Self.pieceBytes)) }
                 }
             }
         } catch {
             broken = error.localizedDescription
+            probe.cancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
         }
         // what arrived before the connection ended is written before the failure is reported
         if storage == nil, !buffer.isEmpty {
@@ -505,13 +583,15 @@ struct HTTPClient: Sendable {
             storage = Self.write(&buffer, to: handle, hash: writing, at: first + written)
             if storage == nil {
                 written += last
-                if !whole { received(last) }
+                if !beside { received(last) }
             }
         }
         try? handle.synchronize()
         try? handle.close()
+        probe.written = written
+        probe.ended = Date()
         let named = Self.networkProtocolOverride.withLock { $0 }?(request) ?? watch.networkProtocol.withLock { $0 }
-        if whole {
+        if beside {
             // the whole file takes the partial file's place only when all of it has arrived
             if storage == nil, !over, broken == nil, written == size {
                 do {
@@ -533,10 +613,19 @@ struct HTTPClient: Sendable {
             throw .badAnswer("a 200 of \(written) bytes for a file of \(size)")
         }
         if let storage { throw .storage("cannot write \(file.lastPathComponent): \(storage)") }
-        // what a range wrote within the bytes it named stays, however it ended
+        // a whole file from its first byte that ended cleanly short of its size, or ran past it, was not the file: what
+        // it wrote goes (a connection that broke keeps what it delivered, and the file is resumed from there)
+        if whole, broken == nil, over || written != size {
+            try? FileManager.default.removeItem(at: file)
+            fm.createFile(atPath: file.path, contents: nil)
+            hash?.restart()
+            if written > 0 { received(-written) }
+            throw .badAnswer(over ? "a 200 that runs past the file's \(size) bytes" : "a 200 of \(written) bytes for a file of \(size)")
+        }
+        // what a range (or a whole file from its first byte) wrote within the bytes it named stays, however it ended
         if over { throw .badAnswer("a 206 that runs past the range it names") }
         if let broken { throw .offline(broken) }
-        if written == 0 { throw .badAnswer("a 206 without a byte") }
+        if written == 0 { throw .badAnswer("a \(status) without a byte") }
         return Streamed(status: status, headers: headers, whole: false, written: written, networkProtocol: named)
     }
 

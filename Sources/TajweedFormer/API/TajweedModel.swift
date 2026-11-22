@@ -11,6 +11,8 @@ public final class TajweedModel: Sendable {
         var folder: ModelFolder
         var recognizer: TajweedRecognizer?
         var recognizerKey = ""
+        /// The context of `recognizer`, the engine the Model runs.
+        var recognizerContext: String?
         var reference: ModelReference?
         var open: UUID?
         var closed = false
@@ -76,7 +78,13 @@ public final class TajweedModel: Sendable {
             if let r = s.reference { return r }
             // the table is encrypted, and only the Core reads it
             guard let file = s.folder.referenceFile else { return nil }
-            let r = ModelReference(folder: s.folder, file: file, download: source)
+            // SDK 4.0.2: the model opens again for the table with its engine's context, else the default one
+            let folder = s.folder
+            let context: @Sendable () -> String = { [weak self] in
+                let engine: String? = self?.state.withLock { $0.recognizer == nil ? nil : $0.recognizerContext } ?? nil
+                return engine ?? Self.defaultContext(folder)
+            }
+            let r = ModelReference(folder: s.folder, file: file, download: source, context: context)
             s.reference = r
             return r
         }
@@ -167,8 +175,8 @@ public final class TajweedModel: Sendable {
     /// older system, a CPU-only context, `backend: .cpu`) it returns at once with the CPU engine. A second call with
     /// the same options finds the engine warm and does nothing more. A Session with other options is not covered
     /// by it: it gets its own engine as before.
-    /// On a device that has not promoted the build yet, the wait includes the promotion (the build's download on an
-    /// unmetered network, its compilation and its test, up to ten minutes); takes can run meanwhile on the CPU
+    /// On a device that has not promoted the build yet, the wait includes the promotion (the build's download, on
+    /// whatever network the device has, its compilation and its test, up to ten minutes); takes can run meanwhile on the CPU
     /// engine. While a Session is open the call throws `session_open`: it is for the time before a take.
     @discardableResult
     public func prepare(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedBackend {
@@ -187,8 +195,9 @@ public final class TajweedModel: Sendable {
         case .busy: throw TajweedError(.sessionOpen)
         case .free: break
         }
+        let fetched = try await files(for: context)
         do throws(RecognizerError) {
-            let (r, _) = try await engine(context: context, backend: options.backend, selection: selection)
+            let r = try engine(fetched, context: context, backend: options.backend, selection: selection)
             // warm already (an earlier prepare, or takes with these options): nothing more to do
             let now = await r.backendNext
             if now.kind == .accelerator { return now }
@@ -285,23 +294,37 @@ public final class TajweedModel: Sendable {
         return selection
     }
 
-    /// The engine for a context, backend choice and heads, with the folder it runs from: the context's files are
-    /// fetched first when they are not on the device yet (another context's files come on first use, into the same
-    /// folder).
-    private func engine(context: String, backend: TajweedSessionOptions.Backend,
-                        selection: Set<HeadID>) async throws(RecognizerError) -> (TajweedRecognizer, ModelFolder) {
-        var f = folder
-        if !f.isUsable(context: context) {
-            guard client != nil else { throw RecognizerError.modelMissing("the files of \(context) are not in the folder") }
-            f = try await ModelFolder.load(f.id, sources: [.cache, .cdn], context: context)
-            let fetched = f
-            state.withLock { (s: inout State) in
-                s.folder = fetched
-                s.recognizer = nil
-                s.reference = nil
-            }
+    /// The folder with the files of `context`: the Model's own when they are there, else fetched now into the same
+    /// folder (another context's files come on first use). A fetch that fails is the app's error as a model call's
+    ///. Tried before (to 4.0.1): a fetch
+    /// that was put off (waiting for Wi-Fi, or no answer) was `model_missing`.
+    private func files(for context: String) async throws(TajweedError) -> ModelFolder {
+        let f = folder
+        if f.isUsable(context: context) { return f }
+        let missing = RecognizerError.modelMissing("the files of \(context) are not in the folder")
+        guard client != nil else { throw TajweedError(from: missing, stage: "model_open") }
+        let fetched: ModelFolder
+        if let m = try? await ModelStore.standard.resolve(f.id, sources: [.cache], context: context) {
+            // this Client's own copy has them (another Model of it fetched them)
+            fetched = m
+        } else {
+            guard let cloud = QuranLab.cloud else { throw TajweedError(from: missing, stage: "model_open") }
+            let outcome = await cloud.install(f.id, context: context, activate: true)
+            fetched = try await TajweedClient.installed(outcome, cloud: cloud, id: f.id, context: context,
+                                                       local: .modelMissing("the files of \(context) are not on this device yet"))
         }
-        return (try recognizer(f, context: context, backend: backend, selection: selection), f)
+        state.withLock { (s: inout State) in
+            s.folder = fetched
+            s.recognizer = nil
+            s.reference = nil
+        }
+        return fetched
+    }
+
+    /// The engine for a context, backend choice and heads on `folder` (which has the context's files: `files(for:)`).
+    private func engine(_ folder: ModelFolder, context: String, backend: TajweedSessionOptions.Backend,
+                        selection: Set<HeadID>) throws(RecognizerError) -> TajweedRecognizer {
+        try recognizer(folder, context: context, backend: backend, selection: selection)
     }
 
     /// Warms the engine for the default Session (the first take then starts at once).
@@ -319,7 +342,7 @@ public final class TajweedModel: Sendable {
     }
 
     /// Prepares the Neural Engine's build for `context` (nil: the default context) now and waits for it (4.0.0, as Apple 3.1.5): the
-    /// download on an unmetered network, the compile, the test against the CPU engine, then the build loaded and warm,
+    /// download (on whatever network the device has), the compile, the test against the CPU engine, then the build loaded and warm,
     /// so the next Session with `backend: .auto` runs on it from its first chunk. A build promoted at an earlier launch
     /// is loaded and warmed again (no test). `again: true` first forgets this device's verdict on the build (a failure,
     /// a demotion, a promotion) and prepares it from the start: the way to ask for it again after a failure.
@@ -328,7 +351,7 @@ public final class TajweedModel: Sendable {
     /// first take or 20 s without one); a process that ends during it simply goes on with it at a later launch. Call
     /// this when the app needs the Neural Engine at a known point, or when its takes name `backend: .cpu` (an engine
     /// for `.cpu` alone never prepares the Neural Engine). Returns `backend` as it stands when the build is ready, the
-    /// preparation stopped (`demoted` with a reason, or `cpu` while it waits for an unmetered network, power or a
+    /// preparation stopped (`demoted` with a reason, or `cpu` while it waits for power, a cooler device or a
     /// backoff), or `timeout` seconds passed; after a timeout the preparation goes on in the background. Throws
     /// `session_open` while a Session is open. Never needed for correctness: the CPU engine serves every take.
     public func prepareAccelerator(context: String? = nil, again: Bool = false, timeout: Double = 300) async throws(TajweedError) -> TajweedBackend {
@@ -339,17 +362,8 @@ public final class TajweedModel: Sendable {
             throw .argument("context \(ctx) is not one of \(f.manifest.contexts.joined(separator: ", "))")
         }
         let selection = Set(TajweedSessionOptions.defaultHeads.compactMap { HeadID(rawValue: $0) })
+        f = try await files(for: ctx)
         do throws(RecognizerError) {
-            if !f.isUsable(context: ctx) {
-                guard client != nil else { throw RecognizerError.modelMissing("the files of \(ctx) are not in the folder") }
-                f = try await ModelFolder.load(f.id, sources: [.cache, .cdn], context: ctx)
-                let fetched = f
-                state.withLock { (s: inout State) in
-                    s.folder = fetched
-                    s.recognizer = nil
-                    s.reference = nil
-                }
-            }
             let r = try recognizer(f, context: ctx, backend: .auto, selection: selection)
             try await r.prepare()
             return await r.prepareAcceleratorNow(again: again, timeout: timeout)
@@ -375,6 +389,7 @@ public final class TajweedModel: Sendable {
         state.withLock { (s: inout State) in
             s.recognizer = r
             s.recognizerKey = key
+            s.recognizerContext = context
         }
         return r
     }
@@ -413,8 +428,9 @@ public final class TajweedModel: Sendable {
         guard known.manifest.contexts.contains(context) else {
             throw .argument("context \(context) is not one of \(known.manifest.contexts.joined(separator: ", "))")
         }
+        let f = try await files(for: context)
         do throws(RecognizerError) {
-            let (r, f) = try await engine(context: context, backend: options.backend, selection: selection)
+            let r = try engine(f, context: context, backend: options.backend, selection: selection)
             try await r.startTake()
             let backend = await r.backendNow
             let bounds = state.withLock { $0.bounds }

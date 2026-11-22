@@ -474,8 +474,10 @@ final class ProtectedCoreTests: XCTestCase {
         let asked = s.transport.bodies("v1/model-key").count
         _ = try await s.runtime.ensureLease(s.manifest)
         XCTAssertEqual(s.transport.bodies("v1/model-key").count, asked, "an unreachable outcome less than a minute old serves the open")
-        // a refusal ends it
+        // a refusal ends it (an open in the grace waits for the row of failures, 18.4.7.3: a wait drawn from 600 to
+        // 1800 s)
         s.runtime.graceReuse = 0
+        clocks.advance(seconds: s.runtime.retryState.notBefore - clocks.wallMs() / 1000 + 1)
         route.withLock { $0 = .refusal }
         do {
             _ = try await s.runtime.ensureLease(s.manifest)
@@ -520,19 +522,122 @@ final class ProtectedCoreTests: XCTestCase {
         try await Task.sleep(nanoseconds: 3_500_000_000)
     }
 
-    /// After 503 lease_unavailable the background refresh waits its Retry-After (30 s), not the backoff's first step.
-    func testTheRefreshWaitsTheRetryAfter() async throws {
+    /// 18.4.7.3 item 6 (SDK 4.0.2, dd76474): a run of 503 lease_unavailable with Retry-After 30 gives waits between 600
+    /// and 1800 s, never 30 (4.0.1 waited the 30), and not one value each time; a valid lease opens with no request while
+    /// a retry waits.
+    func testTheRefreshBacksOffWhatever503sRetryAfterSays() async throws {
         let route = Locked(Route.lease)
         let (s, clocks, _) = try prepareGrace(route)
+        let first = try await s.runtime.ensureLease(s.manifest)
+        route.withLock { $0 = .unavailable }
+        var waits: [Int64] = []
+        for _ in 0..<3 {
+            do {
+                _ = try await s.runtime.renew(s.manifest)
+                XCTFail("no lease on a 503")
+            } catch {}
+            let wait = s.runtime.retryState.notBefore - clocks.wallMs() / 1000
+            waits.append(wait)
+            clocks.advance(seconds: wait)
+        }
+        XCTAssertTrue(waits.allSatisfy { (600...1800).contains($0) }, "\(waits)")
+        XCTAssertFalse(waits.contains(30))
+        XCTAssertGreaterThan(Set(waits).count, 1, "drawn afresh at each failure: \(waits)")
+        XCTAssertEqual(s.runtime.lastFailure.withLock { $0 }?.cause,
+                       ErrorCause(stage: "lease", reason: "lease_unavailable", httpStatus: 503, errorCode: "lease_unavailable"))
+        // one more failure: the row's wait is running now
+        do {
+            _ = try await s.runtime.renew(s.manifest)
+            XCTFail("no lease on a 503")
+        } catch {}
+        XCTAssertFalse(s.runtime.retryState.due(now: clocks.wallMs() / 1000))
+        // a valid lease opens with no request during the row (its refresh, when due, waits for the row)
+        let asked = s.transport.bodies("v1/model-key").count
+        XCTAssertTrue(s.runtime.hasValidLease(build: s.manifest.build))
         _ = try await s.runtime.ensureLease(s.manifest)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(s.transport.bodies("v1/model-key").count, asked, "no request while the row waits")
+        XCTAssertGreaterThan(first.expiresAt, clocks.wallMs() / 1000)
+    }
+
+    /// 18.4.7.3 items 5 and 6, 28.11 item 3 (SDK 4.0.2, dd76474): the row and its next attempt outlive a restart: a new
+    /// process on the same storage sends nothing on the lease route before the kept time (its refresh is due and
+    /// waits), then its refresh asks, and the lease it gets ends the row on disk too.
+    func testARestartWhileARetryWaitsSendsNothingBeforeTheKeptTime() async throws {
+        let route = Locked(Route.lease)
+        let (s, clocks, _) = try prepareGrace(route)
+        let first = try await s.runtime.ensureLease(s.manifest)
+        // past refresh_after, the lease still valid
+        clocks.advance(seconds: first.refreshAfter - s.runtime.status().now + 60)
+        XCTAssertTrue(s.runtime.hasValidLease(build: s.manifest.build))
         route.withLock { $0 = .unavailable }
         do {
             _ = try await s.runtime.renew(s.manifest)
             XCTFail("no lease on a 503")
         } catch {}
-        XCTAssertEqual(s.runtime.retryState.notBefore, clocks.wallMs() / 1000 + 30)
-        XCTAssertEqual(s.runtime.lastFailure.withLock { $0 }?.cause,
-                       ErrorCause(stage: "lease", reason: "lease_unavailable", httpStatus: 503, errorCode: "lease_unavailable"))
+        let kept = s.runtime.retryState
+        XCTAssertTrue((600...1800).contains(kept.notBefore - clocks.wallMs() / 1000), "\(kept)")
+        let file = s.storage.appendingPathComponent("cloud/lease-retry.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "the row is on disk")
+        route.withLock { $0 = .lease }
+        clocks.advance(seconds: 10)
+        let again = ProtectedRuntime(storage: s.storage, server: s.runtime.server, keys: FixedKeys(s.key), state: s.state, clocks: clocks)
+        XCTAssertEqual(again.retryState, kept, "the new process reads the row back")
+        let asked = s.transport.bodies("v1/model-key").count
+        _ = try await again.ensureLease(s.manifest)
+        again.tick()
+        clocks.advance(seconds: kept.notBefore - clocks.wallMs() / 1000 - 1)
+        _ = try await again.ensureLease(s.manifest)
+        again.tick()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(s.transport.bodies("v1/model-key").count, asked, "nothing before the kept time")
+        clocks.advance(seconds: 1)
+        _ = try await again.ensureLease(s.manifest)
+        for _ in 0..<50 where s.transport.bodies("v1/model-key").count == asked { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertEqual(s.transport.bodies("v1/model-key").count, asked + 1, "at the kept time the refresh asks")
+        for _ in 0..<50 where FileManager.default.fileExists(atPath: file.path) { try await Task.sleep(nanoseconds: 100_000_000) }
+        XCTAssertEqual(again.retryState, LeaseRetry(), "the lease ended the row")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// 18.4.7.3 item 4: with no lease, an app's call asks at once even while the row waits (no Retry-After hold: the
+    /// stand-in transport keeps none), and fails with the code it failed with before (here a 503 lease_unavailable:
+    /// download_failed).
+    func testACallWithNoLeaseAsksAtOnceDuringTheRow() async throws {
+        let now = Int64(try XCTUnwrap(try V40.json("lease.json")["now"] as? Int))
+        let clocks = MovingClocks(wallS: now)
+        let s = try prepare(answer: { (r: URLRequest, _: Int) -> HTTPClient.Response? in
+            guard r.url?.path.hasSuffix("v1/model-key") == true else { return nil }
+            return Self.response(503, ["error": "lease_unavailable"], headers: ["Retry-After": "30"])
+        }, clocks: clocks, certValidity: 30 * 86_400)
+        var codes: [String] = []
+        for _ in 0..<2 {
+            do {
+                _ = try await s.runtime.ensureLease(s.manifest)
+                XCTFail("no lease on a 503")
+            } catch {
+                codes.append(TajweedError(from: error).code)
+            }
+            XCTAssertFalse(s.runtime.retryState.due(now: clocks.wallMs() / 1000), "the row waits")
+        }
+        XCTAssertEqual(s.transport.bodies("v1/model-key").count, 2, "each call asked at once")
+        XCTAssertEqual(codes, ["download_failed", "download_failed"])
+    }
+
+    /// 18.4.7.3 item 2: a Retry-After longer than the drawn time is the wait (3000 s).
+    func testALongRetryAfterIsTheWait() async throws {
+        let now = Int64(try XCTUnwrap(try V40.json("lease.json")["now"] as? Int))
+        let clocks = MovingClocks(wallS: now)
+        let s = try prepare(answer: { (r: URLRequest, n: Int) -> HTTPClient.Response? in
+            guard r.url?.path.hasSuffix("v1/model-key") == true, n > 1 else { return nil }
+            return Self.response(503, ["error": "lease_unavailable"], headers: ["Retry-After": "3000"])
+        }, clocks: clocks, certValidity: 30 * 86_400)
+        _ = try await s.runtime.ensureLease(s.manifest)
+        do {
+            _ = try await s.runtime.renew(s.manifest)
+            XCTFail("no lease on a 503")
+        } catch {}
+        XCTAssertEqual(s.runtime.retryState.notBefore - clocks.wallMs() / 1000, 3000)
     }
 
     /// A lease is held to the exp and refresh_after the Core accepted (18.4.7.2: never cut to a class's length).

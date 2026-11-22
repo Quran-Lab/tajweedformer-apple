@@ -74,6 +74,26 @@ enum ErrorRules {
         return "download_failed"
     }
 
+    /// 24.2's patterns of the report's tokens, the one place they are written: the report's body (`ErrorReportBody`)
+    /// and the cause on the app's error (24.13, `TajweedError.Cause.made`) leave out a value that does not match.
+    static let reasonPattern = #"^[a-z][a-z0-9_]{0,31}$"#
+    static let errorNamePattern = #"^[A-Za-z][A-Za-z0-9_.:$-]{0,47}$"#
+    static let errorCodePattern = #"^[A-Za-z0-9_.:-]{1,32}$"#
+
+    /// `value` when the whole of it matches `pattern`, else nil (never cut into a token).
+    static func token(_ value: String, _ pattern: String) -> String? {
+        value.range(of: pattern, options: .regularExpression) != nil ? value : nil
+    }
+
+    /// 24.13 item 3: what a `needs_connection` waits for. `lease` when every file the call needs is on the device
+    /// (`onDevice` complete), `model` when some are not (none or partial: a first install, another context's files, a
+    /// build being fetched). When the caller did not say: `lease` for a cause on the lease route (a model on the device
+    /// that does not open without one), else `model`.
+    static func needs(stage: String, onDevice: OnDevice?) -> String {
+        guard let onDevice else { return stage == "lease" ? "lease" : "model" }
+        return onDevice == .complete ? "lease" : "model"
+    }
+
     /// The reasons of an attestation the platform cannot give (24.3 `attest`, `lease`).
     static let attestationReasons: Set<String> = ["unsupported", "attestation_failed", "integrity_failed", "turnstile"]
 

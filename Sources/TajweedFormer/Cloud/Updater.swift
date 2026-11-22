@@ -1,11 +1,12 @@
 import Foundation
-import Network
 
 /// Installs and updates the model from the CDN: the revision the remote config names (or the pinned one), the CPU set
 /// of this device's download profile only (`DownloadProfile`), resumable, every file verified. A first install
 /// activates at once; an update of a model in use becomes current at the next load. The Neural Engine's files are
 /// never part of an install: the promotion pipeline fetches them later (`installAccelerator`), after the first
-/// session, on an unmetered network.
+/// session. SDK 4.0.2 (section 33): nothing here waits for a kind of network; every request goes out on whatever
+/// network the device has (to 4.0.1 an update, another context's files and the accelerator's build waited for an
+/// unmetered one).
 actor ModelUpdater {
     enum Outcome: Sendable {
         /// The revision is current and the context's files are on disk.
@@ -14,7 +15,8 @@ actor ModelUpdater {
         case installed(ModelFolder, InstallReport)
         /// Downloaded and verified; it becomes current at the next load.
         case pending(revision: String)
-        /// Not attempted now (policy: no Wi-Fi; no revision known yet). Tried again at the next check.
+        /// Not attempted now (no developer key; no revision known yet), or put off for its failure (no answer at all,
+        /// no room). Tried again at the next check.
         case deferred(String)
         case failed(RecognizerError)
     }
@@ -23,7 +25,6 @@ actor ModelUpdater {
     private let client: @Sendable () -> CDNClient?
     /// The signed config's `inference.context`, when it names one.
     private let inferenceContext: @Sendable () -> String?
-    private let networkAllowed: @Sendable (_ firstInstall: Bool) async -> Bool
     /// Whether this install may fetch a CoreML build at all (the OS runs it and the app allows it).
     nonisolated let coreML: Bool
     private let record: @Sendable (AnalyticsEvent) -> Void
@@ -31,7 +32,6 @@ actor ModelUpdater {
     /// The refusal that stops the model now, when one is remembered (SPEC 15.3): nothing is put on the device
     /// while it holds.
     private let stopped: @Sendable () -> ModelGate.Refusal?
-    private let rangeSize: Int64
     /// SDK 4.0: the protected model of the Client (the lease, the Core's install of each encrypted file).
     private let protected: @Sendable () -> ProtectedRuntime?
     private let retryPauses: [TimeInterval]
@@ -44,9 +44,6 @@ actor ModelUpdater {
     /// `whenResigning`: the tasks cancelled, and the bytes they had fetched that were dropped, when the app was
     /// active again without having been in the background; since this updater was made.
     nonisolated let droppedForNothing = Locked<(tasks: Int, bytes: Int64)>((0, 0))
-    /// An update, and the accelerator's build, wait for an unmetered network (`CloudOptions.updatesOnWiFiOnly`):
-    /// their requests say so, and the system holds to it for the whole transfer. A first install goes on any.
-    private let unmeteredUpdates: Bool
     /// Who wants the bytes of an install as they are done (`client.prefetch`). Every install reports to the relay, so
     /// a listener that comes while one is running (the launch's own update check may have started it) gets its
     /// progress from where it stands.
@@ -63,13 +60,10 @@ actor ModelUpdater {
 
     init(store: ModelStore, client: @escaping @Sendable () -> CDNClient?, inferenceContext: @escaping @Sendable () -> String? = { nil },
          coreML: Bool = DownloadProfile.osRunsCoreML,
-         rangeSize: Int64 = 8 << 20,
-         networkAllowed: @escaping @Sendable (_ firstInstall: Bool) async -> Bool,
          record: @escaping @Sendable (AnalyticsEvent) -> Void = { _ in },
          report: @escaping @Sendable (RecognizerError, String) -> Void = { _, _ in },
          stopped: @escaping @Sendable () -> ModelGate.Refusal? = { nil },
          retryPauses: [TimeInterval] = ModelInstaller.standardRetryPauses,
-         unmeteredUpdates: Bool = false,
          background: (transport: any BackgroundRangeTransport, policy: BackgroundDownloadPolicy, handOver: DownloadHandOver)? = nil,
          keyInBackground: @escaping @Sendable () -> Bool = { true },
          protected: @escaping @Sendable () -> ProtectedRuntime? = { ProtectedRuntime.current.withLock { $0 } }) {
@@ -78,13 +72,10 @@ actor ModelUpdater {
         self.protected = protected
         self.background = background
         self.retryPauses = retryPauses
-        self.unmeteredUpdates = unmeteredUpdates
         self.store = store
         self.client = client
         self.inferenceContext = inferenceContext
         self.coreML = coreML
-        self.rangeSize = rangeSize
-        self.networkAllowed = networkAllowed
         self.record = record
         self.report = report
     }
@@ -99,9 +90,6 @@ actor ModelUpdater {
         var kept: Bool
         /// The last waiter left and the install was told to stop: a caller that comes now starts it again, after it.
         var stopping = false
-        /// Every caller so far asked for unmetered networks only (`prefetch(unmeteredOnly:)`): the install's
-        /// requests then carry the system's marks for that. A caller that needs the model on any network lifts it.
-        let unmetered: Locked<Bool>
     }
     private var runs: [String: Run] = [:]
 
@@ -135,14 +123,14 @@ actor ModelUpdater {
     /// Tried before (the first candidate, never released): a cancelled caller cancelled the install it had
     /// started or joined, also under the callers that were still waiting for it.
     func update(_ id: ModelID, to cdnRevision: String, version: String? = nil, keyID: String? = nil, context: String? = nil,
-                activate: Bool, keep: Bool = false, unmeteredOnly: Bool = false) async -> Outcome {
+                activate: Bool, keep: Bool = false) async -> Outcome {
         let key = id.name + "@" + cdnRevision + "#" + (context ?? "")
         let me = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (waiter: CheckedContinuation<Outcome, Never>) in
-                self.join(key, me, waiter, keep: keep, unmeteredOnly: unmeteredOnly) { unmetered in
+                self.join(key, me, waiter, keep: keep) {
                     // one operation for the causes it makes (4.0.1, RequestTrace)
-                    await RequestTrace.scope { await self.run(id, cdnRevision, version, keyID, context, activate, unmetered) }
+                    await RequestTrace.scope { await self.run(id, cdnRevision, version, keyID, context, activate) }
                 }
             }
         } onCancel: {
@@ -151,8 +139,8 @@ actor ModelUpdater {
     }
 
     /// A caller comes to wait for the install `key`, which is started when it does not run.
-    private func join(_ key: String, _ me: UUID, _ waiter: CheckedContinuation<Outcome, Never>, keep: Bool, unmeteredOnly: Bool,
-                      _ work: @escaping @Sendable (Locked<Bool>) async -> Outcome) {
+    private func join(_ key: String, _ me: UUID, _ waiter: CheckedContinuation<Outcome, Never>, keep: Bool,
+                      _ work: @escaping @Sendable () async -> Outcome) {
         // a caller that was cancelled before it came starts nothing and waits for nothing
         if Task.isCancelled {
             waiter.resume(returning: .failed(.cancelled))
@@ -161,21 +149,19 @@ actor ModelUpdater {
         if var run = runs[key], !run.stopping {
             run.waiters[me] = waiter
             run.kept = run.kept || keep
-            if !unmeteredOnly { run.unmetered.withLock { $0 = false } }
             runs[key] = run
             return
         }
         // an install that was told to stop ends first: two never write the same download folder
         let earlier = runs[key]?.task
         let id = UUID()
-        let unmetered = Locked(unmeteredOnly)
         let task = Task { () -> Outcome in
             if let earlier { _ = await earlier.value }
-            let out = await work(unmetered)
+            let out = await work()
             await self.finished(key, id, out)
             return out
         }
-        runs[key] = Run(id: id, task: task, waiters: [me: waiter], kept: keep, unmetered: unmetered)
+        runs[key] = Run(id: id, task: task, waiters: [me: waiter], kept: keep)
     }
 
     /// The install `key` has ended: everyone who waits for it gets its outcome.
@@ -240,9 +226,9 @@ actor ModelUpdater {
         let stop = stopped
         let droppedCounter = droppedForNothing
         return BackgroundPlan(transport: background.transport, policy: background.policy, handOver: background.handOver, folder: relative,
-                              request: { (path: String, lower: Int64, upper: Int64, validator: String?) async -> URLRequest? in
+                              request: { (path: String, lower: Int64, upper: Int64, size: Int64, validator: String?) async -> URLRequest? in
                                   // 4.0.1 (28.4): on the host the file's next attempt asks, the validator only to its host
-                                  await source.backgroundRequest(path, lower: lower, upper: upper, validator: validator,
+                                  await source.backgroundRequest(path, lower: lower, upper: upper, size: size, validator: validator,
                                                                  sendsKey: sendsKey())
                               },
                               abandoned: { n in counter.withLock { $0 += n } },
@@ -258,7 +244,7 @@ actor ModelUpdater {
     }
 
     private func run(_ id: ModelID, _ cdnRevision: String, _ version: String?, _ keyID: String?, _ context: String?,
-                     _ activate: Bool, _ unmetered: Locked<Bool>) async -> Outcome {
+                     _ activate: Bool) async -> Outcome {
         lastFailure.withLock { $0 = nil }
         // The device's key store first (SPEC 15.2): when it fails, nothing is opened, nothing is deleted and nothing
         // is downloaded; the next call tries again.
@@ -297,13 +283,10 @@ actor ModelUpdater {
         if !activate, let p = store.pendingRevision(id), store.sourceRevision(id, revision: p) == cdnRevision {
             return .pending(revision: p)
         }
-        guard await networkAllowed(current == nil) else { return .deferred("waiting for an unmetered network") }
-        guard var client = client() else { return .deferred("no developer key configured") }
-        // an update waits for an unmetered network, for as long as it runs; a first install goes on any network
-        client.unmeteredOnly = unmeteredUpdates && current != nil
-        // a `prefetch(unmeteredOnly:)` asked for this install: its requests wait for an unmetered network as well,
-        // until a caller that needs the model on any network has joined
-        client.alsoUnmetered = { unmetered.withLock { $0 } }
+        // SDK 4.0.2 (section 33): a first install, an update and another context's files alike go on whatever network
+        // the device has. To 4.0.1 everything but a first install waited for an unmetered network here, so another
+        // context's files (`isCurrent` below) on mobile data were `deferred`, and a Session on it got `model_missing`
+        guard let client = client() else { return .deferred("no developer key configured") }
         // the learner may leave the app while this runs: the system is asked for the time it gives a task that is
         // under way, and gets it back however this ends
         let endGrace = await InstallGrace.begin()
@@ -328,7 +311,7 @@ actor ModelUpdater {
             stage = "lease"
             let source = try await Self.leasedSource(client, runtime, manifest, id: id, revision: cdnRevision)
             stage = "download"
-            var installer = ModelInstaller(source: source, rangeSize: rangeSize, retryPauses: retryPauses)
+            var installer = ModelInstaller(source: source, retryPauses: retryPauses)
             installer.meter = ProgressMeter { (done: Int64, total: Int64) in relay.report(done, total) }
             let model: ModelFolder
             if isCurrent, let dir = currentDir {
@@ -393,9 +376,8 @@ actor ModelUpdater {
     /// the compact build, for a Session that names `coreml-compact`; else the fp16 build.
     func installAccelerator(_ model: ModelFolder, context: String, compact: Bool = false) async throws(RecognizerError) -> InstallReport {
         guard coreML else { throw .neuralEngineUnavailable("CoreML downloads are off for this install") }
-        guard var client = client() else { throw .offline("no developer key configured") }
-        // the accelerator's build is never needed at once: it waits for an unmetered network, like an update
-        client.unmeteredOnly = unmeteredUpdates
+        // SDK 4.0.2 (section 33): on whatever network the device has (to 4.0.1 it waited for an unmetered one)
+        guard let client = client() else { throw .offline("no developer key configured") }
         let endGrace = await InstallGrace.begin()
         defer { endGrace() }
         let profile = DownloadProfile(context: context, coreML: true, compact: compact)
@@ -403,7 +385,7 @@ actor ModelUpdater {
         guard let runtime = protected() else { throw .modelIncompatible("no Core runtime for this Client") }
         do throws(RecognizerError) {
             let source = try await Self.leasedSource(client, runtime, model.manifest, id: model.id, revision: model.identity)
-            var installer = ModelInstaller(source: source, rangeSize: rangeSize, retryPauses: retryPauses)
+            var installer = ModelInstaller(source: source, retryPauses: retryPauses)
             // the accelerator build is encrypted like every file: each one installed by the Core to its device form
             let manifest = model.manifest, dir = model.directory
             installer.install = EncryptedInstall { (f: ModelManifest.File) throws(RecognizerError) in
@@ -428,7 +410,7 @@ actor ModelUpdater {
         guard let client = client() else { throw .offline("no developer key configured") }
         guard let runtime = protected() else { throw .modelIncompatible("no Core runtime for this Client") }
         let source = try await Self.leasedSource(client, runtime, model.manifest, id: model.id, revision: model.identity)
-        var installer = ModelInstaller(source: source, rangeSize: rangeSize, retryPauses: retryPauses)
+        var installer = ModelInstaller(source: source, retryPauses: retryPauses)
         let manifest = model.manifest, dir = model.directory
         installer.install = EncryptedInstall { (f: ModelManifest.File) throws(RecognizerError) in
             try runtime.install(manifest, decodedPath: f.localPath, in: dir)
@@ -448,24 +430,5 @@ actor ModelUpdater {
             throw .serverRejected(status: 200, code: "invalid_response", message: "the lease answer names no model folder")
         }
         return client.source(id, revision: revision, base: base)
-    }
-
-    /// Whether the network is fine for a model download: not cellular, not Low Data Mode.
-    static func onUnmeteredNetwork() async -> Bool {
-        await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
-            let monitor = NWPathMonitor()
-            let once = Locked(false)
-            monitor.pathUpdateHandler = { path in
-                let first = once.withLock { done -> Bool in
-                    if done { return false }
-                    done = true
-                    return true
-                }
-                guard first else { return }
-                monitor.cancel()
-                c.resume(returning: path.status == .satisfied && !path.isExpensive && !path.isConstrained)
-            }
-            monitor.start(queue: DispatchQueue(label: "ai.quranlab.path", qos: .utility))
-        }
     }
 }

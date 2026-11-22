@@ -53,6 +53,13 @@ struct DeviceCheckAttester: AppAttesting {
         throw RecognizerError.serviceUnavailable("App Attest")
     }
 
+    /// `DCError.serverUnavailable`: Apple's attestation service did not take the request now (it throttles an app that
+    /// asks too often, about 100 attestations a second per app).
+    static func isThrottled(_ error: any Error) -> Bool {
+        let e = error as NSError
+        return e.domain == DCErrorDomain && e.code == DCError.Code.serverUnavailable.rawValue
+    }
+
     /// DCError.invalidKey (or invalidInput, a key id App Attest does not take): the key is gone and
     /// only a new key and attestation help.
     static func isInvalidKey(_ error: any Error) -> Bool {
@@ -105,6 +112,34 @@ struct KeychainAttestKeyStore: AttestKeyStoring {
     func delete() { SecItemDelete(query as CFDictionary) }
 }
 
+/// SDK 4.0.2 (App Attest under load, the Ramadan capacity model): after an attestation that did not end in an attested
+/// token or certificate (App Attest refused it on the device, `DCError.serverUnavailable` when Apple throttles the app
+/// among them, or the API did not take it), no new App Attest key is attested before a wait of 1 hour, doubling to 24
+/// hours. Meanwhile the token and the install certificate are unattested, as for a device without App Attest (ERRORS_40
+/// 24.4 rule 3a: silent; the 24-hour class of the lease). An attestation the API accepts ends the row. Kept on disk, so a
+/// restart does not ask Apple again. Tried before (to 4.0.1): an attestation that failed was asked again at the next
+/// token or certificate, and one the API failed to take after Apple gave it (no answer, a 5xx) at the next call that
+/// needed a token: a new App Attest key and an attestation each time.
+struct AttestBackoff: Codable, Sendable, Equatable {
+    var failures = 0
+    var notBefore: Date?
+    /// The last failure was Apple's throttling (`DCError.serverUnavailable`): the install can attest later.
+    var throttled = false
+
+    static func wait(_ failures: Int) -> TimeInterval { min(86_400, 3600 * pow(2, Double(max(0, failures - 1)))) }
+
+    func due(_ now: Date) -> Bool { notBefore.map { now >= $0 } ?? true }
+
+    /// `retryAfter`: the `Retry-After` of a 429 the attest route answered (1 to 21600 s, else 0), the floor of the wait
+    /// (SDK 4.0.2: a shed attestation is not made again sooner; a new one costs an App Attest attestation and a write
+    /// of the database that is short then).
+    mutating func failed(_ now: Date, throttled: Bool, retryAfter: Int = 0) {
+        failures += 1
+        notBefore = now.addingTimeInterval(max(Self.wait(failures), TimeInterval(retryAfter)))
+        self.throttled = throttled
+    }
+}
+
 /// An API token and whether App Attest backs it.
 struct APIToken: Codable, Sendable, Equatable {
     let token: String
@@ -143,11 +178,20 @@ actor TokenProvider {
     private var inFlight: Task<APIToken, any Error>?
     /// Told when the server issued a token: an answer that accepts the key (it clears a remembered refusal).
     private let issued: @Sendable () -> Void
+    /// SDK 4.0.2: the wait before the next attestation (`AttestBackoff`), and the file that keeps it.
+    private let backoffFile: JSONFile<AttestBackoff>
+    nonisolated let attestBackoff: Locked<AttestBackoff>
+    private let clock: @Sendable () -> Date
 
     init(http: HTTPClient, apiURL: URL, key: String, app: AppIdentity, teamID: String?,
          attester: any AppAttesting, attestKeys: any AttestKeyStoring = KeychainAttestKeyStore(), storage: URL,
-         issued: @escaping @Sendable () -> Void = {}) {
+         clock: @escaping @Sendable () -> Date = { Date() }, issued: @escaping @Sendable () -> Void = {}) {
         self.issued = issued
+        self.clock = clock
+        let f = JSONFile<AttestBackoff>(url: storage.appendingPathComponent("cloud/attest-backoff.json"))
+        backoffFile = f
+        // unreadable is taken as not there here: an attestation may then be asked for at once, as before 4.0.2
+        attestBackoff = Locked(f.read().takingUnreadableAsMissing ?? AttestBackoff())
         self.http = http
         self.apiURL = apiURL
         self.key = key
@@ -166,6 +210,34 @@ actor TokenProvider {
     }
 
     private var appID: String { "\(app.platform):\(app.bundleID)" }
+
+    /// Whether a new attestation may be asked of App Attest now (`AttestBackoff`).
+    private func attestDue() -> Bool { attestBackoff.withLock { $0.due(clock()) } }
+
+    /// An attestation that did not end in an attested answer: the next waits.
+    private func attestFailed(throttled: Bool = false, retryAfter: Int = 0) {
+        let b = attestBackoff.withLock { (b: inout AttestBackoff) -> AttestBackoff in
+            b.failed(clock(), throttled: throttled, retryAfter: retryAfter)
+            return b
+        }
+        backoffFile.write(b)
+    }
+
+    /// The `Retry-After` of the 429 the attest route answered with `error` (0 for any other failure).
+    private func retryAfter(of error: CloudError) -> Int {
+        guard case .rejected(429, _, _, _) = error else { return 0 }
+        return http.endpoints?.holds.lastRetryAfter("attest") ?? 0
+    }
+
+    /// An attestation the API accepted: the row ends.
+    private func attestAccepted() {
+        attestBackoff.withLock { $0 = AttestBackoff() }
+        backoffFile.delete()
+    }
+
+    /// Apple throttles this app's attestations now, and the install will attest when the wait is over: an upload that
+    /// needs an attested token waits for it (`ContributionOutbox`) instead of failing for good.
+    nonisolated var attestationThrottled: Bool { attestBackoff.withLock { $0.throttled && $0.failures > 0 } }
 
     private func usable(_ t: APIToken?) -> APIToken? {
         guard let t, t.keyID == Self.keyID(key), t.app == appID,
@@ -240,6 +312,8 @@ actor TokenProvider {
             case .newKey: forgetKey()
             }
         }
+        // 4.0.2: a new attestation waits for its backoff; meanwhile the token is unattested (24.4 rule 3a)
+        guard attestDue() else { return try await unattested() }
         return try await attestNewKey(team: team)
     }
 
@@ -247,6 +321,8 @@ actor TokenProvider {
 
     /// A token from an assertion by the attested key.
     private func renew(keyID: String) async throws(CloudError) -> Renewal {
+        // 28.11 item 2 (SDK 4.0.2): the assert route held by a Retry-After fails as it did, with no challenge first
+        try http.failIfHeld(apiURL.appendingPathComponent("v1/attest/assert"))
         for attempt in 0..<2 {
             let challenge = try await challenge()
             let assertion: Data
@@ -284,19 +360,32 @@ actor TokenProvider {
     /// accepted the attestation.
     private func attestNewKey(team: String) async throws(CloudError) -> APIToken {
         let keyID: String, fields: [String: Any]
-        do throws(CloudError) {
-            (keyID, fields) = try await attest(team: team)
+        // 28.11 item 2 (SDK 4.0.2): the attest route held by a Retry-After fails as it did, with no challenge and no
+        // App Attest attestation first
+        try http.failIfHeld(apiURL.appendingPathComponent("v1/attest"))
+        let challenge = try await challenge()
+        do {
+            (keyID, fields) = try await attest(team: team, challenge: challenge)
         } catch {
-            // App Attest failed on the device (or Apple is unreachable): run unattested. A rejected
-            // attestation is not retried with another key until the token expires.
+            // App Attest failed on the device (Apple's throttling, Apple unreachable, another failure): run unattested,
+            // and the next attestation waits (4.0.2)
+            attestFailed(throttled: DeviceCheckAttester.isThrottled(error))
             return try await unattested()
         }
         let body = fields.merging(["platform": app.platform, "bundle_id": app.bundleID]) { a, _ in a }
         do throws(CloudError) {
             let t = try tokenFrom(try await http.checked(try request("v1/attest", body: body)))
-            if t.attested { rememberKey(keyID) }
+            if t.attested {
+                rememberKey(keyID)
+                attestAccepted()
+            } else {
+                attestFailed()
+            }
             return t
         } catch {
+            // the attestation was spent: the next one waits, whatever the API answered (4.0.1 attested a new key at the
+            // next call that needed a token after a 5xx or no answer); a 429's Retry-After is the wait's floor
+            attestFailed(retryAfter: retryAfter(of: error))
             // an attestation the server refuses still leaves the unattested path
             guard case .rejected(_, let code, _, _) = error,
                   ["attestation_failed", "challenge_invalid", "team_mismatch", "attest_key_revoked"].contains(code) else { throw error }
@@ -313,16 +402,22 @@ actor TokenProvider {
     /// answer's token replaces the one in hand, and later tokens come from that App Attest key's assertions as before.
     /// An attestation the server refuses is sent once more without it (`att none`), as `attestNewKey` does.
     func certify(_ key: any InstallKey) async throws(CloudError) -> String {
+        // 28.11 item 2 (SDK 4.0.2): the attest route held by a Retry-After fails as it did, with no challenge and no
+        // App Attest attestation first
+        try http.failIfHeld(apiURL.appendingPathComponent("v1/attest"))
         let installHash = key.installHash
         var attested: (keyID: String, fields: [String: String], challenge: String)?
-        if app.platform != "android", attester.isSupported, let team = teamID ?? Self.teamIDFromKeychain() {
+        // 4.0.2: an attestation waits for its backoff (`AttestBackoff`); meanwhile the certificate is unattested
+        if app.platform != "android", attester.isSupported, attestDue(), let team = teamID ?? Self.teamIDFromKeychain() {
             let challenge = try await challenge()
             do {
                 let keyID = try await attester.generateKey()
                 let object = try await attester.attestKey(keyID, clientDataHash: Self.clientDataHash(challenge + "\n" + installHash))
                 attested = (keyID, ["team_id": team, "key_id": keyID, "attestation": object.base64EncodedString(), "challenge": challenge], challenge)
             } catch {
-                attested = nil // App Attest failed on the device this time: the certificate is unattested
+                // App Attest failed on the device this time: the certificate is unattested, and the next attestation waits
+                attested = nil
+                attestFailed(throttled: DeviceCheckAttester.isThrottled(error))
             }
         }
         func send(_ a: (keyID: String, fields: [String: String], challenge: String)?) async throws(CloudError) -> (APIToken, String) {
@@ -340,8 +435,17 @@ actor TokenProvider {
         let answer: (APIToken, String)
         do throws(CloudError) {
             answer = try await send(attested)
-            if let a = attested, answer.0.attested { rememberKey(a.keyID) }
+            if let a = attested {
+                if answer.0.attested {
+                    rememberKey(a.keyID)
+                    attestAccepted()
+                } else {
+                    attestFailed()
+                }
+            }
         } catch {
+            // an attestation that was sent and not taken: the next one waits
+            if attested != nil { attestFailed(retryAfter: retryAfter(of: error)) }
             guard attested != nil, case .rejected(_, let code, _, _) = error,
                   ["attestation_failed", "challenge_invalid", "team_mismatch", "attest_key_revoked"].contains(code) else { throw error }
             answer = try await send(nil)
@@ -383,16 +487,12 @@ actor TokenProvider {
 
     static func clientDataHash(_ challenge: String) -> Data { Data(SHA256.hash(data: Data(challenge.utf8))) }
 
-    /// Challenge, key generation and attestation; returns the key id and the fields /v1/attest adds.
-    private func attest(team: String) async throws(CloudError) -> (String, [String: Any]) {
-        let challenge = try await challenge()
-        do {
-            let keyID = try await attester.generateKey()
-            let object = try await attester.attestKey(keyID, clientDataHash: Self.clientDataHash(challenge))
-            return (keyID, ["team_id": team, "key_id": keyID, "attestation": object.base64EncodedString(), "challenge": challenge])
-        } catch {
-            throw .invalid("App Attest: \(error)")
-        }
+    /// Key generation and attestation over `challenge`; returns the key id and the fields /v1/attest adds. Throws App
+    /// Attest's own error.
+    private func attest(team: String, challenge: String) async throws -> (String, [String: Any]) {
+        let keyID = try await attester.generateKey()
+        let object = try await attester.attestKey(keyID, clientDataHash: Self.clientDataHash(challenge))
+        return (keyID, ["team_id": team, "key_id": keyID, "attestation": object.base64EncodedString(), "challenge": challenge])
     }
 
     // MARK: the attested key

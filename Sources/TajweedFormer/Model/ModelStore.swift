@@ -21,7 +21,7 @@ struct ModelStore: Sendable {
         root = config.storageDirectory.appendingPathComponent("models")
         verifier = .standard
         updates = config.options.updates
-        installKeys = KeychainInstallKeyStore()
+        installKeys = KeychainInstallKeyStore(file: KeychainInstallKeyStore.fileURL(storage: config.storageDirectory))
     }
 
     init(root: URL, verifier: ManifestVerifier, updates: UpdatePolicy = .automatic,

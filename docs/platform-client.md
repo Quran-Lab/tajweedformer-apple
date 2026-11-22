@@ -137,6 +137,7 @@ The body is telemetry v2 (`"v": 2`, `day`, `product`, `platform`, `sdk_version`,
 | `rule_checks`, `rule_flags` | per tajweed rule or class id (`vowel_sub` ... `insertion`, `madd`, `qalqalah`, `gemination`, `word`), how many were checked and how many of those were flagged |
 | `share_asked`, `share_yes`, `share_no` | the sharing sheet was shown, the learner chose to share, the learner declined |
 | `promotions` | iOS, macOS and Android only: per accelerator, model revision and context, the promotions that ended and the failovers (below) |
+| `hosts` | 4.0.2: per model host this install read model bytes from that day (at most 8): the files whose last byte came from it (the build's `manifest.json` counts as one), the bytes, the requests (resumes included) and those that ended unreachable, `hedged` and `slow_switches` (0 in 4.0.2), the time from a request to its answer's status in 9 buckets (under 100, 250, 500, 1000, 1500, 3000, 6000, 10000 ms, and over) and the speed of each transfer of at least 256 KiB in 10 buckets (under 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192 kB/s, and over); counts only, no address or path |
 
 Each `promotions` entry (at most 8; zero counts left out):
 
@@ -177,8 +178,9 @@ the day; a day stamp on the device), not at every launch, so the server counts d
 1. **First run.** The first install downloads only the CPU files of the default context, and the first session
    runs on the exact CPU engine. Nothing else is downloaded or compiled before it.
 2. **In the background,** one step at a time, remembered across launches for each model revision, context,
-   accelerator build, OS build and device: download the accelerator's program (Wi-Fi or an unmetered network,
-   resumable, verified against the signed manifest; usually as a small delta that the SDK applies to the CPU
+   accelerator build, OS build and device: download the accelerator's program (on whatever network the device has,
+   4.0.2; one request per file, resumed from the last byte on the device after a cut, 4.0.2; verified against the
+   signed manifest; usually as a small delta that the SDK applies to the CPU
    weights already on the device, checking the rebuilt program's SHA-256 before the runtime sees it); compile
    it for this device at low priority (the Neural Engine compiler on Apple, the NPU program on Android, kept and
    redone after an OS update); warm up; then decode every self-test clip, the Basmala and a clip with a planted

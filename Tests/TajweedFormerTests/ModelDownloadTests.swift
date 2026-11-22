@@ -42,8 +42,11 @@ final class ModelDownloadTests: XCTestCase {
     /// The first and last byte a `Range` header asks for.
     static func range(_ seen: StubProtocol.Seen) -> (lower: Int, upper: Int)? {
         guard let r = seen.headers["range"], r.hasPrefix("bytes=") else { return nil }
-        let parts = r.dropFirst(6).split(separator: "-")
-        guard parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) else { return nil }
+        // `bytes=N-M`, or `bytes=N-` to the end (SDK 4.0.2's resume: upper is then Int.max)
+        let parts = r.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 2, let a = Int(parts[0]) else { return nil }
+        if parts[1].isEmpty { return (a, Int.max) }
+        guard let b = Int(parts[1]) else { return nil }
         return (a, b)
     }
 
@@ -85,11 +88,11 @@ final class ModelDownloadTests: XCTestCase {
         }
     }
 
-    func installer(pauses: [TimeInterval] = [], core: CoreStandIn, folder: URL, rangeSize: Int64 = 8 << 20) -> ModelInstaller {
+    func installer(pauses: [TimeInterval] = [], core: CoreStandIn, folder: URL) -> ModelInstaller {
         let client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: URL(string: "https://cdn.quranlab.ai/models")!,
                                auth: .fixed(key: "qlk_v1_test", token: "qlt_test"), verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
         var i = ModelInstaller(source: client.source(ModelID("v4.0", repository: "Quran-Lab/m"), revision: "b", base: Self.base),
-                               rangeSize: rangeSize, retryPauses: pauses)
+                               retryPauses: pauses)
         i.install = core.install(in: folder)
         return i
     }
@@ -137,7 +140,8 @@ final class ModelDownloadTests: XCTestCase {
         let error = await Self.ensure(installer(pauses: [0], core: core, folder: dir), dir)
         XCTAssertNil(error)
         let asked = Self.weightRequests
-        XCTAssertEqual(asked.map { $0.headers["range"] }, ["bytes=0-\(size - 1)", "bytes=150-\(size - 1)"],
+        // SDK 4.0.2 (SPEC 16.7): the file is asked whole, with no Range; the resume is `bytes=150-`
+        XCTAssertEqual(asked.map { $0.headers["range"] }, [nil, "bytes=150-"],
                        "the second request goes on from the byte after the last one that arrived")
         XCTAssertNil(asked.first?.headers["if-range"], "a file that starts has no validator")
         XCTAssertEqual(asked.last?.headers["if-range"], "\"one\"", "the validator of the answer that started the partial file")
@@ -249,7 +253,7 @@ final class ModelDownloadTests: XCTestCase {
         let error = await Self.ensure(installer(core: core, folder: dir), dir)
         XCTAssertNil(error)
         let asked = Self.weightRequests
-        XCTAssertEqual(asked.map { $0.headers["range"] }, ["bytes=150-\(size - 1)"], "one request: the rest of the file")
+        XCTAssertEqual(asked.map { $0.headers["range"] }, ["bytes=150-"], "one request: the rest of the file")
         XCTAssertEqual(asked.first?.headers["if-range"], "\"one\"", "with the validator of the answer that started the partial file")
         XCTAssertEqual(PartHasher.readAgain.withLock { $0 }, readAgain, "the whole file's hash was made as it arrived")
         assertInstalledOnlyAsDeviceForm(dir)
@@ -265,7 +269,7 @@ final class ModelDownloadTests: XCTestCase {
         let readAgain = PartHasher.readAgain.withLock { $0 }, resumed = PartHasher.resumedBytes.withLock { $0 }
         let error = await Self.ensure(installer(core: CoreStandIn(), folder: dir), dir)
         XCTAssertNil(error)
-        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-\(size - 1)"])
+        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-"])
         XCTAssertEqual(Self.weightRequests.first?.headers["if-range"], "\"one\"")
         XCTAssertEqual(PartHasher.resumedBytes.withLock { $0 } - resumed, 150, "the bytes kept from the earlier call, hashed first")
         XCTAssertEqual(PartHasher.readAgain.withLock { $0 }, readAgain, "no second read of the file after its last byte")
@@ -284,8 +288,8 @@ final class ModelDownloadTests: XCTestCase {
         let core = CoreStandIn()
         let error = await Self.ensure(installer(core: core, folder: dir), dir)
         XCTAssertNil(error)
-        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-\(size - 1)", "bytes=0-\(size - 1)"],
-                       "the kept bytes made the file fail its SHA-256, so it started again")
+        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-", nil],
+                       "the kept bytes made the file fail its SHA-256, so it started again (whole, with no Range)")
         XCTAssertEqual(core.installed.withLock { $0 }, [Self.weights], "the Core was handed the verified CDN form only")
         assertInstalledOnlyAsDeviceForm(dir)
     }
@@ -374,7 +378,7 @@ final class ModelDownloadTests: XCTestCase {
                 return reply
             }
             var reply = Self.served(seen, data: d)
-            if name == "layers.zfw.qle", Self.range(seen)?.lower == 0 { reply.breakAfter = 150 }
+            if name == "layers.zfw.qle", (Self.range(seen)?.lower ?? 0) == 0 { reply.breakAfter = 150 }
             return reply
         }
         let dir = try folder(), core = CoreStandIn()
@@ -407,7 +411,7 @@ final class ModelDownloadTests: XCTestCase {
         }
         var again = InstallReport()
         do throws(RecognizerError) { try await i.ensureAll(files, in: dir, report: &again, counted: false) } catch { XCTFail("\(error)") }
-        XCTAssertEqual(StubProtocol.seen.first { $0.url.lastPathComponent == "layers.zfw.qle" }?.headers["range"], "bytes=150-299999",
+        XCTAssertEqual(StubProtocol.seen.first { $0.url.lastPathComponent == "layers.zfw.qle" }?.headers["range"], "bytes=150-",
                        "the big file goes on from its partial file")
         XCTAssertTrue(again.resumed)
         XCTAssertEqual(Set(core.installed.withLock { $0 }), Set(files.map(\.path)))
@@ -465,43 +469,38 @@ final class ModelDownloadTests: XCTestCase {
         let error = await Self.ensure(installer(core: core, folder: dir), dir)
         XCTAssertNil(error)
         let asked = Self.weightRequests
-        XCTAssertEqual(asked.map { $0.headers["range"] }, ["bytes=150-\(size - 1)", "bytes=0-\(size - 1)"],
+        XCTAssertEqual(asked.map { $0.headers["range"] }, ["bytes=150-", nil],
                        "the joined file did not verify, so the file started again")
         XCTAssertTrue(asked.allSatisfy { $0.headers["if-range"] == nil }, "no validator was kept, so none is sent")
         XCTAssertEqual(core.installed.withLock { $0 }, [Self.weights], "the Core was handed the verified CDN form only")
         assertInstalledOnlyAsDeviceForm(dir)
     }
 
-    // MARK: an update waits for an unmetered network
+    // MARK: nothing waits for Wi-Fi (SDK 4.0.2, section 33)
 
-    /// The request says whether it may go over a metered network: a first install's may, an update's may not.
-    func testAnUpdatesRequestsDoNotGoOverAMeteredNetworkAndAFirstInstallsDo() async throws {
+    /// Every model request may go over any network: a metered one and one in Low Data Mode too (to 4.0.1 an update's
+    /// requests were marked to wait for an unmetered network). The same through the client an install makes: every
+    /// range it asks for carries no such mark.
+    func testEveryModelRequestMayGoOverAnyNetwork() async throws {
         let url = try XCTUnwrap(URL(string: "https://cdn.test/a/b/c/sdk/v4.0/layers.zfw.qle"))
-        let plain = CDNClient.request(url, range: nil, key: "k", token: "t")
-        XCTAssertTrue(plain.allowsExpensiveNetworkAccess)
-        XCTAssertTrue(plain.allowsConstrainedNetworkAccess)
-        let waiting = CDNClient.request(url, range: "bytes=0-9", key: "k", token: "t", ifRange: "\"one\"", unmeteredOnly: true)
-        XCTAssertFalse(waiting.allowsExpensiveNetworkAccess)
-        XCTAssertFalse(waiting.allowsConstrainedNetworkAccess)
-        XCTAssertEqual(waiting.value(forHTTPHeaderField: "if-range"), "\"one\"")
-        XCTAssertTrue(CloudOptions().updatesOnWiFiOnly, "an app's Client: updates on unmetered networks only")
-        // the same through the client a run makes: an update's client marks every range, a first install's none
-        serve { seen in Self.served(seen) }
-        for unmetered in [false, true] {
-            let dir = try folder()
-            var client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: URL(string: "https://cdn.quranlab.ai/models")!,
-                                   auth: .fixed(key: "qlk_v1_test", token: "qlt_test"), verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
-            client.unmeteredOnly = unmetered
-            var i = ModelInstaller(source: client.source(ModelID("v4.0", repository: "Quran-Lab/m"), revision: "b", base: Self.base),
-                                   rangeSize: 100_000, retryPauses: [])
-            i.install = CoreStandIn().install(in: dir)
-            StubProtocol.reset { seen in seen.url.lastPathComponent == Self.weights ? Self.served(seen) : Reply(status: 404) }
-            let error = await Self.ensure(i, dir)
-            XCTAssertNil(error)
-            let asked = Self.weightRequests
-            XCTAssertEqual(asked.count, 3, "three ranges of 100,000 bytes")
-            XCTAssertTrue(asked.allSatisfy { $0.allowsExpensive == !unmetered && $0.allowsConstrained == !unmetered }, "unmetered only: \(unmetered)")
+        for r in [CDNClient.request(url, range: nil, key: "k", token: "t"),
+                  CDNClient.request(url, range: "bytes=0-9", key: "k", token: "t", ifRange: "\"one\"")] {
+            XCTAssertTrue(r.allowsExpensiveNetworkAccess)
+            XCTAssertTrue(r.allowsConstrainedNetworkAccess)
+            XCTAssertTrue(r.allowsCellularAccess)
         }
+        let dir = try folder()
+        let client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: URL(string: "https://cdn.quranlab.ai/models")!,
+                               auth: .fixed(key: "qlk_v1_test", token: "qlt_test"), verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+        var i = ModelInstaller(source: client.source(ModelID("v4.0", repository: "Quran-Lab/m"), revision: "b", base: Self.base),
+                               retryPauses: [])
+        i.install = CoreStandIn().install(in: dir)
+        StubProtocol.reset { seen in seen.url.lastPathComponent == Self.weights ? Self.served(seen) : Reply(status: 404) }
+        let error = await Self.ensure(i, dir)
+        XCTAssertNil(error)
+        let asked = Self.weightRequests
+        XCTAssertEqual(asked.count, 1, "the file of 300,000 bytes in one request (SDK 4.0.2, SPEC 16.7)")
+        XCTAssertTrue(asked.allSatisfy { $0.allowsExpensive && $0.allowsConstrained })
     }
 
     // MARK: what a download leaves behind
@@ -562,8 +561,34 @@ final class ModelDownloadTests: XCTestCase {
             serve { seen in Self.served(seen) }
             let again = await Self.ensure(installer(core: core, folder: dir), dir)
             XCTAssertNil(again, c.name)
-            XCTAssertEqual(Self.weightRequests.first?.headers["range"], "bytes=150-\(size - 1)", "\(c.name): the next call goes on from the partial file")
+            XCTAssertEqual(Self.weightRequests.first?.headers["range"], "bytes=150-", "\(c.name): the next call goes on from the partial file")
             assertInstalledOnlyAsDeviceForm(dir)
+        }
+    }
+
+    /// SDK 4.0.2 (SPEC 16.7): the same rule for the answer to a whole file's request (no partial file yet), whose bytes
+    /// go straight to the partial file: a 200 that ends cleanly short of the file, or runs past it (no length that could
+    /// be held to it, or a content coding), is a failed attempt and leaves no stored byte; only a connection that breaks
+    /// keeps what it delivered.
+    func testAWholeFileAnswerThatIsNotTheFileLeavesNoStoredByte() async throws {
+        let whole = Self.stored
+        let cases: [(name: String, reply: Reply)] = [
+            ("a 200 without a length, shorter than the file", Reply(status: 200, headers: ["content-type": "application/octet-stream"], body: whole.prefix(100))),
+            ("a 200 without a length, longer than the file", Reply(status: 200, headers: ["content-type": "application/octet-stream"],
+                                                                  body: whole + Data(repeating: 7, count: 50))),
+            ("a 200 with a content coding, shorter than the file", Reply(status: 200, headers: ["content-encoding": "identity"], body: whole.prefix(100))),
+        ]
+        for c in cases {
+            let dir = try folder()
+            let reply = c.reply
+            serve { _ in reply }
+            let core = CoreStandIn()
+            let error = await Self.ensure(installer(pauses: [0, 0, 0, 0, 0], core: core, folder: dir), dir)
+            XCTAssertEqual(error.map { TajweedError(from: $0).code }, "download_failed", c.name)
+            XCTAssertEqual(Self.weightRequests.count, 6, "\(c.name): asked once and five times again, each a failed attempt")
+            XCTAssertTrue(Self.weightRequests.allSatisfy { $0.headers["range"] == nil }, "\(c.name): nothing stored to resume from")
+            XCTAssertEqual(ModelInstaller.sizeOnDisk(part(dir)), 0, "\(c.name): no stored byte")
+            XCTAssertEqual(core.installed.withLock { $0 }, [], "\(c.name): nothing handed to the Core")
         }
     }
 
@@ -592,8 +617,8 @@ final class ModelDownloadTests: XCTestCase {
         }
         let error = await Self.ensure(installer(pauses: [0, 0, 0, 0, 0], core: CoreStandIn(), folder: dir), dir)
         XCTAssertNil(error)
-        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-\(size - 1)", "bytes=0-\(size - 1)"],
-                       "the partial file went with the 416, and the file was asked for from its first byte")
+        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-", nil],
+                       "the partial file went with the 416, and the file was asked for whole")
         assertInstalledOnlyAsDeviceForm(dir)
     }
 
@@ -606,16 +631,16 @@ final class ModelDownloadTests: XCTestCase {
         serve { seen in Self.served(seen) }
         let error = await Self.ensure(installer(core: CoreStandIn(), folder: dir), dir)
         XCTAssertNil(error)
-        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=0-\(size - 1)"])
+        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, [nil], "the file asked for whole")
         XCTAssertNil(Self.weightRequests.first?.headers["if-range"], "the validator went with the partial file")
         assertInstalledOnlyAsDeviceForm(dir)
     }
 
     // MARK: 4.0: the CDN form and the Core
 
-    /// Ranges of the CDN form in 128 KB steps through a server that ends every second connection early: the partial
-    /// file grows only by what arrived, every range goes on from the byte on disk, and the Core gets the CDN form
-    /// once, whole. No file of the folder is ever the plaintext.
+    /// The CDN form through a server that ends every second connection early: the file is asked whole, and every
+    /// resume goes on from the byte on disk to the end (`bytes=N-`, SDK 4.0.2); the partial file grows only by what
+    /// arrived, and the Core gets the CDN form once, whole. No file of the folder is ever the plaintext.
     func testTheCDNFormIsResumedRangeByRangeAndHandedToTheCoreOnceWhole() async throws {
         let n = Locked(0)
         serve { seen in
@@ -625,10 +650,11 @@ final class ModelDownloadTests: XCTestCase {
             return reply
         }
         let dir = try folder(), core = CoreStandIn()
-        let error = await Self.ensure(installer(pauses: [0, 0, 0, 0, 0], core: core, folder: dir, rangeSize: 128 << 10), dir)
+        let error = await Self.ensure(installer(pauses: [0, 0, 0, 0, 0], core: core, folder: dir), dir)
         XCTAssertNil(error, "\(String(describing: error))")
+        XCTAssertNil(Self.weightRequests.first?.headers["range"], "the first request asks the whole file")
+        XCTAssertTrue(Self.weightRequests.dropFirst().allSatisfy { $0.headers["range"]?.hasSuffix("-") == true }, "every resume runs to the end")
         let asked = Self.weightRequests.compactMap { Self.range($0)?.lower }
-        XCTAssertEqual(asked.first, 0)
         XCTAssertTrue(zip(asked, asked.dropFirst()).allSatisfy { $0 < $1 }, "every request starts past the last: \(asked)")
         XCTAssertEqual(core.installed.withLock { $0 }, [Self.weights])
         assertInstalledOnlyAsDeviceForm(dir)

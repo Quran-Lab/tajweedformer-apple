@@ -127,9 +127,13 @@ actor ContributionOutbox {
     /// Told the host a background upload was redirected to (3.1.3): reported as an issue, the host only.
     private let onRedirect: @Sendable (String) -> Void
 
+    /// SDK 4.0.2 (28.11 item 4): the row of 429s of the `uploads` route.
+    nonisolated let slowDown: SlowDownRows
+
     init(storage: URL, http: HTTPClient, apiURL: URL, tokens: TokenProvider?, config: ConfigStore, options: CloudOptions,
          app: AppIdentity, clock: @escaping @Sendable () -> Date, ladder: BitrateLadder = BitrateLadder(),
-         redirected: @escaping @Sendable (String) -> Void = { _ in }) {
+         slowDown: SlowDownRows = SlowDownRows(), redirected: @escaping @Sendable (String) -> Void = { _ in }) {
+        self.slowDown = slowDown
         onRedirect = redirected
         self.storage = storage
         self.ladder = ladder
@@ -511,6 +515,8 @@ actor ContributionOutbox {
         scan()
         expireTakes()
         guard let tokens, stops == 0, Contributions.isActive else { return }
+        // 28.11 item 4 (SDK 4.0.2): after a 429 of the uploads route nothing goes up before its row's wait
+        guard ignoringBackoff || slowDown.allows("uploads", now: clock()) else { return }
         // the contributor's id, device key or recovery code is there and cannot be read (3.1.4): nothing is sent
         // until it reads
         guard Contributor.isReadable(storage: storage) else { return }
@@ -546,6 +552,10 @@ actor ContributionOutbox {
             guard token.attested || tier == "capped" else {
                 if listOnly {
                     retryTakes(id)
+                } else if tokens.attestationThrottled {
+                    // 4.0.2: Apple throttles this app's attestations now and the install attests when its wait is over
+                    // (`AttestBackoff`): the recording waits for an attested token instead of failing for good
+                    retry(id, "waiting for an attested token (App Attest is throttled)")
                 } else {
                     fail(id, code: "attestation_required", message: "this install has no App Attest backed token")
                 }
@@ -681,6 +691,7 @@ actor ContributionOutbox {
             retryTakes(id)
             return false
         }
+        uploadsAnswered(resp)
         guard records[id]?.takes == .pending else { return true }
         switch resp.status {
         case 200..<300:
@@ -799,6 +810,7 @@ actor ContributionOutbox {
             offline.insert(id)
             return nil
         }
+        uploadsAnswered(resp)
         if (200..<300).contains(resp.status) { return resp }
         if resp.status >= 500 || resp.status == 408 { ladder.uploadFailed() }
         let o = (try? JSONSerialization.jsonObject(with: resp.body)) as? [String: Any]
@@ -824,6 +836,7 @@ actor ContributionOutbox {
         // an upload a stop cancelled is not one that failed: it goes again when the queue goes on
         if aborted.remove("\(id)/\(name)") != nil, case .failure = result { return false }
         guard !gone.contains(id), var rec = records[id], rec.state == .active else { return true }
+        if case .success(let resp) = result { uploadsAnswered(resp) }
         switch result {
         case .failure(let e):
             ladder.uploadFailed()
@@ -874,6 +887,18 @@ actor ContributionOutbox {
         guard case .background(let bg) = transport else { return }
         let running = await bg.running()
         inFlight = inFlight.intersection(running)
+    }
+
+    /// 28.11 item 4: an answer of the uploads route (a Worker call or a segment's PUT): a 429 is one more in the row,
+    /// whose wait is the larger of its `Retry-After` (300 s without one) and the doubled one, at most 3600 s; an accepted
+    /// answer ends the row.
+    private func uploadsAnswered(_ resp: HTTPClient.Response) {
+        if resp.status == 429 {
+            let ra = LeaseRetry.retryAfter(resp.header("Retry-After"))
+            slowDown.slowed("uploads", retryAfter: ra > 0 ? ra : nil, now: clock())
+        } else if (200..<300).contains(resp.status) {
+            slowDown.accepted("uploads")
+        }
     }
 
     private func retry(_ id: String, _ why: String, immediately: Bool = false) {
