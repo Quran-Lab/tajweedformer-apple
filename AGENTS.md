@@ -65,17 +65,17 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
 - **Coming from 3.x:** [docs/migrating-to-4.md](docs/migrating-to-4.md) says what changes. SDK 3.x stops receiving
   the V4 model on 15 January 2027, 00:00 UTC, and model versions from V4.1 on are published only encrypted, for SDK 4.0.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon (arm64 devices, the arm64 Simulator, arm64 Macs).
-- **Status:** 4.0.2. Each release is compiled and its tests run on a Mac with Xcode
+- **Status:** 4.0.3. Each release is compiled and its tests run on a Mac with Xcode
   (docs/mac-checklist-4.0.md). It carries every fix of 3.1.5, the download work
   included. If Quran Lab's main servers can't be reached, the SDK uses backup servers automatically.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.2. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.3. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.2"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.3"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),

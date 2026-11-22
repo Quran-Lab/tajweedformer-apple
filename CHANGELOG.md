@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.0.3
+
+- A new `TajweedClient` on the same storage folder opens the model while the app still holds a Model of a closed
+  Client (4.0.2 failed `model()` with `engine_failed`, `busy`), and a take or `reference.units()` started right after
+  `reference.fetch()` no longer fails with `engine_failed` (`busy`) or `reference_missing`.
+
 ## 4.0.2
 
 - **Apps with the SDK pass App Store Connect validation.** The Core framework's `CFBundleVersion` is now a plain
