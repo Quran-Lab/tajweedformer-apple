@@ -149,20 +149,37 @@ enum LeaseRefusal: Equatable, Sendable {
     }
 }
 
-/// When the SDK asks for a lease in the background (18.4.7): at the first app start or model open after
-/// `refresh_after`; after a failure 1, 5 and 30 minutes later, then every 2 hours growing to at most 6 hours. A
-/// valid lease never waits for a refresh.
+/// When the SDK asks for a lease by itself (18.4.7, 18.4.7.3 as dd76474): at the first app start or model open after
+/// `refresh_after`, and after a failed attempt (a 5xx, a 429, no answer) not before a wait drawn afresh, uniformly, from
+/// 600 to 1800 s, so installs that failed together do not come back together. An answer's `Retry-After` is the floor:
+/// the wait is the larger of it and the drawn time. The row is kept with the SDK's state across restarts (28.11 item 3)
+/// and ends at a lease the Core accepts and at a verified stop. A valid lease never waits for a refresh, and an app's
+/// call that cannot go on without a lease asks at once unless its route is held by a `Retry-After` (18.4.7.3 item 4).
+/// Tried before (to 4.0.1): 60, 300, 1800, 7200, 14400, 21600 s, a `Retry-After` replaced the step, and a restart forgot
+/// the row, so 503 `lease_unavailable` with its `Retry-After: 30` had every install past `refresh_after` ask every 30 s
+/// in an outage.
 struct LeaseRetry: Sendable, Equatable, Codable {
     var failures = 0
     var notBefore: Int64 = 0
 
-    static let steps: [Int64] = [60, 300, 1800, 7200, 14_400, 21_600]
+    /// The wait after any failed attempt, seconds (18.4.7.3 item 1).
+    static let wait: ClosedRange<Int64> = 600...1800
 
-    /// A failed attempt: the next waits the backoff's step, or the answer's `Retry-After` when it named one (503
-    /// `lease_unavailable`, contract 1c971ab 18.4.7: read as 1 to 21600 s); the backoff goes on after it.
-    mutating func failed(now: Int64, retryAfter: Int = 0) {
+    /// A failed attempt: the next waits a time drawn from `wait` (`draw` picks it: the platform's random source, a
+    /// test's own), or the answer's `Retry-After` when that is longer (read as 1 to 21600 s).
+    mutating func failed(now: Int64, retryAfter: Int = 0, draw: (ClosedRange<Int64>) -> Int64 = { Int64.random(in: $0) }) {
         failures += 1
-        notBefore = now + ((1...21_600).contains(retryAfter) ? Int64(retryAfter) : Self.steps[min(failures, Self.steps.count) - 1])
+        let drawn = draw(Self.wait)
+        let floor: Int64 = (1...21_600).contains(retryAfter) ? Int64(retryAfter) : 0
+        notBefore = now + max(drawn, floor)
+    }
+
+    /// The row as a start reads it back: a next attempt more than 21600 s ahead (a clock that moved back) is now
+    /// (28.11 item 3).
+    func readBack(now: Int64) -> LeaseRetry {
+        var r = self
+        if r.notBefore > now + 21_600 { r.notBefore = now }
+        return r
     }
 
     /// `Retry-After` as 18.4.7 reads it: whole seconds, 1 to 21600; anything else (a date, 0, more) is none.

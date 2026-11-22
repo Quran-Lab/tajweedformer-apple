@@ -30,6 +30,8 @@ final class PublicSurfaceTests: XCTestCase {
         "TajweedDiagnosis.Storage", "TajweedDiagnosis.Protected", "TajweedSharing.Item", "TajweedSharing.Summary",
         // 4.0.1: the hosts in use and the last failover
         "TajweedDiagnosis.Endpoints", "TajweedDiagnosis.Failover",
+        // 4.0.2: the cause on the app's error
+        "TajweedError.Cause",
     ]
 
     static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

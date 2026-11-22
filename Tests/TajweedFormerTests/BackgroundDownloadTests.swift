@@ -32,6 +32,7 @@ final class BackgroundDownloadTests: XCTestCase {
 
         private let lock = NSLock()
         private var inFlight: [String] = []
+        private var inFlightRequests: [String: URLRequest] = [:]
         private var _started: [String] = []
         private var _requests: [URLRequest] = []
         private var _delivered: [String] = []
@@ -62,7 +63,7 @@ final class BackgroundDownloadTests: XCTestCase {
         func answer(_ f: @escaping @Sendable (BackgroundRange) -> Answer) { locked { _answer = f } }
 
         func start(_ request: URLRequest, key: String) {
-            let (ends, sink, answer) = locked { () -> (Bool, RangeDelivery.Sink?, @Sendable (BackgroundRange) -> Answer) in
+            let ends = locked { () -> Bool in
                 _started.append(key)
                 _requests.append(request)
                 let ends = _finishing > 0
@@ -71,10 +72,39 @@ final class BackgroundDownloadTests: XCTestCase {
                     _delivered.append(key)
                 } else {
                     inFlight.append(key)
+                    inFlightRequests[key] = request
                 }
-                return (ends, _sink, _answer)
+                return ends
             }
-            guard ends, let sink, let range = BackgroundRange(key: key) else { return }
+            if ends { land(request, key: key) }
+        }
+
+        /// SDK 4.0.2: the tasks in flight end now, each with its answer (the app waits for them after its return). As the
+        /// session's delegate does it, a task's file is placed before the task counts as ended.
+        func endInFlight() {
+            let now = locked { inFlight.compactMap { k in inFlightRequests[k].map { (k, $0) } } }
+            for (key, request) in now {
+                land(request, key: key)
+                locked {
+                    inFlight.removeAll { $0 == key }
+                    inFlightRequests[key] = nil
+                    _delivered.append(key)
+                }
+            }
+        }
+
+        /// A task an earlier process handed to the session (a 4.0.1 range), still on its way.
+        func carry(_ key: String) {
+            locked {
+                inFlight.append(key)
+                inFlightRequests[key] = URLRequest(url: URL(string: "https://cdn.quranlab.ai/models/")!)
+            }
+        }
+
+        /// A task's answer, handed to the sink as the session's delegate hands it.
+        private func land(_ request: URLRequest, key: String) {
+            let (sink, answer) = locked { (_sink, _answer) }
+            guard let sink, let range = BackgroundRange(key: key) else { return }
             let a = answer(range)
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("standin-" + UUID().uuidString)
             try? a.body.write(to: file)
@@ -94,6 +124,7 @@ final class BackgroundDownloadTests: XCTestCase {
             locked { () -> Set<String> in
                 let gone = inFlight.filter { $0.hasPrefix(prefix) }
                 inFlight.removeAll { $0.hasPrefix(prefix) }
+                for k in gone { inFlightRequests[k] = nil }
                 _cancelled.append(contentsOf: gone)
                 return Set(gone)
             }
@@ -101,33 +132,30 @@ final class BackgroundDownloadTests: XCTestCase {
     }
 
     override func setUp() {
-        // ranges of 100 bytes, so that the test folder's files have several
-        ModelInstaller.smallestRange.withLock { $0 = 100 }
         // the 3.1.5 tests count the hand-over of an install that fetches one file at a time, which is how 4.0.1 goes
         // on after the app has left; several files at a time before it is `testSeveralFilesAtATimeThenTheRestToTheBackground`
         ModelInstaller.parallelFiles.withLock { $0 = 1 }
     }
 
     override func tearDown() {
-        ModelInstaller.smallestRange.withLock { $0 = 64 << 10 }
         ModelInstaller.parallelFiles.withLock { $0 = 4 }
     }
 
     // MARK: 4.0.1: several files at a time, then the background
 
     /// 4.0.1, policy `whenLeaving`: while the app is in the foreground the files come several at a time. The weights
-    /// file's first range is held in flight; meanwhile the frames and the tokens come whole in the foreground (the
-    /// frames installed, the tokens' CDN form waiting for its turn, after the weights). The app leaves: the weights'
-    /// request is ended, and what is left of it goes to background tasks, once; the tokens are not handed over (their
-    /// verified CDN form is on disk). Every range of the weights is fetched exactly once, the Core installs each file
-    /// once in the manifest's order, and nothing of the download is left beside the installed files.
+    /// file's request (SDK 4.0.2: the whole file, SPEC 16.7) is held in flight; meanwhile the frames and the tokens come
+    /// whole in the foreground (the frames installed, the tokens' CDN form waiting for its turn, after the weights). The
+    /// app leaves: the weights' request is ended, and the file goes to one background task, once; the tokens are not
+    /// handed over (their verified CDN form is on disk). The Core installs each file once in the manifest's order, and
+    /// nothing of the download is left beside the installed files.
     func testSeveralFilesAtATimeThenTheRestToTheBackgroundWhenTheAppLeaves() async throws {
         ModelInstaller.parallelFiles.withLock { $0 = 4 }
         let first = StubProtocol.Gate()
         let held = Locked(false)
         let build = StubBuild.serve(cdn: { path, seen in
             var reply = StubBuild.served(path, seen)
-            if path == Self.weights, ModelDownloadTests.range(seen)?.lower == 0, held.withLock({ (h: inout Bool) -> Bool in defer { h = true }; return !h }) {
+            if path == Self.weights, (ModelDownloadTests.range(seen)?.lower ?? 0) == 0, held.withLock({ (h: inout Bool) -> Bool in defer { h = true }; return !h }) {
                 reply.hold = first
             }
             return reply
@@ -151,11 +179,11 @@ final class BackgroundDownloadTests: XCTestCase {
         handOver.set(away: false)
         first.open()
         XCTAssertEqual(got.build, build, "the model opens: every file's hash is right (\(String(describing: got.error)))")
-        XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights), ["0-99", "100-199", "200-299", "300-399", "400-419"],
-                       "what was left of the weights, to the background once")
+        XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights), ["0-419"], "the weights, to the background once, as one task")
+        XCTAssertNil(standIn.requests.first?.value(forHTTPHeaderField: "range"), "a whole file's task asks it with no Range")
         XCTAssertEqual(Self.ranges(standIn.started, of: StubBuild.tokens), [], "a file whole on disk is not handed over")
-        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), ["0-99", "100-199", "200-247"], "the tokens by the foreground, once")
-        XCTAssertEqual(StubProtocol.cancelled.withLock { Self.foreground($0, of: Self.weights) }, ["0-99"], "the weights' request in flight was ended")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), ["whole"], "the tokens by the foreground, once")
+        XCTAssertEqual(StubProtocol.cancelled.withLock { Self.foreground($0, of: Self.weights) }, ["whole"], "the weights' request in flight was ended")
         XCTAssertEqual(client.core.installed.withLock { $0 }, StubBuild.files.map(\.path), "each file once, in the manifest's order")
         let left = (fm.enumerator(atPath: storage.appendingPathComponent("models").path)?.compactMap { $0 as? String } ?? [])
             .filter { $0.contains(".part") }
@@ -164,8 +192,8 @@ final class BackgroundDownloadTests: XCTestCase {
 
     static let weights = StubBuild.weights
 
-    /// An install whose downloads use `standIn` under `policy`, with ranges of 100 bytes; the stand-in hands its
-    /// answers to the install's own sink.
+    /// An install whose downloads use `standIn` under `policy`; the stand-in hands its answers to the install's own
+    /// sink.
     func makeClient(_ storage: URL, _ standIn: StandIn, _ policy: BackgroundDownloadPolicy, _ handOver: DownloadHandOver,
                     sendsKey: Bool = true) throws -> StubInstall {
         let install = StubInstall(storage: storage, transport: standIn, policy: policy, handOver: handOver, sendsKey: sendsKey)
@@ -187,86 +215,134 @@ final class BackgroundDownloadTests: XCTestCase {
         keys.compactMap { BackgroundRange(key: $0) }.filter { $0.path == path }.map { "\($0.lower)-\($0.upper)" }
     }
 
-    /// The foreground requests the stub got for a stored file, as `lower-upper`.
+    /// The foreground requests the stub got for a stored file: `whole` (no Range, SDK 4.0.2), `N-` (a resume to the
+    /// end) or `N-M`.
     static func foreground(_ seen: [StubProtocol.Seen], of path: String) -> [String] {
-        seen.filter { StubBuild.path($0) == path }.compactMap { ModelDownloadTests.range($0) }.map { "\($0.lower)-\($0.upper)" }
+        seen.filter { StubBuild.path($0) == path }.map { s in
+            guard let r = ModelDownloadTests.range(s) else { return "whole" }
+            return r.upper == Int.max ? "\(r.lower)-" : "\(r.lower)-\(r.upper)"
+        }
     }
 
     // MARK: hand-over and hand-back
 
-    /// One install, left twice. The app leaves while the first range of the weights file is in flight in the
-    /// foreground: that request is ended, and every range that is left goes to background tasks. Two of them end,
-    /// then the app is back while the others are in flight: those are cancelled, each abandoned whole, and counted;
-    /// the two that ended are joined, and the foreground goes on from the byte after them. The app leaves again in
-    /// the middle of a later range: what is left goes to the background once more, and this time ends there.
-    /// At the end the model opens (every file's hash is right), and every range of the weights file was fetched
-    /// exactly once, by the foreground or by a background task that ended.
-    func testADownloadIsHandedOverAndTakenBackWithNoRangeFetchedTwice() async throws {
-        let size = try XCTUnwrap(StubBuild.data(Self.weights)).count
-        XCTAssertEqual(size, 420, "the test folder's weights file: five ranges of 100 bytes")
-        let first = StubProtocol.Gate(), later = StubProtocol.Gate()
-        let held = Locked<Set<Int>>([])
+    /// SDK 4.0.2 (SPEC 16.7; the rule of 2026-11-21: a learner who leaves and comes back pays for no byte twice). The
+    /// weights file is asked whole; 90% of it (378 of 420 bytes) has arrived when the app leaves: the request ends where
+    /// it stands, and the rest goes to one background task (`bytes=378-` with the validator), the tokens to another. The
+    /// app is back before the tasks end: they are NOT cancelled; the app waits for the weights' task at its first byte
+    /// and joins what it brings. The weights' bytes fetched are the file's 420, in two requests (one more than the
+    /// file), and the file after it came by its task alone. (To 4.0.1 the tasks were cancelled at the return and the
+    /// app fetched their ranges again.)
+    func testLeavingAt90PercentAndComingBackFetchesNoByteTwice() async throws {
+        let (client, standIn, handOver, build, storage) = try await leaveAt90Percent()
+        defer { client.close() }
+        // back before the tasks end: they go on, and the app waits for them
+        handOver.set(away: false)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(standIn.cancelled, [], "no task is cancelled at the return")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["whole"], "the app asks nothing more while its task runs")
+        standIn.endInFlight()
+        let got = await client.call.value
+        XCTAssertEqual(got.build, build, "the model opens (\(String(describing: got.error)))")
+        XCTAssertEqual(client.install.abandoned.withLock { $0 }, 0, "nothing was abandoned")
+        XCTAssertEqual(StubProtocol.cancelled.withLock { Self.foreground($0, of: Self.weights) }, ["whole"],
+                       "the request in flight at the leaving ended there")
+        // the weights' bytes: 378 by the app, 42 by the task, 420 in all, in two requests
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["whole"])
+        XCTAssertEqual(Self.ranges(standIn.delivered, of: Self.weights), ["378-419"])
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), [], "the tokens came by their task alone")
+        let left = (fm.enumerator(atPath: storage.appendingPathComponent("models").path)?.compactMap { $0 as? String } ?? [])
+            .filter { $0.contains(".part") }
+        XCTAssertEqual(left, [], "no partial file and no kept range is left")
+    }
+
+    /// The task the app waits for after its return brings no byte for `stallLimit` (here 0.3 s): it is cancelled and
+    /// counted as abandoned, and the app resumes the file itself from its partial file, once, with the validator.
+    func testATaskThatBringsNothingAfterTheReturnIsGivenUpAndTheAppResumes() async throws {
+        ModelInstaller.stallLimit.withLock { $0 = 0.3 }
+        defer { ModelInstaller.stallLimit.withLock { $0 = 60 } }
+        let (client, standIn, handOver, build, _) = try await leaveAt90Percent()
+        defer { client.close() }
+        handOver.set(away: false)
+        let got = await client.call.value
+        XCTAssertEqual(got.build, build, "\(String(describing: got.error))")
+        XCTAssertEqual(Self.ranges(standIn.cancelled, of: Self.weights), ["378-419"], "the task that brought nothing was given up")
+        XCTAssertEqual(client.install.abandoned.withLock { $0 }, 2, "and counted, with the tokens' task")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["whole", "378-"], "the app resumed the file, once")
+        XCTAssertEqual(StubBuild.modelRequests.last { StubBuild.path($0) == Self.weights }?.headers["if-range"], "\"one\"")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), ["whole"])
+    }
+
+    /// A running install and its call, for the tests above.
+    struct Running {
+        let install: StubInstall
+        let call: Task<(build: String?, error: TajweedError?), Never>
+        func close() { install.close() }
+    }
+
+    /// An install (policy `whenLeaving`, one file at a time) left when 90% of the weights file has arrived: its request
+    /// ended there, the rest of it and the tokens handed to two background tasks that stay in flight.
+    func leaveAt90Percent() async throws -> (Running, StandIn, DownloadHandOver, String, URL) {
+        let whole = try XCTUnwrap(StubBuild.data(Self.weights))
+        XCTAssertEqual(whole.count, 420)
+        let first = Locked(true)
         let build = StubBuild.serve(cdn: { path, seen in
             var reply = StubBuild.served(path, seen)
-            // the first request for byte 0, and the first for byte 300, of the weights file stay in flight
-            if path == Self.weights, let asked = ModelDownloadTests.range(seen), asked.lower == 0 || asked.lower == 300 {
-                let isFirst = held.withLock { $0.insert(asked.lower).inserted }
-                if isFirst { reply.hold = asked.lower == 0 ? first : later }
-            }
+            if path == Self.weights, first.withLock({ (f: inout Bool) -> Bool in defer { f = false }; return f }) { reply.stallAfter = 378 }
             return reply
         })
         let standIn = StandIn()
         let handOver = DownloadHandOver()
         let storage = CloudFixtures.storage()
-        let client = try makeClient(storage, standIn, .whenLeaving, handOver)
-        defer { client.close() }
-        let call = Task { await client.model() }
-
-        // the app leaves while the weights file's first range is in flight; two background tasks will end
-        try await Self.wait("the first range of the weights file in flight") { held.withLock { $0.contains(0) } }
+        let install = try makeClient(storage, standIn, .whenLeaving, handOver)
+        let call = Task { [install] in await install.model() }
+        try await Self.wait("the weights' request in flight") { !Self.foreground(StubProtocol.seen, of: Self.weights).isEmpty }
+        // its 378 bytes arrive and the connection stays open
+        try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(standIn.started, [], "nothing is handed over while the app is in the foreground")
-        standIn.finish(next: 2)
+        standIn.finish(next: 0)
         handOver.set(away: true)
-        try await Self.wait("the hand-over") { standIn.started.count >= 8 }
-        XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights), ["0-99", "100-199", "200-299", "300-399", "400-419"],
-                       "every range of the file in hand, from the byte the foreground had reached")
-        XCTAssertEqual(Self.ranges(standIn.started, of: StubBuild.tokens), ["0-99", "100-199", "200-247"], "and the file that comes after it")
-        XCTAssertEqual(standIn.started.count, 8)
-        XCTAssertEqual(Self.ranges(standIn.delivered, of: Self.weights), ["0-99", "100-199"])
+        try await Self.wait("the hand-over") { standIn.started.count == 2 }
+        let part = install.folder.appendingPathComponent(Self.weights + ".part")
+        XCTAssertEqual(ModelInstaller.sizeOnDisk(part), 378, "what arrived before the leaving stays")
+        XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights), ["378-419"], "the rest of the weights, as one task")
+        let resume = try XCTUnwrap(standIn.requests.first { $0.url?.lastPathComponent == Self.weights })
+        XCTAssertEqual(resume.value(forHTTPHeaderField: "range"), "bytes=378-")
+        XCTAssertEqual(resume.value(forHTTPHeaderField: "if-range"), "\"one\"", "with the validator of the answer that started the file")
+        XCTAssertEqual(Self.ranges(standIn.started, of: StubBuild.tokens), ["0-247"], "and the file after it")
+        return (Running(install: install, call: call), standIn, handOver, build, storage)
+    }
 
-        // the app is back while six tasks are in flight: they are abandoned whole
-        handOver.set(away: false)
-        try await Self.wait("the later range in flight in the foreground") { held.withLock { $0.contains(300) } }
-        XCTAssertEqual(standIn.cancelled.count, 6, "the tasks that had not ended were cancelled: \(standIn.cancelled)")
-        XCTAssertEqual(client.abandoned.withLock { $0 }, 6, "and counted")
-
-        // the app leaves again, in the middle of the range that starts at byte 300; this time every task ends
-        standIn.finish(next: Int.max)
-        handOver.set(away: true)
+    /// SDK 4.0.2 (SPEC 16.7 item 3): what a 4.0.1 install left is completed, not thrown away: a partial file of 100 bytes
+    /// with its validator, a range a 4.0.1 background task delivered (bytes 200 to 299, kept beside it) and a 4.0.1 task
+    /// of bytes 300 to 399 still on its way. The app asks bytes 100 to 199 (up to the kept range), joins the kept range,
+    /// waits for the task and joins what it brings, then asks the rest from byte 400 to the end: nothing is asked twice,
+    /// nothing is cancelled, and the model opens.
+    func testWhatA401InstallLeftIsCompletedNotDiscarded() async throws {
+        let whole = try XCTUnwrap(StubBuild.data(Self.weights))
+        let build = StubBuild.serve()
+        let standIn = StandIn()
+        let install = try makeClient(CloudFixtures.storage(), standIn, .whenLeaving, DownloadHandOver())
+        defer { install.close() }
+        let part = install.folder.appendingPathComponent(Self.weights + ".part")
+        try whole.prefix(100).write(to: part)
+        try Data("\"one\"".utf8).write(to: ModelInstaller.validatorFile(part))
+        try whole.subdata(in: 200..<300).write(to: BackgroundRange.file(part: part, lower: 200))
+        let task = BackgroundRange(folder: install.relative, path: Self.weights, lower: 300, upper: 399, size: Int64(whole.count))
+        standIn.carry(task.key)
+        let call = Task { [install] in await install.model() }
+        try await Self.wait("the app at the 4.0.1 task's first byte") { ModelInstaller.sizeOnDisk(part) == 300 }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["100-199"], "up to the kept range, and no further while the task runs")
+        standIn.endInFlight()
         let got = await call.value
-        handOver.set(away: false)
-        // the two requests that were ended are no longer waited for by the stub
-        first.open()
-        later.open()
-        XCTAssertEqual(got.build, build, "the model opens: every file's hash is right (\(String(describing: got.error)))")
-        XCTAssertEqual(client.abandoned.withLock { $0 }, 6, "nothing more was abandoned")
-
-        // every range of the weights file exactly once: the foreground's that were served, and the background's that ended
-        let cut = StubProtocol.cancelled.withLock { Self.foreground($0, of: Self.weights) }
-        XCTAssertEqual(cut.sorted(), ["0-99", "300-399"], "the two foreground requests that were in flight at a hand-over were ended")
-        var served = Self.foreground(StubProtocol.seen, of: Self.weights)
-        for c in cut { if let i = served.firstIndex(of: c) { served.remove(at: i) } }
-        XCTAssertEqual(served, ["200-299"], "the foreground went on from the byte after the joined ranges, once")
-        let background = Self.ranges(standIn.delivered, of: Self.weights)
-        XCTAssertEqual(background, ["0-99", "100-199", "300-399", "400-419"])
-        XCTAssertEqual((served + background).sorted { (Int($0.split(separator: "-")[0]) ?? 0) < (Int($1.split(separator: "-")[0]) ?? 0) },
-                       ["0-99", "100-199", "200-299", "300-399", "400-419"], "the file's bytes, each fetched once")
-        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), [], "the file after it came by the background alone")
-        XCTAssertEqual(Self.ranges(standIn.delivered, of: StubBuild.tokens).sorted(), ["0-99", "100-199", "200-247"])
-        // nothing is left beside the installed files
-        let left = (fm.enumerator(atPath: storage.appendingPathComponent("models").path)?.compactMap { $0 as? String } ?? [])
-            .filter { $0.contains(".part") }
-        XCTAssertEqual(left, [], "no partial file and no kept range is left")
+        XCTAssertEqual(got.build, build, "\(String(describing: got.error))")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["100-199", "400-"], "the kept range and the task were joined, not asked again")
+        let asked = StubBuild.modelRequests.filter { StubBuild.path($0) == Self.weights }
+        XCTAssertTrue(asked.allSatisfy { $0.headers["if-range"] == "\"one\"" }, "each with the validator the 4.0.1 answer left")
+        XCTAssertEqual(standIn.cancelled, [])
+        XCTAssertEqual(install.abandoned.withLock { $0 }, 0)
+        XCTAssertEqual(install.core.installed.withLock { $0 }, StubBuild.files.map(\.path))
     }
 
     // MARK: every range by the background
@@ -282,7 +358,8 @@ final class BackgroundDownloadTests: XCTestCase {
         var got = await client.model()
         XCTAssertEqual(got.build, build, "\(String(describing: got.error))")
         XCTAssertEqual(StubBuild.fetched, [], "no file was asked for from the foreground")
-        XCTAssertGreaterThanOrEqual(standIn.delivered.count, 9, "every range: 1 + 5 + 3")
+        XCTAssertEqual(standIn.delivered.count, 3, "one task per file (SDK 4.0.2, SPEC 16.7)")
+        XCTAssertTrue(standIn.requests.allSatisfy { $0.value(forHTTPHeaderField: "range") == nil }, "each asks its whole file, with no Range")
         XCTAssertTrue(standIn.outcomes.allSatisfy { $0 == .placed }, "\(standIn.outcomes)")
         XCTAssertEqual(standIn.cancelled, [])
         client.close()
@@ -311,7 +388,7 @@ final class BackgroundDownloadTests: XCTestCase {
         let build = StubBuild.serve()
         let standIn = StandIn()
         standIn.answer { range in
-            if range.path == Self.weights, range.lower == 100 {
+            if range.path == Self.weights, range.lower == 0 {
                 // what another host would send in place of the range: the right length, other bytes
                 return StandIn.Answer(body: Data(repeating: 0x5a, count: Int(range.upper - range.lower + 1)), finalHost: "Elsewhere.Example")
             }
@@ -325,8 +402,8 @@ final class BackgroundDownloadTests: XCTestCase {
         let refusedBytes = standIn.outcomes.filter { $0 != .placed }
         XCTAssertFalse(refusedBytes.isEmpty)
         XCTAssertTrue(refusedBytes.allSatisfy { $0 == .redirected("elsewhere.example") }, "\(refusedBytes)")
-        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["100-199"],
-                       "the foreground fetched that range, and only it: the file did not start again")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["whole"],
+                       "the foreground fetched that file, once: the redirected bytes were never joined")
         XCTAssertEqual(Set(client.redirects.withLock { $0 }), ["model_redirected:elsewhere.example"], "the host, and nothing else of the address")
     }
 
@@ -359,7 +436,7 @@ final class BackgroundDownloadTests: XCTestCase {
         let held = Locked(false)
         return StubBuild.serve(cdn: { path, seen in
             var reply = StubBuild.served(path, seen)
-            if path == Self.weights, ModelDownloadTests.range(seen)?.lower == 0 {
+            if path == Self.weights, (ModelDownloadTests.range(seen)?.lower ?? 0) == 0 {
                 let first = held.withLock { (h: inout Bool) -> Bool in
                     defer { h = true }
                     return !h
@@ -370,52 +447,51 @@ final class BackgroundDownloadTests: XCTestCase {
         })
     }
 
-    /// The app resigns while the weights file's first range is in flight in the app, and is active again without
-    /// having been in the background (Control Center, a banner). The ranges after the app's own were handed to
-    /// background tasks at the resign; at the return they are cancelled and what they fetched is dropped and
-    /// counted. The app's own request was never cut. Twice: once with no task ended (nothing was fetched twice),
-    /// once with two tasks ended (their 200 bytes are dropped, and the app fetches those ranges itself).
+    /// The app resigns while the weights file's request is in flight in the app, and is active again without having
+    /// been in the background (Control Center, a banner). SDK 4.0.2: the app's request is the whole file (SPEC 16.7),
+    /// so the files after it are what is handed to background tasks at the resign; at the return they are cancelled
+    /// and what they fetched is dropped and counted. The app's own request was never cut. Twice: once with the task
+    /// in flight (nothing fetched twice), once with it ended (its 248 bytes are dropped, and the app fetches the file).
     func testResigningAndBeingActiveAgainCancelsTheTasksAndDropsWhatTheyFetched() async throws {
-        for ended in [0, 2] {
+        for ended in [0, 1] {
             let gate = StubProtocol.Gate()
             let build = try serveHoldingTheFirstRange(gate)
             let standIn = StandIn()
             let handOver = DownloadHandOver()
             let storage = CloudFixtures.storage()
             let client = try makeClient(storage, standIn, .whenResigning, handOver)
-                let call = Task { [client] in await client.model() }
-            try await Self.wait("the first range of the weights file in flight") { !Self.foreground(StubProtocol.seen, of: Self.weights).isEmpty }
+            let call = Task { [client] in await client.model() }
+            try await Self.wait("the weights' request in flight") { !Self.foreground(StubProtocol.seen, of: Self.weights).isEmpty }
             XCTAssertEqual(standIn.started, [], "nothing is handed over while the app is active")
             standIn.finish(next: ended)
             handOver.set(resigned: true)
-            try await Self.wait("the hand-over at the resign") { standIn.started.count >= 7 }
-            XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights), ["100-199", "200-299", "300-399", "400-419"],
-                           "the ranges after the one the app is fetching")
-            XCTAssertEqual(Self.ranges(standIn.started, of: StubBuild.tokens), ["0-99", "100-199", "200-247"], "and the file that comes after it")
+            try await Self.wait("the hand-over at the resign") { standIn.started.count >= 1 }
+            XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights), [], "the app's own file is the app's")
+            XCTAssertEqual(Self.ranges(standIn.started, of: StubBuild.tokens), ["0-247"], "the file that comes after it")
             XCTAssertEqual(StubProtocol.cancelled.withLock { $0.count }, 0, "the app's own request is not cut at the resign")
             handOver.set(resigned: false)
-            try await Self.wait("the tasks cancelled") { standIn.cancelled.count == 7 - ended }
             let dropped = client.dropped
-            try await Self.wait("the dropped bytes counted") { dropped.withLock { $0.tasks } == 7 - ended }
-            XCTAssertEqual(dropped.withLock { $0.bytes }, Int64(ended * 100), "ended \(ended): the bytes the tasks had fetched")
+            try await Self.wait("the task cancelled and its bytes dropped") {
+                standIn.cancelled.count == 1 - ended && dropped.withLock { $0.bytes } == Int64(ended * 248)
+            }
+            XCTAssertEqual(dropped.withLock { $0.tasks }, 1 - ended, "ended \(ended): the tasks cancelled")
             let keptLeft = (fm.enumerator(atPath: storage.appendingPathComponent("models").path)?.compactMap { $0 as? String } ?? [])
                 .filter { $0.contains(".part.r") }
-            XCTAssertEqual(keptLeft, [], "ended \(ended): what the tasks fetched is dropped")
+            XCTAssertEqual(keptLeft, [], "ended \(ended): what the task fetched is dropped")
             XCTAssertEqual(StubProtocol.cancelled.withLock { $0.count }, 0, "ended \(ended): the app's own request is untouched")
             gate.open()
             let got = await call.value
             client.close()
             XCTAssertEqual(got.build, build, "ended \(ended): \(String(describing: got.error))")
-            XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["0-99", "100-199", "200-299", "300-399", "400-419"],
-                           "ended \(ended): the app fetched every range itself, each once")
+            XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["whole"], "ended \(ended): the app fetched its file, once")
+            XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), ["whole"], "ended \(ended): and the file after it")
             XCTAssertEqual(client.abandoned.withLock { $0 }, 0, "ended \(ended): nothing was a return from the background")
-            XCTAssertEqual(standIn.started.count, 7, "ended \(ended): nothing was handed over again")
+            XCTAssertEqual(standIn.started.count, 1, "ended \(ended): nothing was handed over again")
         }
     }
 
-    /// The app resigns while the first range is in flight, and then enters the background. The app's request is
-    /// not cut: it ends with its range. Every range after it is the background's, and each range of the file was
-    /// fetched once: the first by the app, the others by a background task.
+    /// The app resigns while the weights file's request is in flight, and then enters the background. The app's
+    /// request is not cut: it ends with the file. The file after it is the background's, fetched once by its task.
     func testResigningAndEnteringTheBackgroundLeavesTheRestToTheTasks() async throws {
         let gate = StubProtocol.Gate()
         let build = try serveHoldingTheFirstRange(gate)
@@ -424,9 +500,9 @@ final class BackgroundDownloadTests: XCTestCase {
         let client = try makeClient(CloudFixtures.storage(), standIn, .whenResigning, handOver)
         defer { client.close() }
         let call = Task { [client] in await client.model() }
-        try await Self.wait("the first range of the weights file in flight") { !Self.foreground(StubProtocol.seen, of: Self.weights).isEmpty }
+        try await Self.wait("the weights' request in flight") { !Self.foreground(StubProtocol.seen, of: Self.weights).isEmpty }
         handOver.set(resigned: true)
-        try await Self.wait("the hand-over at the resign") { standIn.started.count >= 7 }
+        try await Self.wait("the hand-over at the resign") { standIn.started.count >= 1 }
         handOver.set(away: true)
         try await Task.sleep(nanoseconds: 200_000_000)
         XCTAssertEqual(StubProtocol.cancelled.withLock { $0.count }, 0, "the app's request is not cut when the app enters the background")
@@ -435,16 +511,16 @@ final class BackgroundDownloadTests: XCTestCase {
         handOver.set(away: false)
         handOver.set(resigned: false)
         XCTAssertEqual(got.build, build, "\(String(describing: got.error))")
-        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["0-99"], "the app fetched the range it was in, and no other")
-        XCTAssertEqual(Self.ranges(standIn.delivered, of: Self.weights), ["100-199", "200-299", "300-399", "400-419"], "the rest came by the tasks, each once")
-        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), [], "the file after it came by the tasks alone")
-        XCTAssertEqual(standIn.started.count, 7, "no range was handed over twice")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["whole"], "the app fetched the file it was in, and no other")
+        XCTAssertEqual(Self.ranges(standIn.delivered, of: StubBuild.tokens), ["0-247"], "the file after it came by its task, once")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), [], "and by the task alone")
+        XCTAssertEqual(standIn.started.count, 1, "nothing was handed over twice")
         XCTAssertEqual(standIn.cancelled, [])
         XCTAssertEqual(client.dropped.withLock { $0.tasks }, 0)
     }
 
-    /// Resign, active again, resign again, then the background: the first hand-over's tasks are cancelled (none had
-    /// ended), the second's carry the rest, and each range of the file was fetched once.
+    /// Resign, active again, resign again, then the background: the first hand-over's task is cancelled (it had not
+    /// ended), the second's carries the file after the app's, and each file was fetched once.
     func testResigningTwiceHandsOverAgainAndNoRangeIsFetchedTwice() async throws {
         let gate = StubProtocol.Gate()
         let build = try serveHoldingTheFirstRange(gate)
@@ -453,28 +529,28 @@ final class BackgroundDownloadTests: XCTestCase {
         let client = try makeClient(CloudFixtures.storage(), standIn, .whenResigning, handOver)
         defer { client.close() }
         let call = Task { [client] in await client.model() }
-        try await Self.wait("the first range of the weights file in flight") { !Self.foreground(StubProtocol.seen, of: Self.weights).isEmpty }
+        try await Self.wait("the weights' request in flight") { !Self.foreground(StubProtocol.seen, of: Self.weights).isEmpty }
         standIn.finish(next: 0)
         handOver.set(resigned: true)
-        try await Self.wait("the first hand-over") { standIn.started.count >= 7 }
+        try await Self.wait("the first hand-over") { standIn.started.count >= 1 }
         handOver.set(resigned: false)
-        try await Self.wait("the first hand-over's tasks cancelled") { standIn.cancelled.count == 7 }
+        try await Self.wait("the first hand-over's task cancelled") { standIn.cancelled.count == 1 }
         standIn.finish(next: Int.max)
         handOver.set(resigned: true)
-        try await Self.wait("the second hand-over") { standIn.started.count >= 14 }
+        try await Self.wait("the second hand-over") { standIn.started.count >= 2 }
         handOver.set(away: true)
         gate.open()
         let got = await call.value
         handOver.set(away: false)
         handOver.set(resigned: false)
         XCTAssertEqual(got.build, build, "\(String(describing: got.error))")
-        XCTAssertEqual(standIn.started.count, 14)
-        XCTAssertEqual(standIn.cancelled.count, 7, "only the first hand-over's tasks were cancelled")
-        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["0-99"])
-        XCTAssertEqual(Self.ranges(standIn.delivered, of: Self.weights), ["100-199", "200-299", "300-399", "400-419"], "each range once, by a task that ended")
+        XCTAssertEqual(standIn.started.count, 2)
+        XCTAssertEqual(standIn.cancelled.count, 1, "only the first hand-over's task was cancelled")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["whole"])
+        XCTAssertEqual(Self.ranges(standIn.delivered, of: StubBuild.tokens), ["0-247"], "the file after it once, by a task that ended")
         XCTAssertEqual(StubProtocol.cancelled.withLock { $0.count }, 0, "the app's own request was never cut")
         let dropped = client.dropped.withLock { $0 }
-        XCTAssertEqual(dropped.tasks, 7)
+        XCTAssertEqual(dropped.tasks, 1)
         XCTAssertEqual(dropped.bytes, 0, "no byte was fetched twice")
     }
 
@@ -526,7 +602,7 @@ final class BackgroundDownloadTests: XCTestCase {
             got = await client.model()
             client.close()
             XCTAssertEqual(got.build, build, "\(what): \(String(describing: got.error))")
-            XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights).first, "50-149", "\(what): the next call goes on from the partial file")
+            XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights).first, "50-", "\(what): the next call goes on from the partial file")
         }
     }
 
@@ -560,6 +636,30 @@ final class BackgroundDownloadTests: XCTestCase {
     }
 
     // MARK: what becomes of a finished range
+
+    /// SDK 4.0.2 (SPEC 16.7): a task for a whole file asks it with no Range: its 200 of the file's length is kept at
+    /// byte 0, and one of another length is not. A 200 to a task for the rest of a file (`bytes=N-`) is no answer to it.
+    func testAWholeFileTaskIsKeptFromItsTwoHundred() throws {
+        let storage = CloudFixtures.storage()
+        let folder = "models/v4.0/.download-test"
+        try fm.createDirectory(at: storage.appendingPathComponent(folder), withIntermediateDirectories: true)
+        let sink = RangeDelivery.Sink(storage: storage, refused: { _ in }, redirected: { _ in })
+        let asked = try XCTUnwrap(URL(string: "https://cdn.test/Quran-Lab/tajweedformer-v4/abc/sdk/v4.0/layers.zfw.qle"))
+        func deliver(_ range: BackgroundRange, _ count: Int) throws -> RangeDelivery.Outcome {
+            let file = fm.temporaryDirectory.appendingPathComponent("whole-" + UUID().uuidString)
+            try Data(repeating: 7, count: count).write(to: file)
+            return RangeDelivery.deliver(RangeDelivery.Arrival(body: file, key: range.key, status: 200, asked: asked, final: asked, redirects: 0,
+                                                               contentRange: nil), sink: sink)
+        }
+        let whole = BackgroundRange(folder: folder, path: "layers.zfw.qle", lower: 0, upper: 419, size: 420)
+        XCTAssertNotEqual(try deliver(whole, 419), .placed, "a 200 shorter than the file")
+        XCTAssertEqual(try deliver(whole, 420), .placed)
+        let part = BackgroundRange.part(storage.appendingPathComponent(folder), whole.path)
+        XCTAssertEqual(BackgroundRange.kept(beside: part).map { $0.lower }, [0])
+        let rest = BackgroundRange(folder: folder, path: "layers.zfw.qle", lower: 100, upper: 419, size: 420)
+        XCTAssertNotEqual(try deliver(rest, 420), .placed, "a whole file in place of the rest of it")
+        XCTAssertEqual(BackgroundRange.kept(beside: part).map { $0.lower }, [0])
+    }
 
     func testARangeIsKeptOnlyAsTheBytesOfItsRangeFromTheAddressItWasAskedOf() throws {
         let storage = CloudFixtures.storage()
@@ -688,7 +788,7 @@ final class BackgroundDownloadTests: XCTestCase {
             let what = "the flag is \(flag.map { String($0) } ?? "absent")"
             XCTAssertEqual(got.build, build, "\(what): \(String(describing: got.error))")
             let handed = standIn.requests
-            XCTAssertGreaterThan(handed.count, 5, what)
+            XCTAssertEqual(handed.count, StubBuild.files.count, "\(what): one task per file")
             XCTAssertTrue(handed.allSatisfy { $0.value(forHTTPHeaderField: "authorization") == "Bearer qlt_v1.eyJ2IjoxfQ.sig" }, "\(what): every background task carries the token")
             XCTAssertTrue(handed.allSatisfy { ($0.value(forHTTPHeaderField: "x-qlab-key") != nil) == sendsKey }, "\(what): the key on a background task")
             let own = StubBuild.modelRequests
@@ -772,7 +872,7 @@ final class BackgroundDownloadTests: XCTestCase {
         defer { client.close() }
         let got = await client.model()
         XCTAssertEqual(got.build, build, "\(String(describing: got.error))")
-        XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights).filter { $0 == "0-99" }.count, 2, "the missing range was handed over a second time")
+        XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights).filter { $0 == "0-419" }.count, 2, "the missing file was handed over a second time")
         let firstHanded = try XCTUnwrap(standIn.started.first.flatMap { BackgroundRange(key: $0) })
         XCTAssertEqual(standIn.started.filter { $0 == firstHanded.key }.count, 2, "also the first range of the file that was in hand at the first hand-over")
         XCTAssertEqual(StubBuild.fetched, [], "the foreground asked for no file while the app was away")

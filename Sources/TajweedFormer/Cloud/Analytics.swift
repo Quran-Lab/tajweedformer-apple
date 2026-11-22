@@ -129,6 +129,8 @@ enum AnalyticsEvent: Sendable, Hashable {
                   failure: DownloadFailure? = nil)
     /// The Neural Engine's promotion pipeline and in-session failovers (telemetry `promotions`).
     case promotion(PromotionTelemetry)
+    /// SDK 4.0.2 (STEERING_40 34.6): one model request to a `models` host, for the per-host download counts.
+    case modelHost(ModelHostSample)
 }
 
 /// Receives every analytics event besides the SDK's own daily aggregates. Called on the recognition path: return
@@ -170,6 +172,11 @@ enum DownloadFailure: String, Sendable, CaseIterable {
 /// Tried and rejected: one payload per completed day (2.0.0: a day's sessions reached the portal a day late);
 /// re-sending the whole day so far at each send point (the server would count every send).
 final class AnalyticsStore: Sendable {
+    /// SDK 4.0.2 (STEERING_40 34.6): whether the daily telemetry carries `hosts`. On: qlab-api takes `hosts` on
+    /// `POST /v1/events` since 2026-11-21 (version 78b54062; anything but 34.6's entries is a 400). Off, the counts are
+    /// still measured and kept with the day, and left out of its delta; turning it off is this one line.
+    static let sendsHostCounts = Locked(true)
+
     struct Cohort: Codable, Equatable {
         var cohort: TelemetryCohort
         var sessions = 0, minutes = 0.0, chunks = 0, aborted = 0
@@ -267,10 +274,15 @@ final class AnalyticsStore: Sendable {
         /// SDK 4.0: `ayahs` and `surah_ayahs` above are MEASURED from 4.0 on (17.1); the app's counts, the app's
         /// judgement and the new automatic counters are here.
         var v4: RecitedDay?
+        /// SDK 4.0.2 (STEERING_40 34.6): the download counts of each `models` host this day, by host (at most 8). Sent as
+        /// `hosts` while `AnalyticsStore.sendsHostCounts` is on (it is); off, they are left out of the day's delta when it
+        /// is sealed.
+        var hosts: [String: HostCount]?
 
         var isEmpty: Bool {
             cohorts.isEmpty && coverage.isEmpty && downloads.isEmpty && launches == 0 && ayahs == 0 && surahAyahs.isEmpty && words == 0
                 && ruleChecks.isEmpty && shareAsked == 0 && shareYes == 0 && shareNo == 0 && promotions.isEmpty && (v4?.isEmpty ?? true)
+                && ((hosts?.isEmpty ?? true) || !AnalyticsStore.sendsHostCounts.withLock { $0 })
         }
     }
 
@@ -489,6 +501,16 @@ final class AnalyticsStore: Sendable {
                 if !ok, let failure { x.failureReasons = (x.failureReasons ?? [:]).merging([failure.rawValue: 1], uniquingKeysWith: +) }
                 d.downloads[k] = x
             }
+        case .modelHost(let sample):
+            // hosts of the allow-list only (28.1), at most 8 a day, by their lower-case name
+            let host = Endpoints.asciiLower(sample.host)
+            guard Endpoints.hostAllowed(host) else { return }
+            mutate { d, _ in
+                var m = d.hosts ?? [:]
+                guard m[host] != nil || m.count < HostCount.perDay else { return }
+                m[host, default: HostCount()].add(sample)
+                d.hosts = m
+            }
         case .promotion(let t):
             let k = "\(t.backend)|\(t.revision)|\(t.build)|\(t.context)"
             mutate { d, _ in
@@ -675,6 +697,11 @@ final class AnalyticsStore: Sendable {
         if d.shareNo > 0 { p["share_no"] = Self.clip(d.shareNo) }
         let promotions = Self.promotions(d.promotions)
         if !promotions.isEmpty { p["promotions"] = promotions }
+        // SDK 4.0.2 (STEERING_40 34.6): behind its switch (on)
+        if Self.sendsHostCounts.withLock({ $0 }), let h = d.hosts {
+            let hosts = HostCount.body(h)
+            if !hosts.isEmpty { p["hosts"] = hosts }
+        }
         return p
     }
 

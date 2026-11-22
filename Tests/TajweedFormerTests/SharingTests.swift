@@ -475,6 +475,23 @@ final class SharingTests: XCTestCase {
         XCTAssertFalse(left.contains { $0.hasSuffix(".opus") }, "the audio goes once uploaded")
     }
 
+    /// SDK 4.0.2, no_wait_40.json `sharing_upload_metered`: with the system reporting a metered network, a finished
+    /// shared recording uploads (no upload waits for a kind of network): the start and both segments' PUTs go out, none
+    /// with a network condition.
+    func testASharedRecordingUploadsOnAMeteredNetwork() async throws {
+        ConnectionKind.override.withLock { $0 = { .metered } }
+        defer { ConnectionKind.override.withLock { $0 = nil } }
+        let server = Server()
+        StubProtocol.reset(server.handler)
+        let cloud = await configure(server)
+        try await session(seconds: 25)
+        let item = try await settle(cloud.outbox)[0]
+        XCTAssertEqual(item.segments, 2)
+        XCTAssertEqual(Self.starts.count, 1)
+        XCTAssertEqual(Self.puts.count, 2, "both segments went up")
+        XCTAssertEqual(StubProtocol.seen.filter { !$0.allowsExpensive || !$0.allowsConstrained }.map(\.path), [])
+    }
+
     /// A session from a 44.1 kHz input: coded at 48 kHz, and the header and OpusHead both say the
     /// audio was captured at 44.1 kHz.
     func testA441kHzSessionRecordsItsInputRate() async throws {

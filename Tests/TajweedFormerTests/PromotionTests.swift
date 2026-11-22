@@ -28,6 +28,8 @@ final class PromotionTests: XCTestCase {
         /// The signed config's `flags.accel_min_speedup`, and this SDK's version.
         let minSpeedup = Locked<Double?>(nil)
         let sdk = Locked("4.0.0")
+        /// SDK 4.0.2 (21.6): what `qlc_accel_allowed` answers for the lease in force (nil: no lease, the Core cannot say).
+        let leaseAllows = Locked<Bool?>(nil)
 
         func env(revision: String = "r1", os: String = "23A100", device: String = "iPhone17,1", launch: String = "L1",
                  timeouts: AcceleratorController.Timeouts = .init()) -> AcceleratorController.Environment {
@@ -35,7 +37,7 @@ final class PromotionTests: XCTestCase {
             var e = AcceleratorController.Environment(
                 revision: revision, osBuild: os, deviceModel: device, context: "c16_l64", build: "coreml", storage: storage, launch: launch,
                 clock: { now.withLock { $0 } }, sleep: { _ in await Task.yield() },
-                conditions: { _ in cond.withLock { $0 } }, maxConditionWaits: 2,
+                conditions: { cond.withLock { $0 } }, maxConditionWaits: 2,
                 thermal: { .nominal }, denied: { den.withLock { $0 } },
                 record: { e in ev.withLock { $0.append(e) } }, incident: { i in inc.withLock { $0.append(i) } },
                 cohort: { PromotionTests.cohort })
@@ -45,6 +47,8 @@ final class PromotionTests: XCTestCase {
             let ms = self.minSpeedup
             e.minSpeedup = { ms.withLock { $0 } }
             e.sdkVersion = sdk.withLock { $0 }
+            let la = self.leaseAllows
+            e.acceleratorAllowed = { la.withLock { $0 } }
             return e
         }
 
@@ -519,7 +523,6 @@ final class PromotionTests: XCTestCase {
             PromotionConditions(lowPower: true),
             PromotionConditions(battery: 0.1, charging: false),
             PromotionConditions(thermal: .serious),
-            PromotionConditions(unmetered: false),
         ]
         for (i, cond) in bad.enumerated() {
             h = Harness()
@@ -535,11 +538,22 @@ final class PromotionTests: XCTestCase {
             XCTAssertEqual(c.state, .ready, "resumes in the same launch once conditions are good")
             XCTAssertEqual(c.record?.attempts, 1)
         }
-        // low battery while charging is fine; a metered network only holds the download
+        // low battery while charging is fine
         XCTAssertNil(PromotionConditions(battery: 0.1, charging: true).blocker(for: .compile))
-        XCTAssertNil(PromotionConditions(unmetered: false).blocker(for: .golden))
-        XCTAssertNotNil(PromotionConditions(unmetered: false).blocker(for: .download))
         XCTAssertNil(PromotionConditions(thermal: .fair).blocker(for: .golden))
+    }
+
+    /// SDK 4.0.2, no_wait_40.json `accelerator_metered`: with the system reporting a metered network, the pipeline's
+    /// download stage runs and the attempt goes on to the promotion; no condition of the pipeline is the network's
+    /// (the one the device reports now holds no stage either).
+    func testTheDownloadStageGoesOnOnAMeteredNetwork() async {
+        ConnectionKind.override.withLock { $0 = { .metered } }
+        defer { ConnectionKind.override.withLock { $0 = nil } }
+        let c = h.controller(revision: "metered")
+        await c.run(h.stages())
+        XCTAssertEqual(h.count("download"), 1)
+        XCTAssertEqual(c.state, .ready)
+        XCTAssertEqual(c.record?.failures, 0)
     }
 
     func testASessionDuringTheGoldenTestAbortsItWithoutAFailure() async {

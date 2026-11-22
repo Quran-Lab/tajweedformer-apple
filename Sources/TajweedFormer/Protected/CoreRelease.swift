@@ -9,6 +9,15 @@ import Foundation
 enum CoreRelease {
     static let release = "4.0.0-c3"
     static let core = "quranlab-core f006676"
+    /// SDK 4.0.2: the SwiftPM checksum (SHA-256) of the published QuranLabCore.xcframework.zip, the release tools'
+    /// `--core-checksum`. The binaries are the c3 ones 4.0.0 and 4.0.1 shipped, byte for byte (`slices`); only each
+    /// slice's Info.plist changed (`scripts/build_core_xcframework.py --repack`): `CFBundleVersion` is the build number
+    /// 3, which App Store Connect requires to be up to three period-separated integers (it refused "4.0.0-c3"), and the
+    /// release is in `QLCoreRelease`. 4.0.0 and 4.0.1 shipped
+    /// 5a3bfa4223c8887f04d544e8e5c73b6ad74c9b947d8fa0c70df151f49c42d797.
+    static let xcframeworkZip = "c0ff71dbd6c2c99308507da1827c02d0735e9d7b21faa7610cd35abab80a0706"
+    /// The build number in the Core framework's `CFBundleVersion` (`--repack`'s `bundle_version`: the n of "-cn").
+    static let bundleVersion = "3"
 
     struct Slice: Sendable, Equatable {
         /// The integrity digest in the server's `core_releases` row for this target.

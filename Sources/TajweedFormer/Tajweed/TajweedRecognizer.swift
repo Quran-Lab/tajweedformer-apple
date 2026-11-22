@@ -298,6 +298,7 @@ actor TajweedRecognizer {
             program: AcceleratorController.programKey(model.manifest, context: ctx, compact: compact),
             storage: QuranLab.configuration.storageDirectory.appendingPathComponent("accelerator"),
             denied: { QuranLab.cloud?.acceleratorDenied(revision: version.isEmpty ? identity : version) },
+            acceleratorAllowed: { ProtectedRuntime.current.withLock { $0 }?.acceleratorAllowed() },
             minSpeedup: { QuranLab.cloud?.currentConfig?.flags.accel_min_speedup },
             record: { QuranLab.record($0) },
             // kept on the device even without a Quran Lab client (sent once one is configured with a key)
@@ -312,6 +313,8 @@ actor TajweedRecognizer {
         }
         #endif
         AcceleratorRegistry.add(registryID) { [weak self] in await self?.runPipeline() }
+        // 21.6 item 2: at every lease the Core accepts, a key a lease without accelerator programs held goes on
+        AcceleratorRegistry.watchLease(registryID) { [weak self] in await self?.leaseAccepted() }
         if controller.record?.status == .ready {
             // promoted in an earlier launch: load and warm it now, so the first session normally starts on it
             startPipeline(priority: .utility)
@@ -354,6 +357,14 @@ actor TajweedRecognizer {
         let left = timeout - Date().timeIntervalSince(start)
         if left > 0, c.state == .preparing { _ = await c.awaitReady(timeout: left) }
         return backendNext
+    }
+
+    /// A lease was accepted (21.6 item 2): when it was the lease that held this key (or the deny list), the pipeline
+    /// runs again, which asks the lease first: a key never tried starts its attempt, an attempt goes on where it stood,
+    /// a promoted key loads its build again (no golden test). A key nothing held is left to its own triggers.
+    func leaseAccepted() {
+        guard let c = controllerBox.withLock({ $0 }), c.record?.denied == true else { return }
+        startPipeline(priority: .utility)
     }
 
     private func idleDelayPassed() {
@@ -401,9 +412,13 @@ actor TajweedRecognizer {
                 if m.coreML(context: ctx, compact: compact) != nil { return }
                 guard let cloud = QuranLab.cloud else { throw PromotionFailure(.network, "no Quran Lab cloud to download the CoreML build from") }
                 // R2: the accelerator build (110 to 167 MB) only when the lease in force allows accelerator programs
-                // (flags bit 3, qlc_accel_allowed); a lease that does not is not a failure of the device
+                // (flags bit 3, qlc_accel_allowed). The controller asks before the attempt (21.6); a lease that changed
+                // since is not a failure either. Tried before (4.0.1): this was a counted failure of the download stage,
+                // so after the backoff list the key was `failed`, also once a later lease allowed programs
                 if ProtectedRuntime.current.withLock({ $0 })?.acceleratorAllowed() == false {
-                    throw PromotionFailure(.denylist, "lease_no_accel: the lease in force does not allow accelerator programs")
+                    var f = PromotionFailure(.denylist, "the lease in force does not allow accelerator programs")
+                    f.leaseNoAccel = true
+                    throw f
                 }
                 let updated = try await Self.downloadAccelerator(m, context: ctx, compact: compact) {
                     (folder: ModelFolder) async throws(RecognizerError) -> Void in
@@ -459,6 +474,12 @@ actor TajweedRecognizer {
 
     /// Why the Core left this device on the CPU engine, as the promotion records it.
     static func prepareFailure(_ e: RecognizerError) -> PromotionFailure {
+        // 21.6: the Core refused the prepare or the load for the lease in force (QLC_E_LEASE, QLC_D_LEASE_NO_ACCEL)
+        if case .neuralEngineUnavailable(let why) = e, why.hasPrefix(CoreFailure.leaseNoAccelText) {
+            var f = PromotionFailure(.loadError, why)
+            f.leaseNoAccel = true
+            return f
+        }
         switch e {
         case .offline: return PromotionFailure(.network, "\(e)")
         case .storageFailed, .insufficientStorage: return PromotionFailure(.storage, "\(e)")
@@ -691,6 +712,8 @@ actor TajweedRecognizer {
             endLease()
             throw error
         }
+        // SDK 4.0.2: the take holds its model from here, not from its first push (an install in between closed it)
+        runner.holdModel()
         if exec != nil && !runner.onAccelerator { endLease() }
         activeBackend = runner.onAccelerator ? .neuralEngine : .exact
         takeOpen = true
@@ -900,6 +923,8 @@ actor TajweedRecognizer {
         let hadAudio = takeSamples.values.contains { $0 > 0 }
         lastTakeHadAudio = hadAudio
         if let runner {
+            // SDK 4.0.2: the take's hold on its model ends (finished, cancelled or failed): an install goes ahead
+            runner.letGoModel()
             // a cancelled take's verification stops; a session on the build adds its warm chunk times and counts the
             // blank suspicions the CPU engine confirmed as correct
             runner.dropVerification()

@@ -103,6 +103,10 @@ struct PromotionFailure: Error, Sendable, Equatable {
     /// The self-test clip that failed and how far it diverged (golden).
     var clip: String?
     var divergence: Divergence?
+    /// SDK 4.0.2 (ACCEL_40.md 21.6): the lease in force does not allow accelerator programs (`qlc_accel_allowed` 0, or
+    /// the Core's `QLC_E_LEASE` with `QLC_D_LEASE_NO_ACCEL`). Not a failure of the build or the device: the controller
+    /// takes the deny list's path (`noteDenied`), and nothing is counted. No reason of its own (21.2's list is closed).
+    var leaseNoAccel = false
 
     init(_ reason: PromotionReason, _ detail: String, errorDomain: String? = nil, errorCode: String? = nil, clip: String? = nil,
          divergence: Divergence? = nil) {
@@ -595,6 +599,49 @@ struct PromotionStore: Sendable {
         return back.sorted()
     }
 
+    // MARK: the upgrade to 4.0.2
+
+    var migrated402URL: URL { dir.appendingPathComponent("migrated-4.0.2") }
+
+    /// Once per store (a marker file written after it), ACCEL_40.md 21.6 item 4: a key whose last failure was a lease
+    /// that did not allow accelerator programs (4.0.1 counted it: `lastReason` `denylist`, a `lastDetail` naming
+    /// `lease_no_accel`, stored as "download: lease_no_accel: ..."), in `retry` or `failed`, goes back to `pending`:
+    /// its failure count, its backoff and its `failed` state are cleared, and a new attempt may start. A key that ended
+    /// for any other reason keeps its verdict. Returns the keys given back.
+    @discardableResult
+    func migrate402() -> [String] {
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        guard !FileManager.default.fileExists(atPath: migrated402URL.path) else { return [] }
+        var all = read()
+        var back: [String] = []
+        for (k, r0) in all where Self.isLeaseNoAccel401(r0) {
+            var r = r0
+            r.status = .pending
+            r.failures = 0
+            r.notBefore = nil
+            r.completed = nil
+            r.attemptStarted = nil
+            r.launch = nil
+            r.lastStage = nil
+            r.lastReason = nil
+            r.lastDetail = nil
+            r.denied = false
+            r.downloadStops = nil
+            all[k] = r
+            back.append(k)
+        }
+        if !back.isEmpty { write(all) }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? Data("4.0.2\n".utf8).write(to: migrated402URL, options: .atomic)
+        return back.sorted()
+    }
+
+    /// A record 4.0.1 ended (in `retry` or `failed`) for a lease without accelerator programs.
+    static func isLeaseNoAccel401(_ r: PromotionRecord) -> Bool {
+        (r.status == .retry || r.status == .failed) && r.lastReason == .denylist && (r.lastDetail?.contains(AcceleratorController.leaseNoAccel) ?? false)
+    }
+
     /// A 2.0.1 record (not promoted now) whose demotion or off-for-good came from a blank or deadline failover.
     static func isBlankOrDeadline201(_ r: PromotionRecord) -> Bool {
         guard r.status != .ready, r.lastReason == .failover, let d = r.lastDetail else { return false }
@@ -620,14 +667,14 @@ struct PromotionConditions: Sendable, Equatable {
     var battery: Float?        // 0...1, nil when unknown or no battery
     var charging = false
     var thermal: ProcessInfo.ThermalState = .nominal
-    var unmetered = true
 
-    /// Nil when the pipeline may run a stage (`download` also needs an unmetered network); else why it waits.
+    /// Nil when the pipeline may run a stage; else why it waits. The same for every stage. SDK 4.0.2 (section 33): no
+    /// network condition, the `download` stage goes on whatever network the device has (to 4.0.1 it waited for an
+    /// unmetered one).
     func blocker(for stage: PromotionStage) -> String? {
         if lowPower { return "Low Power Mode" }
         if let b = battery, b >= 0, b < PromotionPolicy.minimumBattery, !charging { return "battery below 20 %" }
         if thermal == .serious || thermal == .critical { return "thermal state" }
-        if stage == .download && !unmetered { return "a metered network" }
         return nil
     }
 
@@ -641,15 +688,14 @@ struct PromotionConditions: Sendable, Equatable {
         }
     }
 
-    /// The device now. The network check runs only when `network` is true (it waits for a path update).
-    static func current(network: Bool) async -> PromotionConditions {
+    /// The device now: power, battery and thermal state (never the network).
+    static func current() async -> PromotionConditions {
         var c = PromotionConditions()
         c.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         c.thermal = ProcessInfo.processInfo.thermalState
         let (level, charging) = await battery()
         c.battery = level
         c.charging = charging
-        if network { c.unmetered = await ModelUpdater.onUnmeteredNetwork() }
         return c
     }
 

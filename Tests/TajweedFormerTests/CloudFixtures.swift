@@ -14,6 +14,9 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         var offline = false
         /// The connection ends after this many bytes of the body (the answer's headers and those bytes arrive).
         var breakAfter: Int?
+        /// This many bytes of the body arrive, and the connection then stays open with no more until its sender
+        /// cancels it (a transfer the app's leaving ends where it stands).
+        var stallAfter: Int?
         /// The answer waits behind this gate: the request stays in flight until the gate opens (an upload the
         /// server has not answered yet), or until its sender cancels it.
         var hold: Gate?
@@ -108,7 +111,11 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         let asked = seen
         Self.log.withLock { $0.append(asked) }
         let reply = Self.handler?(asked) ?? Reply(status: 404)
-        guard let gate = reply.hold else { return answer(reply) }
+        guard let gate = reply.hold else {
+            // a stalled answer is in flight until its sender cancels it, and is then counted as cancelled
+            if reply.stallAfter != nil { waiting.withLock { $0 = asked } }
+            return answer(reply)
+        }
         // held: the request is in flight until the gate opens; a sender that cancels it meanwhile gets no answer
         waiting.withLock { $0 = asked }
         DispatchQueue.global().async { [self] in
@@ -171,6 +178,10 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         }
         let r = HTTPURLResponse(url: request.url!, statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
         client?.urlProtocol(self, didReceive: r, cacheStoragePolicy: .notAllowed)
+        if let n = reply.stallAfter {
+            client?.urlProtocol(self, didLoad: Data(reply.body.prefix(max(0, n))))
+            return
+        }
         if let n = reply.breakAfter {
             // the connection ends in the middle of the body: the bytes arrive, and a moment later the connection
             // is gone (a request that is failed in the same instant hands its sender none of the bytes)
@@ -206,6 +217,10 @@ struct FakeAttester: AppAttesting {
         var lost: Set<String> = []
         var attestations = 0
         var assertions = 0
+        /// SDK 4.0.2: what `attestKey` throws while it is set (Apple's throttling: `DCError(.serverUnavailable)`), and the
+        /// calls of it that threw.
+        var attestError: (any Error)?
+        var attestRefused = 0
         /// Assertions under way at once, and the most seen.
         var concurrent = 0
         var maxConcurrent = 0
@@ -222,6 +237,10 @@ struct FakeAttester: AppAttesting {
     }
 
     func attestKey(_ keyID: String, clientDataHash: Data) async throws -> Data {
+        if let e = state.with({ s -> (any Error)? in
+            if s.attestError != nil { s.attestRefused += 1 }
+            return s.attestError
+        }) { throw e }
         state.with { $0.attestations += 1 }
         return Data("attestation-over-".utf8) + clientDataHash
     }
@@ -310,9 +329,8 @@ enum CloudFixtures {
         QuranLab.Options(modelSource: [.cache], updates: updates, storageDirectory: storage,
                          cloud: CloudOptions(apiURL: api, cdnURL: cdnURL,
                                              signingKeys: signingKeys ?? [signer.publicKey.rawRepresentation],
-                                             updatesOnWiFiOnly: false,
                                              app: app, urlSession: StubProtocol.session(),
-                                             rangeSize: 1000, retryPauses: [0, 0, 0, 0, 0]),
+                                             retryPauses: [0, 0, 0, 0, 0]),
                          contributions: contributions)
     }
 
@@ -324,10 +342,9 @@ enum CloudFixtures {
     static func cloud(storage: URL, options: QuranLab.Options? = nil, attester: any AppAttesting = FakeAttester(isSupported: false),
                       attestKeys: any AttestKeyStoring = MemoryAttestKeyStore(),
                       installKeys: any InstallKeyStoring = CloudFixtures.installKeys,
-                      networkAllowed: (@Sendable (Bool) async -> Bool)? = { _ in true },
                       clock: @escaping @Sendable () -> Date = { Date() }) -> QuranLabCloud {
         QuranLabCloud(key: key, options: options ?? Self.options(), storage: storage, attester: attester, attestKeys: attestKeys,
-                      installKeys: installKeys, networkAllowed: networkAllowed, clock: clock)
+                      installKeys: installKeys, clock: clock)
     }
 
     /// A signed config body and its headers.

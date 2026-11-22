@@ -216,6 +216,21 @@ extension ErrorCause {
     }
 }
 
+extension TajweedError.Cause {
+    /// The cause the app's error carries when a failure with cause `c` gives the app `code`: the
+    /// tokens of its report, each through 24.2's pattern (a value that does not match is left out; the internal cause's
+    /// strings may come from a server's answer); on `needs_connection` what it needs (`ErrorRules.needs`). Nil for the
+    /// codes 24.1 does not report, and for a silent failure (`none`), which makes no error.
+    static func made(_ c: ErrorCause, code: String, onDevice: ErrorRules.OnDevice?) -> TajweedError.Cause? {
+        guard code != "none", !ErrorRules.notReported.contains(code) else { return nil }
+        return TajweedError.Cause(stage: c.stage, reason: ErrorRules.token(c.reason, ErrorRules.reasonPattern) ?? "other",
+                                  httpStatus: c.httpStatus.flatMap { (100...599).contains($0) ? $0 : nil },
+                                  errorName: c.errorName.flatMap { ErrorRules.token($0, ErrorRules.errorNamePattern) },
+                                  errorCode: c.errorCode.flatMap { ErrorRules.token($0, ErrorRules.errorCodePattern) },
+                                  needs: code == ErrorCode.needsConnection.rawValue ? ErrorRules.needs(stage: c.stage, onDevice: onDevice) : nil)
+    }
+}
+
 /// A failure and its cause, kept by the code that knew more than the error says (the lease route: a stop the Core
 /// verified, a refusal of the Core, a lease past its end).
 struct CausedFailure: Sendable {

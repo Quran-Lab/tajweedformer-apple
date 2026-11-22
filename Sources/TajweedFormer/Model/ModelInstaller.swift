@@ -225,10 +225,18 @@ final class ProgressRelay: @unchecked Sendable {
 ///
 /// CPU first: `install` brings the CPU set (the exact engine runs from it alone), then, only when the profile asks for
 /// them, the accelerator files. The SDK's own first install asks for the CPU set only; the promotion pipeline fetches
-/// the accelerator files later with `installAccelerator`, on an unmetered network, after the first session.
+/// the accelerator files later with `installAccelerator`, after the first session, on whatever network the device has.
+/// SDK 4.0.2 (SPEC 16.7, one request per file): a model file is asked whole, with one GET, and read as a stream (hashed
+/// as it arrives, written to its partial file, counted as progress); a Range only resumes a transfer that was cut, from
+/// the first byte not on disk to the end, with the answer's validator as `If-Range`. A background task is one per file
+/// too, the rest of it. What a 4.0.1 install left (a partial file, its validator, ranges a background task kept beside
+/// it, tasks of 4.0.1's ranges still on their way) is completed: a kept range is joined at its first byte, so the
+/// app's request before it ends there (`bytes=N-M`), and no byte of it is asked again.
+/// Tried before (to 4.0.1): fixed ranges of `rangeSize` (8 MiB) one after another, and the background session's
+/// tasks one per range: about 32 requests for an install of the default context's CPU set and the Core ML build,
+/// where one per file is 11 (CDN logs of 2026-11-21: Al Kitab, SDK 3.1.4).
 struct ModelInstaller: Sendable {
     let source: any ModelFileSource
-    let rangeSize: Int64
     let freeSpace: @Sendable (URL) -> Int64
     /// Told the bytes of the CPU set as they are done, when a caller wants progress.
     var meter: ProgressMeter?
@@ -240,19 +248,14 @@ struct ModelInstaller: Sendable {
     /// form, `qlc_install`). Without it an encrypted file cannot be installed.
     var install: EncryptedInstall?
 
-    /// For tests: the smallest range an install asks for. A range is never smaller than 64 KiB in an app; the test
-    /// folder's files are a few hundred bytes, and a test that needs several ranges of one file sets it lower.
-    static let smallestRange = Locked<Int64>(64 << 10)
-
     /// The rule of every TajweedFormer SDK (3.1.5): at most five retries per file in one call, after 1, 2, 4, 8 and
     /// 16 seconds.
     static let standardRetryPauses: [TimeInterval] = [1, 2, 4, 8, 16]
 
-    init(source: any ModelFileSource, rangeSize: Int64 = 8 << 20,
+    init(source: any ModelFileSource,
                 freeSpace: @escaping @Sendable (URL) -> Int64 = { ModelInstaller.defaultFreeSpace($0) },
                 retryPauses: [TimeInterval] = ModelInstaller.standardRetryPauses) {
         self.source = source
-        self.rangeSize = max(Self.smallestRange.withLock { $0 }, rangeSize)
         self.freeSpace = freeSpace
         self.retryPauses = retryPauses
     }
@@ -261,9 +264,10 @@ struct ModelInstaller: Sendable {
     /// limit of its own: the app is suspended, and the round ends with the tasks or with the app's return).
     static let roundLimit = Locked<TimeInterval>(15 * 60)
 
-    /// Starts a task for every range of `file` from `first` on that is neither kept beside its partial file nor on
-    /// its way already (`pending`: the names of the tasks that have not ended); how many, or nil when no request
-    /// can be made now (no token).
+    /// Starts a task for every stretch of `file` from `first` on that is neither kept beside its partial file nor on
+    /// its way already (`pending`: the names of the tasks that have not ended): one task for the rest of the file,
+    /// cut only where a range a 4.0.1 task kept, or a task still on its way, begins (SPEC 16.7). How many, or nil when
+    /// no request can be made now (no token).
     private func hand(_ plan: BackgroundPlan, _ file: ModelManifest.File, _ filePart: URL, from first: Int64, validator: String?,
                       pending: Set<String>) async -> Int? {
         let held = BackgroundRange.kept(beside: filePart)
@@ -281,8 +285,8 @@ struct ModelInstaller: Sendable {
             }
             let nextKept = held.first(where: { $0.lower > lower })?.lower ?? file.size
             let nextTask = onTheirWay.filter { $0.lower > lower }.map { $0.lower }.min() ?? file.size
-            let upper = min(nextKept, nextTask, lower + rangeSize) - 1
-            guard let request = await plan.request(file.path, lower, upper, validator) else { return nil }
+            let upper = min(nextKept, nextTask) - 1
+            guard let request = await plan.request(file.path, lower, upper, file.size, validator) else { return nil }
             plan.transport.start(request, key: BackgroundRange(folder: plan.folder, path: file.path, lower: lower, upper: upper, size: file.size).key)
             started += 1
             lower = upper + 1
@@ -290,9 +294,9 @@ struct ModelInstaller: Sendable {
         return started
     }
 
-    /// Hands what is left of an install to the background transport: every range of `f` from `first` on, and every
-    /// range of the files that come after it and have not begun (one that has begun is left to its turn), each as
-    /// one task. How many tasks were started.
+    /// Hands what is left of an install to the background transport: the rest of `f` from `first` on, and the files that
+    /// come after it and have not begun (one that has begun is left to its turn), each file as one task. How many
+    /// tasks were started.
     private func handOver(_ plan: BackgroundPlan, _ f: ModelManifest.File, part: URL, from first: Int64, in folder: URL) async -> Int {
         let pending = await plan.transport.pending(prefix: BackgroundRange.prefix(folder: plan.folder))
         // unreadable is taken as not there here, because a range without a validator is asked for with the range
@@ -312,16 +316,19 @@ struct ModelInstaller: Sendable {
     }
 
     /// Hands what is left of an install to the background transport and waits (`handOver`). It waits until every
-    /// task has ended. It ends sooner when the app is back (`whenLeaving`; for `fromFirstByte` when the app left
-    /// during the round and is back), when a round of `fromFirstByte` has taken `roundLimit`, and when a refusal
-    /// that stops the model has arrived; then the tasks that have not ended are cancelled, each abandoned whole (a
-    /// background task's bytes are the system's until it ends), and counted. What ended well is kept beside the
-    /// partial files, and the installer's loop joins it.
+    /// task has ended. It ends sooner when the app is back: for `whenLeaving` (4.0.2) the tasks go on, and the loop waits
+    /// for each at its first byte (`adopt`); for `fromFirstByte` (when the app left during the round and is back) they
+    /// are cancelled. It ends too when a round of `fromFirstByte` has taken `roundLimit`, and when a refusal that stops
+    /// the model has arrived; then the tasks that have not ended are cancelled, each abandoned whole (a background task's
+    /// bytes are the system's until it ends), and counted. What ended well is kept beside the partial files, and the
+    /// installer's loop joins it.
     /// When the CALL is cancelled the round ends at once and cancels nothing: what was handed to the system runs
     /// on, and the next call joins what it brought.
     private func backgroundRound(_ plan: BackgroundPlan, _ f: ModelManifest.File, part: URL, from have: Int64, in folder: URL) async {
         let started = await handOver(plan, f, part: part, from: have, in: folder)
-        guard started > 0 else { return }
+        // 4.0.2: tasks still on their way from before (adopted at an earlier return) are waited for as the new ones are
+        let waiting = await plan.transport.pending(prefix: BackgroundRange.prefix(folder: plan.folder))
+        guard started > 0 || !waiting.isEmpty else { return }
         SDKLatest.debugOnly("model download: \(started) ranges handed to the background session (\(plan.policy.rawValue)), from byte \(have) of \(f.path)")
         let prefix = BackgroundRange.prefix(folder: plan.folder)
         let began = Date()
@@ -338,8 +345,11 @@ struct ModelInstaller: Sendable {
             if await plan.transport.pending(prefix: prefix).isEmpty { break }
             let away = plan.handOver.isAway
             if plan.policy == .whenLeaving, !away {
-                why = "the app is back"
-                break
+                // SDK 4.0.2: the tasks are kept, not cancelled: the app waits for each at its first byte (`adopt`), so
+                // what they fetched is never fetched again. To 4.0.1 they were cancelled here, and what a task had
+                // fetched was lost (at most a range of 8 MiB each; a whole file's rest with one task per file)
+                SDKLatest.debugOnly("model download: the app is back; the background session's tasks go on and are waited for")
+                return
             }
             if plan.policy == .fromFirstByte {
                 if wasAway, !away {
@@ -406,6 +416,47 @@ struct ModelInstaller: Sendable {
             + "\(bytes) bytes they had fetched are dropped (fetched twice)")
     }
 
+    /// The longest a task the app waits for (`adopt`) may go without a byte before it is cancelled and the app fetches its
+    /// bytes itself, in seconds.
+    static let stallLimit = Locked<TimeInterval>(60)
+
+    /// SDK 4.0.2 (SPEC 16.7): the app waits for the background task `task`, which begins at the partial file's next
+    /// byte, and the loop joins what it brings. The wait ends when its range is kept, when it has ended without it
+    /// (the app fetches those bytes itself), when the app leaves (the round takes over, `whenLeaving`), when a refusal
+    /// stopped the model, and when the task has brought no byte for `stallLimit`: it is then cancelled (counted as
+    /// abandoned) and the app fetches the bytes. A cancelled call ends the wait at once and cancels no task.
+    private func adopt(_ plan: BackgroundPlan, _ task: BackgroundRange, part: URL) async throws(RecognizerError) {
+        var seen: Int64 = -1
+        var since = Date()
+        let limit = Self.stallLimit.withLock { $0 }
+        SDKLatest.debugOnly("model download: waiting for the background task of \(task.path) from byte \(task.lower)")
+        while true {
+            if Task.isCancelled { throw .cancelled }
+            if plan.stopped() != nil { return }
+            if BackgroundRange.kept(beside: part).contains(where: { $0.lower == task.lower }) { return }
+            if plan.policy == .whenLeaving, plan.handOver.isAway { return }
+            guard await plan.transport.pending(prefix: task.key).contains(task.key) else {
+                // the session can list a task as ended a moment before its delegate has placed its file (a task an
+                // earlier process started is not in this launch's own count): a short look again before the app asks
+                for _ in 0..<20 where !BackgroundRange.kept(beside: part).contains(where: { $0.lower == task.lower }) {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+                return
+            }
+            let now = await plan.transport.received(prefix: task.key)
+            if now != seen {
+                seen = now
+                since = Date()
+            } else if Date().timeIntervalSince(since) > limit {
+                let left = await plan.transport.cancel(prefix: task.key)
+                if !left.isEmpty { plan.abandoned(left.count) }
+                SDKLatest.debugOnly("model download: the background task of \(task.path) brought no byte for \(Int(limit)) s and was given up")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     /// The bytes from `have` on are the background's: waits until the range that starts there is kept (true), or
     /// until the app is active again, every task has ended, or a refusal has stopped the model (false). A cancelled
     /// call ends the wait at once and cancels no task.
@@ -436,14 +487,22 @@ struct ModelInstaller: Sendable {
         let length = Self.sizeOnDisk(range.file)
         guard length > 0, have + length <= size else { return nil }
         do {
-            let bytes = try Data(contentsOf: range.file)
+            // SDK 4.0.2: a kept range may be the rest of a whole file (one task per file, SPEC 16.7): it is copied a
+            // piece at a time, never read whole into memory
+            let input = try FileHandle(forReadingFrom: range.file)
+            defer { try? input.close() }
             let h = try FileHandle(forWritingTo: part)
             defer { try? h.close() }
             try h.truncate(atOffset: UInt64(have))
             try h.seek(toOffset: UInt64(have))
-            try h.write(contentsOf: bytes)
+            var at = have
+            while let piece = try input.read(upToCount: 1 << 20), !piece.isEmpty {
+                try h.write(contentsOf: piece)
+                hash.append(piece, at: at)
+                at += Int64(piece.count)
+            }
             try h.synchronize()
-            hash.append(bytes, at: have)
+            guard at == have + length else { throw RecognizerError.storageFailed("a kept range changed while it was joined") }
             SDKLatest.debugOnly("model download: joined \(length) bytes that the background session fetched, at byte \(have) of \(part.lastPathComponent)")
         } catch {
             throw .storageFailed("cannot join a range to \(part.lastPathComponent): \(error.localizedDescription)")
@@ -486,9 +545,9 @@ struct ModelInstaller: Sendable {
         }
     }
 
-    /// The rest of a stored file from a source that writes to disk as bytes arrive: range by range, appended to
-    /// the one partial file, from what it holds. A failed attempt keeps what it delivered and the file is taken up
-    /// again from what is on disk after a pause (`afterFailedAttempt`, `isResumed`). An attempt that ends without
+    /// The rest of a stored file from a source that writes to disk as bytes arrive: in one request, from the first byte
+    /// not on disk to the end (SPEC 16.7), appended to the one partial file. A failed attempt keeps what it delivered and
+    /// the file is resumed from what is on disk after a pause (`afterFailedAttempt`, `isResumed`). An attempt that ends without
     /// an error and without a new byte is a failed attempt too: nothing here asks again without a count and a
     /// pause.
     /// The partial file's validator: the strong ETag of the answer that started it is kept beside it and sent as
@@ -499,10 +558,10 @@ struct ModelInstaller: Sendable {
     /// SHA-256 is not the manifest's (the caller, after this returns).
     ///
     /// With a background transport (iOS): a range that a background task finished is joined when the partial file
-    /// reaches its first byte, and no foreground request asks for bytes a kept range holds. While the app is away
-    /// (policy `whenLeaving`) no request is made by the app itself: what is left is handed to the background
-    /// session (`backgroundRound`), and handed again when a round ended without the next byte while the app is
-    /// still away; such a round is a failed attempt. When the app leaves during a request, the request ends where
+    /// reaches its first byte, and no foreground request asks for bytes a kept range holds or a task on its way will
+    /// bring (4.0.2: the app waits for such a task, `adopt`). While the app is away (policy `whenLeaving`) no request is
+    /// made by the app itself: what is left is handed to the background session (`backgroundRound`), and handed again
+    /// when a round ended without the next byte while the app is still away; such a round is a failed attempt. When the app leaves during a request, the request ends where
     /// it stands (what it wrote stays; the next byte is where the background ranges begin, so no byte is written
     /// twice).
     /// Policy `whenResigning` (the measurement's second hand-over moment): when the app resigns, the ranges after
@@ -580,7 +639,8 @@ struct ModelInstaller: Sendable {
                 if plan.policy == .whenLeaving ? away : !handed {
                     handed = true
                     await backgroundRound(plan, f, part: part, from: have, in: folder)
-                    // the round brought the next byte, or the app is back and fetches it itself: go on
+                    // the round brought the next byte, or the app is back and waits for the tasks or fetches the rest
+                    // itself: go on
                     let brought = BackgroundRange.kept(beside: part).contains { $0.lower == have }
                     if !brought, plan.policy == .whenLeaving, plan.handOver.isAway {
                         streaming.resumeElsewhere(f.path)
@@ -589,11 +649,26 @@ struct ModelInstaller: Sendable {
                     continue
                 }
             }
+            // SDK 4.0.2 (SPEC 16.7): a task of this file still on its way (handed over before the app came back, or by an
+            // earlier process, 4.0.1's ranges too) is completed, never fetched again: at its first byte the app waits for
+            // it (`adopt`), and the app's request stops where the first of them begins
+            var nextPending = f.size
+            if let plan = background, theirs == nil {
+                let mine = await plan.transport.pending(prefix: BackgroundRange.prefix(folder: plan.folder))
+                    .compactMap { BackgroundRange(key: $0) }.filter { $0.path == f.path && $0.lower >= have }
+                if let task = mine.first(where: { $0.lower == have }) {
+                    try await adopt(plan, task, part: part)
+                    continue
+                }
+                nextPending = mine.map(\.lower).min() ?? f.size
+            }
             let before = have
-            // not past the first byte of a range that is kept already, nor past the first byte that is the background's
+            // not past the first byte of a range that is kept already or of a task on its way, nor past the first byte
+            // that is the background's
             let nextKept = background == nil ? f.size : (BackgroundRange.kept(beside: part).first(where: { $0.lower > before })?.lower ?? f.size)
-            let next = min(nextKept, theirs ?? f.size)
-            let upper = min(next, before + rangeSize) - 1
+            let next = min(nextKept, nextPending, theirs ?? f.size)
+            // SDK 4.0.2 (SPEC 16.7): the rest of the file in one request; it stops short only where a kept range begins
+            let upper = next - 1
             if before == 0 { try? fm.removeItem(at: kept) }
             // unreadable is taken as not there here, for the same reason
             let validator = before > 0 ? (try? String(contentsOf: kept, encoding: .utf8)) : nil
@@ -1032,7 +1107,8 @@ struct ModelInstaller: Sendable {
         do {
             try h.seek(toOffset: UInt64(have))
             while have < f.size {
-                let upper = min(f.size, have + rangeSize) - 1
+                // the rest of the file in one request (SPEC 16.7)
+                let upper = f.size - 1
                 let piece = try await source.bytes(f.path, lower: have, upper: upper, size: f.size)
                 guard Int64(piece.count) == upper - have + 1 else { throw RecognizerError.offline("short range for \(f.path)") }
                 try h.write(contentsOf: piece)

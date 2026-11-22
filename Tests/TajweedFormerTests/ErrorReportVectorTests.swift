@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import TajweedFormer
 
-/// Contract section 24 (`sdk_4.0.0/ERRORS_40.md`): `vectors/errors_40.json` (copied into Fixtures/vectors40)
-/// replayed through the SDK's rules: every `codes` case through `ErrorRules.code` and `reported` (24.4,
+/// Contract section 24 (`sdk_4.0.0/ERRORS_40.md`): `vectors/errors_40.json` (copied into Fixtures/vectors40 from
+/// adca6f6, SDK 4.0.2, with 24.13's `causes`; 7f097b9 before) replayed through the SDK's rules: every `codes` case through `ErrorRules.code` and `reported` (24.4,
 /// 24.1), every `queue` sequence through `ErrorReportBook` (24.5, 24.6), the `signatures` (24.5) and the `telemetry`
 /// names of a failed download (24.8).
 final class ErrorReportVectorTests: XCTestCase {
@@ -110,5 +110,80 @@ final class ErrorReportVectorTests: XCTestCase {
                 }
             }
         }
+    }
+
+    // MARK: 24.13, the cause on the app's error (SDK 4.0.2)
+
+    /// The cause as the vectors write it: the report's names, an absent field left out.
+    static func dict(_ c: TajweedError.Cause?) -> NSDictionary? {
+        guard let c else { return nil }
+        var d: [String: Any] = ["stage": c.stage, "reason": c.reason]
+        if let v = c.httpStatus { d["http_status"] = v }
+        if let v = c.errorName { d["error_name"] = v }
+        if let v = c.errorCode { d["error_code"] = v }
+        if let v = c.needs { d["needs"] = v }
+        return d as NSDictionary
+    }
+
+    /// `causes`: each occurrence to the code the app gets and the cause its
+    /// error carries, made where every error is made (`TajweedError.init`, which also makes the report): the report's
+    /// tokens, a value that fails 24.2's pattern left out, `needs` on `needs_connection` only, by what of the call's
+    /// files is on the device. No Client is configured here, so no report is made: the cause does not depend on reports.
+    func testCauses() throws {
+        let cases = try XCTUnwrap(try Self.vectors()["causes"] as? [[String: Any]])
+        XCTAssertEqual(cases.count, 15)
+        XCTAssertNil(QuranLab.cloud, "no Client: no report is made, the cause is there all the same")
+        for c in cases {
+            let label = c["label"] as? String ?? "?"
+            let onDevice = try XCTUnwrap(ErrorRules.OnDevice(rawValue: try XCTUnwrap(c["on_device"] as? String)), label)
+            let cause = ErrorCause(stage: try XCTUnwrap(c["stage"] as? String), reason: try XCTUnwrap(c["reason"] as? String),
+                                   httpStatus: Self.int(c["http_status"]), errorName: c["error_name"] as? String,
+                                   errorCode: c["error_code"] as? String)
+            let code = ErrorRules.code(stage: cause.stage, reason: cause.reason, status: cause.httpStatus, onDevice: onDevice,
+                                       errorCode: cause.errorCode)
+            XCTAssertEqual(code, c["code"] as? String, label)
+            let want = (c["cause"] as? [String: Any]).map { $0 as NSDictionary }
+            guard let known = ErrorCode(rawValue: code) else {
+                // a silent failure makes no error
+                XCTAssertEqual(code, "none", label)
+                XCTAssertNil(want, label)
+                XCTAssertNil(TajweedError.Cause.made(cause, code: code, onDevice: onDevice), label)
+                continue
+            }
+            let error = TajweedError(known, cause: cause, onDevice: onDevice)
+            XCTAssertEqual(error.code, code, label)
+            XCTAssertEqual(Self.dict(error.cause), want, label)
+        }
+    }
+
+    /// The codes that only say the app used the API wrongly carry no cause (24.13 item 1), made either way; every other
+    /// code carries one; and the cause takes part in the error's equality.
+    func testWhichErrorsCarryACause() throws {
+        let quiet = try XCTUnwrap(try Self.vectors()["codes_not_reported"] as? [String])
+        XCTAssertEqual(Set(quiet), ErrorRules.notReported)
+        for code in ErrorCode.allCases {
+            let e = TajweedError(code)
+            XCTAssertEqual(e.cause == nil, quiet.contains(code.rawValue), code.rawValue)
+        }
+        XCTAssertNil(TajweedError(from: .sessionActive).cause)
+        XCTAssertNil(TajweedError(from: .invalidArgument("x")).cause)
+        XCTAssertNil(TajweedError(from: .cancelled).cause)
+        let a = TajweedError(.downloadFailed, cause: ErrorCause(stage: "download", reason: "http", httpStatus: 503))
+        let b = TajweedError(.downloadFailed, cause: ErrorCause(stage: "manifest", reason: "http", httpStatus: 503))
+        XCTAssertEqual([a.code, a.message], [b.code, b.message])
+        XCTAssertNotEqual(a, b, "the cause takes part in equality")
+        XCTAssertEqual(a, TajweedError(.downloadFailed, cause: ErrorCause(stage: "download", reason: "http", httpStatus: 503)))
+        // nothing of the internal cause that is not a token reaches the app: a system message in a name or a code, a
+        // status that is no HTTP status, a reason that is not a token
+        let raw = ErrorCause(stage: "download", reason: "Not a token!", httpStatus: 42, errorName: "The Internet connection appears to be offline.",
+                             errorCode: "https://cdn.quranlab.ai/models/x")
+        let made = try XCTUnwrap(TajweedError(.downloadFailed, cause: raw).cause)
+        XCTAssertEqual(Self.dict(made), ["stage": "download", "reason": "other"] as NSDictionary)
+        // needs: model, unless every file the call needs is on the device; by the lease route when the caller did not say
+        XCTAssertEqual(TajweedError(.needsConnection, cause: ErrorCause(stage: "download", reason: "network"), onDevice: .partial).cause?.needs, "model")
+        XCTAssertEqual(TajweedError(.needsConnection, cause: ErrorCause(stage: "lease", reason: "network"), onDevice: .complete).cause?.needs, "lease")
+        XCTAssertEqual(TajweedError(from: .offline("needs_connection: no valid lease for this model on the device")).cause?.needs, "lease")
+        XCTAssertEqual(TajweedError(.needsConnection).cause?.needs, "model")
+        XCTAssertNil(TajweedError(.downloadFailed).cause?.needs, "needs is on needs_connection only")
     }
 }

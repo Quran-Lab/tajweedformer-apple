@@ -1,0 +1,101 @@
+{
+ "about": "SDK 4.0 section 29 (sdk_4.0.0/SHARE_WRITE_40.md): a write that fails during a shared recording ends it as a crash would; the 2.0.1 recovery keeps the closed segments and the open segment's whole pages when at least one segment closed and sharing is on; nothing is kept otherwise. Each case on a new storage folder with the learner's yes; replay the events, let the uploader finish, check expect (29.2).",
+ "plan_s": [10, 20, 40, 60],
+ "cases": [
+  {
+   "name": "fails in segment 3 after two closed: segments 1 and 2 and the whole pages of 3 stay",
+   "form": "opus",
+   "rate": 48000,
+   "flags": {},
+   "events": [
+    {"event": "take_start"},
+    {"event": "audio", "s": 35},
+    {"event": "write_fails"},
+    {"event": "audio", "s": 1},
+    {"event": "disk_ok"},
+    {"event": "take_end", "completed": true}
+   ],
+   "expect": {"kept": true, "segments_min": 3, "segments_max": 3, "audio_ms_min": 30000, "audio_ms_max": 35000, "eos": false, "completed": false, "takes": null, "take_ms": [0]}
+  },
+  {
+   "name": "fails in segment 1: no segment closed, nothing is kept",
+   "form": "opus",
+   "rate": 48000,
+   "flags": {},
+   "events": [
+    {"event": "take_start"},
+    {"event": "audio", "s": 5},
+    {"event": "write_fails"},
+    {"event": "audio", "s": 1},
+    {"event": "disk_ok"},
+    {"event": "take_end", "completed": true}
+   ],
+   "expect": {"kept": false, "take_ms": [0]}
+  },
+  {
+   "name": "fails after two closed, then sharing goes off before the take ends: nothing is kept",
+   "form": "opus",
+   "rate": 48000,
+   "flags": {},
+   "events": [
+    {"event": "take_start"},
+    {"event": "audio", "s": 35},
+    {"event": "write_fails"},
+    {"event": "audio", "s": 1},
+    {"event": "disk_ok"},
+    {"event": "sharing_off"},
+    {"event": "take_end", "completed": true}
+   ],
+   "expect": {"kept": false, "take_ms": [0]}
+  },
+  {
+   "name": "the disk stays full until the next launch: the finished segments go up after it",
+   "form": "opus",
+   "rate": 48000,
+   "flags": {},
+   "events": [
+    {"event": "take_start"},
+    {"event": "audio", "s": 35},
+    {"event": "write_fails"},
+    {"event": "audio", "s": 1},
+    {"event": "take_end", "completed": true},
+    {"event": "disk_ok"},
+    {"event": "relaunch"}
+   ],
+   "expect": {"kept": true, "segments_min": 2, "segments_max": 3, "audio_ms_min": 30000, "audio_ms_max": 35000, "eos": false, "completed": false, "takes": null, "take_ms": [0]}
+  },
+  {
+   "name": "Ogg FLAC at 44100 Hz fails in segment 3 after two closed: the same rule",
+   "form": "flac",
+   "rate": 44100,
+   "flags": {"share_flac": true},
+   "events": [
+    {"event": "take_start"},
+    {"event": "audio", "s": 35},
+    {"event": "write_fails"},
+    {"event": "audio", "s": 1},
+    {"event": "disk_ok"},
+    {"event": "take_end", "completed": true}
+   ],
+   "expect": {"kept": true, "segments_min": 3, "segments_max": 3, "audio_ms_min": 30000, "audio_ms_max": 35000, "eos": false, "completed": false, "takes": null, "take_ms": [0]}
+  },
+  {
+   "name": "two takes joined in one recording, the second fails after the recording's second segment closed: both takes stay",
+   "form": "opus",
+   "rate": 48000,
+   "flags": {"share_join_ms": 3000},
+   "events": [
+    {"event": "take_start"},
+    {"event": "audio", "s": 25},
+    {"event": "take_end", "completed": true},
+    {"event": "take_start"},
+    {"event": "audio", "s": 10},
+    {"event": "write_fails"},
+    {"event": "audio", "s": 1},
+    {"event": "disk_ok"},
+    {"event": "take_end", "completed": true}
+   ],
+   "expect": {"kept": true, "segments_min": 3, "segments_max": 3, "audio_ms_min": 30000, "audio_ms_max": 35000, "eos": false, "completed": false, "takes": 2, "take_ms": [25000, 0]}
+  }
+ ]
+}

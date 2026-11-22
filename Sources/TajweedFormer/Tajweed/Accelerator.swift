@@ -14,7 +14,7 @@ import BackgroundTasks
 //    session ends, or after `PromotionPolicy.idleStartDelay` without one; a later launch starts it at launch, at low
 //    priority. Sessions never wait for it.
 // 2. One persisted state machine per key (model revision, context, build, OS build, device model; `PromotionRecord`):
-//    download (unmetered network), compile (the first load with the Neural Engine allowed, 10 min timeout), warmup
+//    download (on any network, SDK 4.0.2), compile (the first load with the Neural Engine allowed, 10 min timeout), warmup
 //    (silence and the first self-test clip, no NaN or inf), golden (every self-test clip through the accelerator and
 //    the CPU engine: the same decisions, the CPU's equal to the shipped expected file), measure (SDK 4.0: not promoted
 //    when the accelerator's median chunk is slower than the CPU engine's, `slower_than_cpu`), promote. The record is written after each stage; a restart resumes at the
@@ -57,6 +57,7 @@ enum AcceleratorState: Sendable, Hashable, CustomStringConvertible {
 
 /// What a loaded accelerator does (an accelerator the Core prepared; a fake in tests).
 protocol AcceleratorBackend: AnyObject {
+    var coreModel: CoreModel? { get }
     func reset()
     func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer]
     func finish() throws(RecognizerError) -> [HeadsBuffer]
@@ -79,6 +80,8 @@ extension AcceleratorBackend {
     func warmUp() throws(RecognizerError) {}
     var isUsable: Bool { true }
     func release() {}
+    /// The Core model it runs on, which a take holds from its start (`TakeRunner.holdModel`); nil for a stand-in.
+    var coreModel: CoreModel? { nil }
 }
 
 /// What the golden test found (the last attempt of this key that got that far).
@@ -159,12 +162,15 @@ final class AcceleratorController: @unchecked Sendable {
         var launch: String = AcceleratorController.thisLaunch
         var clock: @Sendable () -> Date = { Date() }
         var sleep: @Sendable (TimeInterval) async -> Void = { s in try? await Task.sleep(nanoseconds: UInt64(max(0, s) * 1e9)) }
-        var conditions: @Sendable (_ network: Bool) async -> PromotionConditions = { n in await PromotionConditions.current(network: n) }
+        var conditions: @Sendable () async -> PromotionConditions = { await PromotionConditions.current() }
         /// Waits on bad conditions in one run before it gives up for now (no failure; the next trigger resumes).
         var maxConditionWaits = 30
         var thermal: @Sendable () -> ProcessInfo.ThermalState = { ProcessInfo.processInfo.thermalState }
         /// The deny-list rule forcing the CPU engine, with its reason; nil when none matches.
         var denied: @Sendable () -> String? = { nil }
+        /// SDK 4.0.2 (21.6): whether the lease in force allows accelerator programs (`qlc_accel_allowed`); nil when the
+        /// Core cannot say now (no lease). False holds the pipeline as the deny list does (`leaseDenied`).
+        var acceleratorAllowed: @Sendable () -> Bool? = { nil }
         /// The signed config's `flags.accel_min_speedup` (nil: none); `PromotionPolicy.minSpeedup` bounds it.
         var minSpeedup: @Sendable () -> Double? = { nil }
         var record: @Sendable (AnalyticsEvent) -> Void = { _ in }
@@ -259,6 +265,10 @@ final class AcceleratorController: @unchecked Sendable {
         // the first launch of 3.1.5 or later: a key ended by one stop at download, compile or warm-up gets its retry back
         let back = store.migrate315(now: env.clock())
         if !back.isEmpty { SDKLatest.debugOnly("promotion: \(back.count) build(s) ended by one stop during preparation may be tried again") }
+        // the first launch of 4.0.2 or later (21.6 item 4): a key 4.0.1 counted a lease without accelerator programs
+        // against goes back to pending
+        let leased = store.migrate402()
+        if !leased.isEmpty { SDKLatest.debugOnly("promotion: \(leased.count) build(s) held by a lease without accelerator programs may be tried again") }
         // the process stopped during a compile, load or first inference: a quit, a stop in the background, or a crash
         // (stopFound); the report goes out once the system's crash diagnostic of that process is in (or after 60 s
         // without one), with what it says. A stage under way in another process of the app (its sentinel's heartbeat is
@@ -268,7 +278,7 @@ final class AcceleratorController: @unchecked Sendable {
             stopFound(s)
         }
         let r = store.record(key)
-        if let why = env.denied() {
+        if let why = leaseDenied() {
             _state = .disabled(why)
         } else if let r, r.status == .failed {
             _state = .disabled(r.lastDetail ?? "failed")
@@ -484,7 +494,9 @@ final class AcceleratorController: @unchecked Sendable {
         guard begin() else { return }
         defer { finishRun() }
         var rec = store.record(key) ?? PromotionRecord(key: key)
-        if let why = env.denied() { return noteDenied(&rec, why) }
+        // the config's deny list, and (21.6) a lease in force that does not allow accelerator programs: no attempt starts
+        // or goes on, nothing is counted
+        if let why = leaseDenied() { return noteDenied(&rec, why) }
         if rec.denied {
             rec.denied = false
             store.save(rec)
@@ -695,7 +707,7 @@ final class AcceleratorController: @unchecked Sendable {
         var waits = 0
         while true {
             if Task.isCancelled { return false }
-            let c = await env.conditions(stage == .download)
+            let c = await env.conditions()
             guard c.blocker(for: stage) != nil else { return true }
             waits += 1
             if waits > env.maxConditionWaits { return false }
@@ -704,8 +716,23 @@ final class AcceleratorController: @unchecked Sendable {
     }
 
     private func fail(_ rec: inout PromotionRecord, _ stage: PromotionStage, _ f: PromotionFailure, reload: Bool = false) {
+        // 21.6: the Core refused a stage for the lease in force (a prepare or a load, also of a promoted key): the deny
+        // list's path, not a failure. The attempt stays where it stood, a promoted key stays promoted, and the next lease
+        // that allows programs takes it up again (`leaseAccepted`)
+        if f.leaseNoAccel { return noteDenied(&rec, Self.leaseNoAccel + ": " + f.detail) }
         hold(nil)
         recordFailure(&rec, stage, f, reload: reload, sameKey: true)
+    }
+
+    /// The text of a lease without accelerator programs, as a record's `lastDetail` names it (4.0.1 and 4.0.2).
+    static let leaseNoAccel = "lease_no_accel"
+
+    /// Why the pipeline is held now without a failure: the config's deny list, else (21.6) a lease in force that does
+    /// not allow accelerator programs; nil when neither holds it.
+    private func leaseDenied() -> String? {
+        if let why = env.denied() { return why }
+        if env.acceleratorAllowed() == false { return Self.leaseNoAccel + ": the lease in force does not allow accelerator programs" }
+        return nil
     }
 
     /// Ends the attempt with a failure (or demotes a promoted key that failed to load again): the record, the retry
@@ -852,7 +879,7 @@ final class AcceleratorController: @unchecked Sendable {
             set(.cpu)
             return nil
         }
-        if let why = env.denied() {
+        if let why = leaseDenied() {
             var rec = store.record(key) ?? PromotionRecord(key: key)
             noteDenied(&rec, why)
             return nil
@@ -1164,9 +1191,25 @@ struct SelfTestSet: Sendable {
 /// Recognizers whose accelerator waits to be prepared, for the app's background task.
 enum AcceleratorRegistry {
     static let pending = Locked<[UUID: @Sendable () async -> Void]>([:])
+    /// SDK 4.0.2 (21.6 item 2): the recognizers to tell at every lease the Core accepts (a new install's, a renewal, a
+    /// lease after a refusal ended); each asks the lease again and goes on where a lease without accelerator programs
+    /// held it.
+    static let leaseWatchers = Locked<[UUID: @Sendable () async -> Void]>([:])
+
+    static func watchLease(_ id: UUID, _ run: @escaping @Sendable () async -> Void) { leaseWatchers.withLock { $0[id] = run } }
+
+    /// A lease was accepted: every watcher is told, in the background.
+    static func leaseAccepted() {
+        let all = leaseWatchers.withLock { Array($0.values) }
+        guard !all.isEmpty else { return }
+        Task.detached(priority: .utility) { for r in all { await r() } }
+    }
 
     static func add(_ id: UUID, _ run: @escaping @Sendable () async -> Void) { pending.withLock { $0[id] = run } }
-    static func remove(_ id: UUID) { _ = pending.withLock { $0.removeValue(forKey: id) } }
+    static func remove(_ id: UUID) {
+        _ = pending.withLock { $0.removeValue(forKey: id) }
+        _ = leaseWatchers.withLock { $0.removeValue(forKey: id) }
+    }
 
     static func runAll() async {
         let all = pending.withLock { p -> [@Sendable () async -> Void] in

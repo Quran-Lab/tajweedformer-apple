@@ -33,14 +33,18 @@ final class EndpointSet: @unchecked Sendable {
     /// Told each request that found its first host unreachable, with the 24.3 stage of the request when it has one
     /// (the Client's silent `failover` report, 28.7).
     let onFailover = Locked<(@Sendable (Failover, _ stage: String?) -> Void)?>(nil)
+    /// SDK 4.0.2 (28.11 items 2 and 3): the `Retry-After` holds of each route and host, kept across restarts.
+    let holds: RetryAfterHolds
 
     /// `api` and `models` are the roles' hosts as origins (`https://<host>`; a test build's may name another scheme
     /// or a port), in order. `config` gives the `endpoints` of the config in force (`.some(nil)` for a config that
     /// names none), or nil when no config is in force.
+    /// `holdsFile`: where the `Retry-After` holds are kept across restarts (nil: in the process only).
     init(api: [URL], models: [URL], config: @escaping @Sendable () -> JSONValue?? = { nil },
-         clock: @escaping @Sendable () -> Date = { Date() }) {
+         clock: @escaping @Sendable () -> Date = { Date() }, holdsFile: URL? = nil) {
         self.config = config
         self.clock = clock
+        holds = RetryAfterHolds(file: holdsFile, now: clock())
         for (role, list) in [(EndpointRole.api, api), (.models, models)] {
             let origins = list.compactMap { Endpoints.origin(of: $0) }
             if let first = origins.first { states[role] = State(builtIn: origins, hosts: origins, p: first, since: nil) }
@@ -81,13 +85,15 @@ final class EndpointSet: @unchecked Sendable {
         return nil
     }
 
-    /// Whether `origin` is one of the role's hosts, built in or in force (a request on it goes through the role's
-    /// order and is never asked before it).
+    /// Whether `origin` is one of the role's hosts in force: the config's list while one is in force and names one,
+    /// else the built-in list (a request on it goes through the role's order and is never asked before it). A lease
+    /// folder's host that is not, a built-in host the config's list leaves out included, is asked first (28.4,
+    /// contract e330c08; web, Android and C read it so). To 4.0.2 a built-in host counted whatever the list said.
     func isRoleHost(_ role: EndpointRole, _ origin: URL) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard let s = refreshed(role) else { return false }
-        return s.builtIn.contains(origin) || s.hosts.contains(origin)
+        return s.hosts.contains(origin)
     }
 
     /// The hosts a request of `role` starting at `now` asks, in order, and whether it is the probe back (28.3 item 1):

@@ -1,8 +1,8 @@
 import Foundation
 import Network
 
-/// The device's connection, as `diagnose()` reports it and `prefetch(unmeteredOnly:)` follows it (SDK 3.0.0; the same
-/// four values in the four SDKs).
+/// The device's connection, as `diagnose()` reports it (SDK 3.0.0; the same four values in the four SDKs). SDK 4.0.2
+/// (section 33): a report only; no request of the SDK waits on it, and nothing else reads it.
 enum ConnectionKind: String, Sendable, CaseIterable {
     /// Wi-Fi or Ethernet.
     case unmetered
@@ -15,10 +15,6 @@ enum ConnectionKind: String, Sendable, CaseIterable {
 
     /// How long the system has to say what the connection is before it counts as `unknown`, seconds.
     static let answerWithin = 2.0
-
-    /// Whether `prefetch(unmeteredOnly: true)` downloads on this connection: on `unmetered`, and on `unknown`, where
-    /// nothing says the connection is metered. It waits on `metered` and on `none`.
-    var downloadsWhenUnmeteredOnly: Bool { self == .unmetered || self == .unknown }
 
     /// Tests only: the connection in place of the system's.
     static let override = Locked<(@Sendable () async -> ConnectionKind)?>(nil)

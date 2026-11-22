@@ -9,9 +9,15 @@ protocol LeaseTransport: Sendable {
     /// that is not is unreachable on that host, and the next `api` host is asked.
     func send(_ request: URLRequest, accepting accept: @escaping @Sendable (HTTPClient.Response) -> Bool) async throws(CloudError)
         -> HTTPClient.Response
+    /// SDK 4.0.2 (18.4.7.3 item 4): the answer a request of `url` gets now without asking, when its route is held by
+    /// a `Retry-After`; nil when it may go.
+    func held(_ url: URL) -> HTTPClient.Response?
 }
 
 extension LeaseTransport {
+    /// A transport that keeps no holds (the tests' fakes).
+    func held(_ url: URL) -> HTTPClient.Response? { nil }
+
     /// A transport with one host (the tests' fakes): the answer is the answer.
     func send(_ request: URLRequest, accepting accept: @escaping @Sendable (HTTPClient.Response) -> Bool) async throws(CloudError)
         -> HTTPClient.Response {
@@ -55,6 +61,64 @@ struct LeaseRecord: Codable, Sendable, Equatable {
     var base: String?
     var expiresAt: Int64
     var refreshAfter: Int64
+    /// SDK 4.0.2: the lease's server issue time (`iat`), so an older lease never replaces it (`storeLease`). Nil in a
+    /// record an earlier SDK wrote.
+    var issuedAt: Int64? = nil
+}
+
+/// SDK 4.0.2: one Core per storage folder and install key in the process. A Client that is closed may still hold its
+/// Core (a lease attempt on its way, a Model the app keeps open); a new Client on the same folder takes that Core
+/// instead of making a second one, so every save of the Core's state comes from one Core, in order, and its counter is
+/// raised by that Core alone. Tried before (to 4.0.1): a Core per Client. Two Cores then saved `core/state.bin` in turn,
+/// and the one that saved last rolled the other's lease back (a renewal answered to a closed Client was lost).
+enum LiveCores {
+    private final class Entry: @unchecked Sendable { weak var host: CoreHost? }
+    private static let table = Locked<[String: Entry]>([:])
+    private static let making = NSLock()
+
+    static func key(storage: URL, installHash: String) -> String { storage.standardizedFileURL.path + "|" + installHash }
+
+    /// The live Core of `key`, else the one `make` builds, kept (weakly) for the next.
+    static func take(_ key: String, make: () throws(CoreFailure) -> CoreHost) throws(CoreFailure) -> CoreHost {
+        making.lock()
+        defer { making.unlock() }
+        if let h = live(key) { return h }
+        let h = try make()
+        let e = Entry()
+        e.host = h
+        table.withLock { t in
+            t = t.filter { $0.value.host != nil }
+            t[key] = e
+        }
+        return h
+    }
+
+    /// The Core of `key` while something holds it.
+    static func live(_ key: String) -> CoreHost? { table.withLock { $0[key]?.host } }
+}
+
+/// SDK 4.0.2: the stops of a storage folder in the process: a verified stop of the lease route and a refusal that stops
+/// the model (`ModelGate.note`) each count one. A lease request records the count when it goes out, and its answer is
+/// handed to the Core only while the count is the same (the Core takes a verified lease even after a stop, quranlab-core
+/// core.c:357, so an answer to a request sent before the stop would switch the model back on). Android: Lease.kt:832.
+enum LeaseStops {
+    private static let counts = Locked<[String: Int]>([:])
+    static func current(_ storage: URL) -> Int { counts.withLock { $0[storage.standardizedFileURL.path] ?? 0 } }
+    static func bump(_ storage: URL) { counts.withLock { $0[storage.standardizedFileURL.path, default: 0] += 1 } }
+}
+
+/// SDK 4.0.2: the lock of a storage folder's lease files in the process (`ProtectedRuntime.storeLease`).
+enum FolderLocks {
+    private static let locks = Locked<[String: NSLock]>([:])
+    static func lock(_ storage: URL) -> NSLock {
+        locks.withLock { l in
+            let k = storage.standardizedFileURL.path
+            if let x = l[k] { return x }
+            let x = NSLock()
+            l[k] = x
+            return x
+        }
+    }
 }
 
 /// 18.4.7.1: the answer the last request of one lease attempt got. An attempt is the
@@ -65,11 +129,13 @@ final class LeaseAttemptTrace: @unchecked Sendable {
 
     private let lock = NSLock()
     private var _asked = false, _status = 0, _apiRefusal = false, _retryAfter = 0, _stopped = false
+    /// SDK 4.0.2 (18.4.7.3 item 4): the last answer was the SDK's own for a route a `Retry-After` holds; nothing went out.
+    private var _held = false
     /// SDK 4.0.1 (28.5): the largest `Retry-After` any host gave the request that went out.
     private var _hostRetryAfter = 0
 
     /// A request went out (its answer, if any, follows).
-    func asking() { lock.withLock { _asked = true; _status = 0; _apiRefusal = false; _retryAfter = 0; _hostRetryAfter = 0 } }
+    func asking() { lock.withLock { _asked = true; _status = 0; _apiRefusal = false; _retryAfter = 0; _hostRetryAfter = 0; _held = false } }
 
     /// One host's answer to the request that went out (`HTTPClient.routed` tells each): its `Retry-After`, kept when
     /// it is the largest so far (28.5: an attempt that ended unreachable on every host waits the largest any host gave).
@@ -85,6 +151,11 @@ final class LeaseAttemptTrace: @unchecked Sendable {
         let api = (400...499).contains(status) && status != 429 && (o?["error"] as? String).map { !$0.isEmpty } == true
         lock.withLock { _asked = true; _status = status; _apiRefusal = api; _retryAfter = LeaseRetry.retryAfter(retryAfter) }
     }
+
+    /// The request met a route a `Retry-After` holds (28.11 item 2): the SDK answered it, nothing went out, and the
+    /// attempt ends with that answer (`HTTPClient.routed` tells it).
+    func metHold() { lock.withLock { _held = true } }
+    var wasHeld: Bool { lock.withLock { _held } }
 
     /// A request of another part of the SDK (the token, attest) that failed: what its error says of the answer.
     func failed(_ e: CloudError) {
@@ -157,7 +228,9 @@ final class ProtectedRuntime: @unchecked Sendable {
     private let hostBox = Locked<CoreHost?>(nil)
     private let certFile: JSONFile<StoredCertificate>
     private let leaseFile: JSONFile<LeaseRecord>
-    private let retry = Locked(LeaseRetry())
+    /// The row of failed lease attempts and its next attempt (18.4.7.3), kept across restarts in `cloud/lease-retry.json`.
+    private let retry: Locked<LeaseRetry>
+    private let retryFile: JSONFile<LeaseRetry>
     private let refreshing = Locked<Task<Void, Never>?>(nil)
     private let flight = LeaseFlight()
     /// The one open model (the Core has one at a time) and the build folder it came from.
@@ -197,6 +270,11 @@ final class ProtectedRuntime: @unchecked Sendable {
         self.state = state ?? KeychainCoreState(storage: storage)
         self.clocks = clocks
         certFile = JSONFile(url: storage.appendingPathComponent("cloud/install-cert.json"))
+        // 28.11 item 3 (SDK 4.0.2): the lease's row of failures, as the last process left it; unreadable is taken as none
+        // here, because an attempt may then come sooner, as before 4.0.2
+        let rf = JSONFile<LeaseRetry>(url: storage.appendingPathComponent("cloud/lease-retry.json"))
+        retryFile = rf
+        retry = Locked((rf.read().takingUnreadableAsMissing ?? LeaseRetry()).readBack(now: clocks.wallMs() / 1000))
         leaseFile = JSONFile(url: storage.appendingPathComponent("cloud/lease.json"))
         // a compiled accelerator program that a process left in the dispatch folder when it ended during a prepare
         // (the Core deletes it before the call returns, the SDK after it; a process that ends first leaves it): it
@@ -212,7 +290,10 @@ final class ProtectedRuntime: @unchecked Sendable {
         guard let key = keys.current() else { return nil }
         let platform = CorePlatform(storage: CoreStorage(root: storage), key: key, state: state, clocks: clocks)
         do throws(CoreFailure) {
-            let h = try CoreHost(platform: platform)
+            // SDK 4.0.2: the Core a closed Client of this folder still holds, when there is one (`LiveCores`)
+            let h = try LiveCores.take(LiveCores.key(storage: storage, installHash: key.installHash)) { () throws(CoreFailure) -> CoreHost in
+                try CoreHost(platform: platform)
+            }
             hostBox.withLock { $0 = h }
             return h
         } catch {
@@ -265,6 +346,12 @@ final class ProtectedRuntime: @unchecked Sendable {
     /// A valid lease for the build of `manifest`: the one the Core holds, else a new one from the server. The
     /// answer's `base` names where the build's ciphertext is.
     func ensureLease(_ m: ModelManifest) async throws(RecognizerError) -> LeaseRecord {
+        #if DEBUG
+        // tests only (StagingHooks.core): the lease answer of a stand-in for the Core
+        if let standIn = StagingHooks.core.withLock({ $0 }) {
+            do { return try await standIn.lease(m) } catch { throw (error as? RecognizerError) ?? .offline("needs_connection: \(error)") }
+        }
+        #endif
         guard m.encryption != nil else { throw .modelIncompatible("\(m.modelID) \(m.version) is not a protected build; SDK 4.0 runs protected builds only") }
         if let h = try self.host() {
             let s = h.tick()
@@ -288,6 +375,9 @@ final class ProtectedRuntime: @unchecked Sendable {
     /// refusal told). The Core decides the open (`qlc_lease_grace`, then `qlc_model_open`); each open in grace is a
     /// silent report (lease, grace, the status and reason that ended the attempt).
     private func pastExp(_ m: ModelManifest, host: CoreHost, record: LeaseRecord) async throws(RecognizerError) -> LeaseRecord {
+        // 18.4.7.3 item 3 (SDK 4.0.2): an open in the grace is an attempt of the SDK's own, and waits for the row of
+        // failures; without a grace the open cannot go on, and asks at once (item 4)
+        if !retry.withLock({ $0.due(now: clocks.wallMs() / 1000) }), let r = inGrace(host, record) { return r }
         let now = clocks.wallMs()
         let recent = attempts.withLock { a -> RecognizerError? in
             a.running == 0 && a.unreachable && a.endedAtMs > 0 && now - a.endedAtMs < Int64(graceReuse * 1000) ? a.error : nil
@@ -374,7 +464,9 @@ final class ProtectedRuntime: @unchecked Sendable {
     }
 
     private func refreshInBackground(_ m: ModelManifest, now: Int64) {
-        guard retry.withLock({ $0.due(now: now) }) else { return }
+        // the row's next attempt is on the device's wall clock, as it was written and as a restart reads it back (the
+        // Core's `now` is its own clock, anchored at the lease)
+        guard retry.withLock({ $0.due(now: clocks.wallMs() / 1000) }) else { return }
         let started = refreshing.withLock { (t: inout Task<Void, Never>?) -> Bool in
             if t != nil { return false }
             t = Task.detached(priority: .utility) { [weak self] in
@@ -490,6 +582,19 @@ final class ProtectedRuntime: @unchecked Sendable {
     private func request(_ m: ModelManifest) async throws(RecognizerError) -> LeaseRecord {
         guard let server else { throw .offline("no developer key configured") }
         guard let enc = m.encryption, let raw = m.raw else { throw .modelIncompatible("not a protected build") }
+        // 18.4.7.3 item 4 (SDK 4.0.2): the lease route held by a Retry-After: the attempt fails as that answer did and
+        // asks nothing, no certificate, token or challenge first
+        if let held = server.transport.held(server.apiURL.appendingPathComponent("v1/model-key")) {
+            let trace = LeaseAttemptTrace.current
+            trace?.asking()
+            trace?.answered(status: held.status, body: held.body, retryAfter: held.header("Retry-After"))
+            trace?.metHold()
+            let o = (try? JSONSerialization.jsonObject(with: held.body)) as? [String: Any]
+            let cause: ErrorCause? = held.status == 503 && (o?["error"] as? String) == "lease_unavailable"
+                ? ErrorCause(stage: "lease", reason: "lease_unavailable", httpStatus: 503, errorCode: "lease_unavailable") : nil
+            return try fail(LeaseRefusal.classify(status: held.status, body: held.body).error(status: held.status, body: held.body),
+                            .offline, now: clocks.wallMs() / 1000, cause: cause)
+        }
         var renewToken = false, reattested = false, rechallenged = false, pieceFallback = false
         // 18.4.10 (4.0.1, endpoints_40.json's attempts): after invalid_token the request is repeated once with the
         // renewed token and the SAME challenge (a challenge is a stateless HMAC good on every api host, 28.5); 4.0.0
@@ -534,14 +639,29 @@ final class ProtectedRuntime: @unchecked Sendable {
             // `api` host is asked. The Core's verdict on the answer that ended the request is kept, so it is asked once.
             let verdict = Locked<(body: Data, result: Result<(expiresAt: Int64, refreshAfter: Int64), CoreFailure>)?>(nil)
             let build = m.build
+            let leases = leaseFile, folderLock = FolderLocks.lock(storage), folder = storage
+            // SDK 4.0.2: the folder's stops as this request goes out (`LeaseStops`)
+            let sentStops = LeaseStops.current(storage)
             let accept: @Sendable (HTTPClient.Response) -> Bool = { (a: HTTPClient.Response) -> Bool in
                 guard a.status == 200, let answer = LeaseAnswer.parse(a.body), Self.acceptedBase(answer.base) != nil else { return false }
                 let result: Result<(expiresAt: Int64, refreshAfter: Int64), CoreFailure>
-                do throws(CoreFailure) { result = .success(try host.leaseAccept(answer.lease, manifest: raw, build: build)) } catch {
-                    result = .failure(error)
+                // SDK 4.0.2: a lease older than the one this folder holds (an attempt of a closed Client, answered after
+                // a newer one) is taken as answered and never handed to the Core; nor is one answered after a stop
+                folderLock.lock()
+                if LeaseStops.current(folder) != sentStops {
+                    result = .failure(Self.stoppedSinceSent)
+                } else if let saved = Self.newer(than: answer, build: build, in: leases) {
+                    result = .success((saved.expiresAt, saved.refreshAfter))
+                } else {
+                    do throws(CoreFailure) { result = .success(try host.leaseAccept(answer.lease, manifest: raw, build: build)) } catch {
+                        result = .failure(error)
+                    }
                 }
+                folderLock.unlock()
                 verdict.withLock { $0 = (a.body, result) }
                 if case .success = result { return true }
+                // an answer after a stop ends the request on this host (no other host is asked for it)
+                if case .failure(let f) = result, f == Self.stoppedSinceSent { return true }
                 return false
             }
             do throws(CloudError) {
@@ -564,14 +684,31 @@ final class ProtectedRuntime: @unchecked Sendable {
                     return try fail(.serverRejected(status: 200, code: "invalid_response", message: "the lease answer names no model folder of Quran Lab's"),
                                     .other, now: now())
                 }
+                // SDK 4.0.2: an older lease than the folder's own changes nothing (see `accept`)
+                let kept = folderLock.withLock { Self.newer(than: answer, build: m.build, in: leases) }
+                if let kept {
+                    lastFailure.withLock { $0 = nil }
+                    return kept
+                }
                 let accepted: (expiresAt: Int64, refreshAfter: Int64)
                 do throws(CoreFailure) {
                     if let kept = verdict.withLock({ $0 }), kept.body == resp.body {
                         accepted = try kept.result.get()
                     } else {
-                        accepted = try host.leaseAccept(answer.lease, manifest: raw, build: m.build)
+                        let build = m.build
+                        let r = folderLock.withLock { () -> Result<(expiresAt: Int64, refreshAfter: Int64), CoreFailure> in
+                            if LeaseStops.current(folder) != sentStops { return .failure(Self.stoppedSinceSent) }
+                            do throws(CoreFailure) { return .success(try host.leaseAccept(answer.lease, manifest: raw, build: build)) } catch {
+                                return .failure(error)
+                            }
+                        }
+                        accepted = try r.get()
                     }
                 } catch {
+                    // SDK 4.0.2: a stop came while this request was on its way: its lease is not taken, nothing is stored
+                    if error == Self.stoppedSinceSent {
+                        throw .serverRejected(status: 0, code: "stopped", message: "a stop arrived while this lease request was on its way")
+                    }
                     // the Core refused the lease (another install's, another release's, expired by its clock)
                     let outcome: LeaseOutcome = error.detail == Self.leaseExpiredDetail ? .expired : .refused
                     let cause = ErrorCause(stage: "lease", reason: outcome == .expired ? "expired" : "invalid", errorCode: String(error.status))
@@ -587,9 +724,11 @@ final class ProtectedRuntime: @unchecked Sendable {
                     certFile.write(StoredCertificate(generation: keys.generation, certificate: c))
                 }
                 let rec = LeaseRecord(build: m.build, base: base.absoluteString,
-                                      expiresAt: accepted.expiresAt, refreshAfter: accepted.refreshAfter)
-                leaseFile.write(rec)
-                retry.withLock { $0.succeeded() }
+                                      expiresAt: accepted.expiresAt, refreshAfter: accepted.refreshAfter, issuedAt: answer.issuedAt)
+                #if DEBUG
+                StagingHooks.beforeLeaseStore.withLock { $0 }?()
+                #endif
+                storeLease(rec)
                 lastFailure.withLock { $0 = nil }
                 onLease(.ok)
                 return rec
@@ -598,7 +737,17 @@ final class ProtectedRuntime: @unchecked Sendable {
             // only when the Core verifies its signature, and any refusal while a new data piece is in force sends the
             // Core back to its last good piece (18.6.7). 429, 5xx and anything else are never refusals.
             let refusable = (400...499).contains(resp.status) && resp.status != 429 && !resp.body.isEmpty
-            let stopped = refusable && host.refusal(resp.body, apiKeyID: cert.key.isEmpty ? TokenProvider.keyID(server.key) : cert.key)
+            // SDK 4.0.2: a verified stop, its count (`LeaseStops`) and its clear of the lease files under the folder's lock,
+            // so a store or an accept of another request comes wholly before it or not at all
+            let stopped = refusable && folderLock.withLock { () -> Bool in
+                guard host.refusal(resp.body, apiKeyID: cert.key.isEmpty ? TokenProvider.keyID(server.key) : cert.key) else { return false }
+                LeaseStops.bump(folder)
+                // 18.4.7.3 item 5: a verified stop ends the row of failures; the lease files go, never through the
+                // monotonic check (`storeLease`)
+                endRetryRow()
+                leaseFile.delete()
+                return true
+            }
             let refusal = LeaseRefusal.classify(status: resp.status, body: resp.body)
             if stopped {
                 // a model that is open keeps running until it is closed (15.3); the Core removes the files then
@@ -611,7 +760,6 @@ final class ProtectedRuntime: @unchecked Sendable {
                 trace?.stop()
                 onStop(e)
                 onLease(.refused)
-                leaseFile.delete()
                 throw e
             }
             switch refusal {
@@ -665,9 +813,51 @@ final class ProtectedRuntime: @unchecked Sendable {
         let failure = CausedFailure(error: e, cause: (cause ?? ErrorCause.of(e, stage: "lease")).traced())
         lastFailure.withLock { $0 = failure }
         let retryAfter = LeaseAttemptTrace.current?.retryAfter ?? 0
-        retry.withLock { $0.failed(now: now, retryAfter: retryAfter) }
+        // 18.4.7.3 item 4: an attempt that met a held route sent nothing; it is no failed attempt and moves no wait
+        if LeaseAttemptTrace.current?.wasHeld != true {
+            let row = retry.withLock { (r: inout LeaseRetry) -> LeaseRetry in
+                r.failed(now: now, retryAfter: retryAfter)
+                return r
+            }
+            retryFile.write(row)
+        }
         onLease(outcome)
         throw e
+    }
+
+    /// A lease answered after a stop of this folder that came while its request was on its way (`LeaseStops`).
+    static let stoppedSinceSent = CoreFailure(status: Int(QLC_E_STOPPED), detail: 0, call: "a stop since the lease request was sent")
+
+    /// The lease the folder holds when it is newer than `answer` (the same build, a later server issue time): an older
+    /// lease is never put in its place. Called with the folder's lock held.
+    static func newer(than answer: LeaseAnswer, build: String, in file: JSONFile<LeaseRecord>) -> LeaseRecord? {
+        guard let saved = file.read().takingUnreadableAsMissing, saved.build == build, let s = saved.issuedAt, answer.issuedAt < s else { return nil }
+        return saved
+    }
+
+    /// SDK 4.0.2: `cloud/lease.json` and the row of failures, under the folder's lock as one read, compare and write: a
+    /// lease whose server issue time is older than the saved one of its build never replaces it (nor ends the row), and
+    /// none is stored once the Core is stopped (a verified stop that came while this store waited: the stop's clear,
+    /// under the same lock, is the last word). True when `rec` was stored.
+    @discardableResult
+    func storeLease(_ rec: LeaseRecord) -> Bool {
+        let lock = FolderLocks.lock(storage)
+        lock.lock()
+        defer { lock.unlock() }
+        if let h = hostBox.withLock({ $0 }), h.tick().stopped { return false }
+        if let saved = leaseFile.read().takingUnreadableAsMissing, saved.build == rec.build, let s = saved.issuedAt,
+           let n = rec.issuedAt, n < s {
+            return false
+        }
+        leaseFile.write(rec)
+        endRetryRow()
+        return true
+    }
+
+    /// The row of failures ends (a lease the Core accepted, a verified stop), here and on disk.
+    private func endRetryRow() {
+        retry.withLock { $0.succeeded() }
+        retryFile.delete()
     }
 
     /// `GET /v1/attest/challenge` with the key and the app token (18.4.1 step 3: the challenge is bound to the token's
@@ -726,6 +916,12 @@ final class ProtectedRuntime: @unchecked Sendable {
     /// One downloaded CDN form to its device form (18.2.1), then the CDN form goes: the device keeps one copy, and it
     /// is ciphertext under a key of this install's lease.
     func install(_ m: ModelManifest, decodedPath: String, in folder: URL) throws(RecognizerError) {
+        #if DEBUG
+        // tests only (StagingHooks.core): the install of a stand-in for the Core
+        if let standIn = StagingHooks.core.withLock({ $0 }) {
+            do { return try standIn.install(m, decodedPath, folder) } catch { throw (error as? RecognizerError) ?? .storageFailed("\(error)") }
+        }
+        #endif
         guard let raw = m.raw, let host = try self.host() else { throw .offline("needs_connection: no install key or lease yet") }
         var closed = false
         while true {

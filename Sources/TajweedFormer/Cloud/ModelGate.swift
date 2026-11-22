@@ -295,6 +295,8 @@ final class ModelGate: Sendable {
             return true
         }
         if changed { file.write(r) }
+        // SDK 4.0.2: a lease answer to a request sent before this stop is not taken (`LeaseStops`)
+        LeaseStops.bump(models.deletingLastPathComponent())
         acceptedByAPISince.withLock { $0 = false }
         // the mark first, so that the removal stays owed whatever comes next. It names the build folders that are
         // on the device now, beside the ones an earlier stop named; a mark that names nothing owes everything

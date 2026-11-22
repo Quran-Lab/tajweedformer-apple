@@ -1,6 +1,9 @@
 import CryptoKit
 import Foundation
 import Security
+#if os(macOS)
+import LocalAuthentication
+#endif
 
 // The install record (SDK 3.1.0, SPEC 15.2): the Client opens only a build it downloaded itself.
 //
@@ -37,27 +40,37 @@ enum KeychainAnswer: Equatable, Sendable {
     case error(OSStatus)
 }
 
-/// The two keychains the key store uses: the system's, or a test's stand-in.
+/// The places the key store uses: the system's keychains and the SDK's file, or a test's stand-in.
 protocol InstallKeychains {
     func readDataProtection() -> KeychainAnswer
+    /// The Mac's login keychain, read without any UI (4.0.2): a keychain that would ask (locked, or an item another
+    /// binary made) answers at once with a refusal (`errSecInteractionNotAllowed`) instead.
     func readLogin() -> KeychainAnswer
     /// Puts `key` in place of the item: the add's status.
     func writeDataProtection(_ key: Data) -> OSStatus
-    func writeLogin(_ key: Data) -> OSStatus
+    /// 4.0.2, macOS: the key in a file of the SDK's folder (`core/install-record.key`): its bytes, `notFound`, or
+    /// `error` when the file is there and cannot be read.
+    func readFile() -> KeychainAnswer
+    /// Keeps `key` in that file; false when it could not be written.
+    func writeFile(_ key: Data) -> Bool
 }
 
 /// The Keychain. On iOS: the data protection keychain, this device only, readable after first unlock, and nothing
 /// else. On macOS the same first. A Mac process without an application identifier (an unsigned or ad hoc signed
 /// binary, a command-line tool, an app signed without a provisioning profile) cannot keep an item there: that
 /// keychain answers its read with `errSecItemNotFound` (-25300), as if there were no item, and only its add with
-/// `errSecMissingEntitlement` (-34018) (measured on the CI's Mac runner, whose test process is such a process). So on
-/// macOS, when the data protection keychain finds nothing or refuses the process, the Mac's login keychain is read
-/// before the answer is "no key"; a key is written there only when the data protection keychain refuses the add; the
-/// item there is named for the app's bundle id. A login keychain can travel to another Mac with the user's account.
-/// There is no file fallback: every other answer of either keychain is a failure (`storage_failed`).
+/// `errSecMissingEntitlement` (-34018) (measured on the CI's Mac runner, whose test process is such a process). Such a
+/// process keeps its key in a file of the SDK's folder, as the protected model's install key (README). Its reads look
+/// in that file, then in the Mac's login keychain (where 3.1.0 to 4.0.1 kept the key), read without any UI. Every
+/// other answer of the data protection keychain is a failure (`storage_failed`).
 ///
 /// Until 3.1.0 the login keychain was read only after a read refused with `errSecMissingEntitlement`, which such a
 /// process never gets: every start found no key, wrote a new one, and deleted and downloaded the model again.
+/// Tried before (3.1.0 to 4.0.1): a new key of such a process went to the login keychain. Over SSH, where the login
+/// keychain is locked, that add waited on the keychain's unlock prompt that nobody answers (245 s, the example run as a
+/// command-line program on the Mac, 2026-11-21), then failed `storage_failed` (-60006). From 4.0.2 the SDK never
+/// writes the login keychain, and its reads of it never show UI (an LAContext that does not allow interaction: such a
+/// call answers `errSecInteractionNotAllowed` at once, measured on that Mac over SSH for a read, an add and a delete).
 struct KeychainInstallKeyStore: InstallKeyStoring {
     static let defaultService = "quranlab.sdk"
     static let defaultAccount = "quranlab.model.install.key"
@@ -65,15 +78,22 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
     /// The item's names (a test uses names of its own).
     var service = KeychainInstallKeyStore.defaultService
     var account = KeychainInstallKeyStore.defaultAccount
+    /// The file of a Mac process the data protection keychain refuses (`fileURL(storage:)`); nil: no file (a key
+    /// such a process makes is then a failure).
+    var file: URL?
 
-    /// macOS has a second place for the key, the login keychain; iOS has none.
+    /// The file in a storage folder: beside the protected model's own key file.
+    static func fileURL(storage: URL) -> URL { storage.appendingPathComponent("core/install-record.key") }
+
+    /// macOS has two more places for the key, the SDK's file and (read only) the login keychain; iOS has none.
     #if os(macOS)
     static let readsLogin = true
     #else
     static let readsLogin = false
     #endif
 
-    /// The item in the data protection keychain (per app by its access group).
+    /// The item in the data protection keychain (per app by its access group). The same attributes as every release
+    /// since 3.1.0, so the key a signed app kept is the key the next release finds.
     var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
@@ -81,12 +101,19 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
          kSecUseDataProtectionKeychain as String: true]
     }
 
-    /// The item in the Mac's login keychain, named for the app: two apps that use the SDK do not share it.
+    /// The item in the Mac's login keychain, named for the app (two apps that use the SDK do not share it). On macOS
+    /// the query carries an LAContext that does not allow interaction: the login keychain never asks.
     var loginQuery: [String: Any] {
         let app = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
-        return [kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account + "." + app]
+        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: service,
+                                kSecAttrAccount as String: account + "." + app]
+        #if os(macOS)
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        q[kSecUseAuthenticationContext as String] = context
+        #endif
+        return q
     }
 
     static func read(_ query: [String: Any]) -> KeychainAnswer {
@@ -125,13 +152,28 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
         }
     }
 
+    /// macOS, after the data protection keychain found nothing or refused the process: the file's key, else the login
+    /// keychain's (read without UI), else none. A file that is there and cannot be read is a failure (a new key would
+    /// take the place of one that may be there); a login keychain that refuses (locked, no UI allowed, no keychain)
+    /// is not: the file keeps the next key.
+    private static func elsewhere(_ k: any InstallKeychains) -> InstallKeyLookup {
+        switch k.readFile() {
+        case .data(let d) where d.count == keyBytes: return .key(d)
+        case .error(let status): return .failed("the install key's file could not be read (status \(status))")
+        default: break
+        }
+        if case .data(let d) = k.readLogin(), d.count == keyBytes { return .key(d) }
+        return .none
+    }
+
     /// The key, as `load` decides it: the data protection keychain's; on macOS (`readsLogin`), when that keychain
-    /// finds nothing or refuses the process, the login keychain's. Every other answer is a failure.
+    /// finds nothing or refuses the process, the file's, then the login keychain's. Every other answer of the data
+    /// protection keychain is a failure.
     static func load(_ keychains: any InstallKeychains, readsLogin: Bool) -> InstallKeyLookup {
         let first = keychains.readDataProtection()
         if readsLogin {
             switch first {
-            case .notFound, .missingEntitlement: return lookup(keychains.readLogin())
+            case .notFound, .missingEntitlement: return elsewhere(keychains)
             case .data, .error: break
             }
         }
@@ -139,17 +181,21 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
     }
 
     /// A new key kept, as `create` decides it. A key that a second read finds is that key, never replaced: the data
-    /// protection keychain is read again first, and on macOS the login keychain is read again before anything is
-    /// written there. A key goes to the login keychain only when the data protection keychain refuses the add.
+    /// protection keychain is read again first, and on macOS the file and the login keychain before the file is
+    /// written. A key goes to the file only when the data protection keychain refuses the add (`errSecMissingEntitlement`).
     static func create(_ keychains: any InstallKeychains, readsLogin: Bool, newKey: Data?) -> InstallKeyLookup {
         guard let key = newKey else { return .failed("the system gave no random bytes for the install key") }
         if case .data(let d) = keychains.readDataProtection(), d.count == keyBytes { return .key(d) }
-        var status = keychains.writeDataProtection(key)
-        if readsLogin && status == errSecMissingEntitlement {
-            if case .data(let d) = keychains.readLogin(), d.count == keyBytes { return .key(d) }
-            status = keychains.writeLogin(key)
+        let status = keychains.writeDataProtection(key)
+        if status == errSecSuccess { return .key(key) }
+        guard readsLogin && status == errSecMissingEntitlement else {
+            return .failed("the Keychain did not keep the install key (status \(status))")
         }
-        return status == errSecSuccess ? .key(key) : .failed("the Keychain did not keep the install key (status \(status))")
+        switch elsewhere(keychains) {
+        case .key(let d): return .key(d)
+        case .failed(let why): return .failed(why)
+        case .none: return keychains.writeFile(key) ? .key(key) : .failed("the install key's file could not be written")
+        }
     }
 
     static func randomKey() -> Data? {
@@ -165,13 +211,31 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
     }
 }
 
-/// The system's two keychains for one store's item.
+/// The system's keychains and the SDK's file for one store's item.
 struct SystemKeychains: InstallKeychains {
     let store: KeychainInstallKeyStore
     func readDataProtection() -> KeychainAnswer { KeychainInstallKeyStore.read(store.query) }
     func readLogin() -> KeychainAnswer { KeychainInstallKeyStore.read(store.loginQuery) }
     func writeDataProtection(_ key: Data) -> OSStatus { KeychainInstallKeyStore.add(store.query, key, deviceOnly: true) }
-    func writeLogin(_ key: Data) -> OSStatus { KeychainInstallKeyStore.add(store.loginQuery, key, deviceOnly: false) }
+    func readFile() -> KeychainAnswer {
+        guard let file = store.file else { return .notFound }
+        switch StorageSeam.read(file) {
+        case .value(let d): return .data(d)
+        case .missing: return .notFound
+        case .unreadable: return .error(errSecIO)
+        }
+    }
+    func writeFile(_ key: Data) -> Bool {
+        guard let file = store.file else { return false }
+        do {
+            try StorageProtection.makeFolder(file.deletingLastPathComponent())
+            try key.write(to: file, options: StorageProtection.atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            return true
+        } catch {
+            return false
+        }
+    }
 }
 
 /// How a build folder stands to this Client.

@@ -99,8 +99,9 @@ final class BackgroundSessionTests: XCTestCase {
             }
             var bounds: (lower: Int, upper: Int)?
             if let asked = headers["range"], asked.hasPrefix("bytes=") {
-                let parts = asked.dropFirst(6).split(separator: "-")
-                if parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) { bounds = (a, b) }
+                // `bytes=N-M`, or `bytes=N-` to the end (SDK 4.0.2's resume)
+                let parts = asked.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
+                if parts.count == 2, let a = Int(parts[0]) { bounds = (a, parts[1].isEmpty ? Int.max : Int(parts[1]) ?? -1) }
             }
             var response: Data
             if let at = path.range(of: "/sdk/v4.0/"), let body = StubBuild.data(String(path[at.upperBound...])) {
@@ -147,12 +148,7 @@ final class BackgroundSessionTests: XCTestCase {
         func cancel(prefix: String) async -> Set<String> { await session.cancel(prefix: prefix) }
     }
 
-    override func setUp() {
-        ModelInstaller.smallestRange.withLock { $0 = 100 }
-    }
-
     override func tearDown() {
-        ModelInstaller.smallestRange.withLock { $0 = 64 << 10 }
         QuranLab.configure(key: nil, options: .init(cloud: nil), cloud: nil)
     }
 
@@ -161,9 +157,9 @@ final class BackgroundSessionTests: XCTestCase {
     @discardableResult
     static func serveForeground() throws -> String { StubBuild.serve() }
 
-    /// The foreground's requests for a stored file, as `lower-upper`.
+    /// The foreground's requests for a stored file: `whole` (no Range, SDK 4.0.2), `N-` or `N-M`.
     static func foreground(of path: String) -> [String] {
-        StubProtocol.seen.filter { $0.path.hasSuffix("/sdk/v4.0/" + path) }.compactMap { ModelDownloadTests.range($0) }.map { "\($0.lower)-\($0.upper)" }
+        BackgroundDownloadTests.foreground(StubProtocol.seen, of: path)
     }
 
     /// An install whose model host is the loopback server and whose ranges all go by a real background session.
@@ -176,9 +172,9 @@ final class BackgroundSessionTests: XCTestCase {
         return (install, transport)
     }
 
-    /// Every range of every file is fetched by the system's background download tasks from the loopback server,
-    /// placed by the SDK's delegate and joined by the installer; the model opens, so every file's hash is right.
-    /// Each task carried the key and the install's token, and asked for one range.
+    /// Every file is fetched by the system's background download tasks from the loopback server, one task per file
+    /// asking the whole file with no Range (SDK 4.0.2, SPEC 16.7), placed by the SDK's delegate and joined by the
+    /// installer; the model opens, so every file's hash is right. Each task carried the key and the install's token.
     func testARealBackgroundSessionFetchesTheRangesAndTheModelOpens() async throws {
         let server = try Server()
         guard let port = await server.start() else { return XCTFail("the loopback server did not start") }
@@ -193,27 +189,26 @@ final class BackgroundSessionTests: XCTestCase {
         XCTAssertEqual(ModelDownloadRecord.networkProtocol, "http/1.1",
                        "the protocol the background session's ranges went by is kept for diagnose()")
         let asked = server.got.withLock { $0 }
-        XCTAssertGreaterThanOrEqual(asked.count, 9, "the background session asked the loopback server for the ranges (1 + 5 + 3)")
+        XCTAssertEqual(asked.count, StubBuild.files.count, "the background session asked the loopback server once per file")
         XCTAssertTrue(asked.allSatisfy { $0.key == CloudFixtures.key }, "every background task carried the key")
         XCTAssertTrue(asked.allSatisfy { $0.authorization == "Bearer qlt_v1.eyJ2IjoxfQ.sig" }, "and the install's token")
-        XCTAssertTrue(asked.allSatisfy { $0.range != nil }, "each for one range")
-        let weights = asked.filter { $0.path.hasSuffix("/sdk/v4.0/layers.zfw.qle") }.compactMap { $0.range }
-        XCTAssertEqual(Set(weights), ["bytes=0-99", "bytes=100-199", "bytes=200-299", "bytes=300-399", "bytes=400-419"])
+        XCTAssertTrue(asked.allSatisfy { $0.range == nil }, "each for its whole file, with no Range")
+        XCTAssertEqual(asked.filter { $0.path.hasSuffix("/sdk/v4.0/layers.zfw.qle") }.count, 1)
         let handed = transport.requests.withLock { $0 }
         XCTAssertTrue(handed.allSatisfy { $0.allowsExpensiveNetworkAccess && $0.allowsConstrainedNetworkAccess }, "a first install goes on any network")
         XCTAssertTrue(handed.allSatisfy { $0.assumesHTTP3Capable })
         print("background session: the foreground fetched these ranges of the weights file itself: \(Self.foreground(of: StubBuild.weights))")
     }
 
-    /// The loopback server answers one range of the weights file with a redirect to another host name. The system
-    /// follows it without asking the SDK and delivers the bytes. The SDK refuses them: nothing of them is kept,
-    /// the issue `update_failed`, `model_redirected:<host>` is queued with the host only, and the foreground
-    /// fetches that range from the model host. The model opens.
+    /// The loopback server answers the weights file's task with a redirect to another host name. The system follows
+    /// it without asking the SDK and delivers the bytes. The SDK refuses them: nothing of them is kept, the issue
+    /// `update_failed`, `model_redirected:<host>` is queued with the host only, and the file is fetched again from the
+    /// model host. The model opens.
     func testARedirectTheSystemFollowedIsRefusedAndReported() async throws {
         let server = try Server()
         guard let port = await server.start() else { return XCTFail("the loopback server did not start") }
         defer { server.stop() }
-        server.redirect.withLock { $0 = (path: StubBuild.weights, lower: 100) }
+        server.redirect.withLock { $0 = (path: StubBuild.weights, lower: 0) }
         let build = try Self.serveForeground()
         let (client, _) = try makeClient(CloudFixtures.storage(), port: port)
         defer { client.close() }
@@ -225,10 +220,10 @@ final class BackgroundSessionTests: XCTestCase {
         XCTAssertFalse(followed.isEmpty, "the system followed the redirect to the other host: \(asked.map { $0.host + $0.path }.suffix(4))")
         print("background session: the followed request carried the key header: \(followed.map { $0.key != nil })")
         XCTAssertEqual(Set(client.redirects.withLock { $0 }), ["model_redirected:localhost"], "the host, and nothing else of the address")
-        // the refused range was asked for again from the model host: by a second background task, or by the foreground
-        let again = asked.filter { $0.host.hasPrefix("127.0.0.1") && $0.path.hasSuffix("/sdk/v4.0/layers.zfw.qle") && $0.range == "bytes=100-199" }.count
-        XCTAssertTrue(again >= 2 || Self.foreground(of: StubBuild.weights).contains("100-199"),
-                      "the refused range was fetched again from the model host (\(again) requests there)")
+        // the refused file was asked for again from the model host: by a second background task, or by the foreground
+        let again = asked.filter { $0.host.hasPrefix("127.0.0.1") && $0.path.hasSuffix("/sdk/v4.0/layers.zfw.qle") && $0.range == nil }.count
+        XCTAssertTrue(again >= 2 || Self.foreground(of: StubBuild.weights).contains("whole"),
+                      "the refused file was fetched again from the model host (\(again) requests there)")
     }
 
     /// A task that ends before a sink is attached (the system started the app for the session's events, and the
@@ -271,7 +266,7 @@ final class BackgroundSessionTests: XCTestCase {
             server.stop()
             other.stop()
         }
-        server.redirect.withLock { $0 = (path: StubBuild.weights, lower: 100) }
+        server.redirect.withLock { $0 = (path: StubBuild.weights, lower: 0) }
         server.redirectBase.withLock { $0 = "http://127.0.0.1:\(otherPort)" }
         let build = try Self.serveForeground()
         let (client, _) = try makeClient(CloudFixtures.storage(), port: port)
@@ -289,7 +284,7 @@ final class BackgroundSessionTests: XCTestCase {
         let server = try Server()
         guard let port = await server.start() else { return XCTFail("the loopback server did not start") }
         defer { server.stop() }
-        server.redirect.withLock { $0 = (path: StubBuild.weights, lower: 100) }
+        server.redirect.withLock { $0 = (path: StubBuild.weights, lower: 0) }
         server.redirectBase.withLock { $0 = "http://localhost:\(port)/hop" }
         let build = try Self.serveForeground()
         let (client, _) = try makeClient(CloudFixtures.storage(), port: port)
@@ -301,21 +296,21 @@ final class BackgroundSessionTests: XCTestCase {
         XCTAssertEqual(Set(client.redirects.withLock { $0 }), ["model_redirected:127.0.0.1"], "refused and reported: the bytes came by a redirect")
     }
 
-    /// The request of an update's background task: it waits for an unmetered network (the system's two marks), and
-    /// carries the key, the token, the range and the validator. The real session takes such a task and the
-    /// loopback server serves it.
-    func testAnUpdatesBackgroundTaskDoesNotGoOverAMeteredNetwork() async throws {
+    /// SDK 4.0.2 (section 33): the request of a background task never waits for an unmetered network (both of the
+    /// system's marks allow any network; to 4.0.1 an update's carried them), and carries the key, the token, the range
+    /// and the validator. The real session takes such a task and the loopback server serves it.
+    func testABackgroundTaskGoesOverAnyNetwork() async throws {
         let server = try Server()
         guard let port = await server.start() else { return XCTFail("the loopback server did not start") }
         defer { server.stop() }
-        var client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)")),
+        let client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)")),
                                auth: .fixed(key: "k", token: "t"), verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
-        client.unmeteredOnly = true
         let url = client.fileURL(.v4_0, revision: "abc", path: StubBuild.weights)
         let made = await client.backgroundRequest(url, lower: 0, upper: 99, validator: "\"one\"")
         let request = try XCTUnwrap(made)
-        XCTAssertFalse(request.allowsExpensiveNetworkAccess)
-        XCTAssertFalse(request.allowsConstrainedNetworkAccess)
+        XCTAssertTrue(request.allowsExpensiveNetworkAccess)
+        XCTAssertTrue(request.allowsConstrainedNetworkAccess)
+        XCTAssertTrue(request.allowsCellularAccess)
         XCTAssertEqual(request.value(forHTTPHeaderField: "range"), "bytes=0-99")
         XCTAssertEqual(request.value(forHTTPHeaderField: "if-range"), "\"one\"")
         XCTAssertEqual(request.value(forHTTPHeaderField: "x-qlab-key"), "k")
@@ -333,5 +328,69 @@ final class BackgroundSessionTests: XCTestCase {
         while ModelInstaller.sizeOnDisk(kept) == 0, Date() < end { try await Task.sleep(nanoseconds: 50_000_000) }
         XCTAssertEqual(ModelInstaller.sizeOnDisk(kept), 100, "the range was fetched and kept")
         XCTAssertEqual(try Data(contentsOf: kept), try XCTUnwrap(StubBuild.data(StubBuild.weights)).prefix(100))
+    }
+
+    /// SDK 4.0.2 (section 33.3), no_wait_40.json `queued_by_401_metered`: a range task that 4.0.1 left in the session
+    /// with an unmetered-only request (the system keeps a task's request, its two marks included, across processes and
+    /// an update of the app: measured on the Mac with a background session made again in a second process) does not
+    /// keep waiting. The session made again (`liftNetworkConditions`, at its first use in the process) cancels it and
+    /// makes the same request again under the same name with both marks allowing any network; that task fetches the
+    /// range, and nothing else is touched (a task that waits for nothing stays as it is).
+    func testARangeTaskThat401LeftWaitingForWiFiGoesOn() async throws {
+        let server = try Server()
+        guard let port = await server.start() else { return XCTFail("the loopback server did not start") }
+        defer { server.stop() }
+        let client = CDNClient(http: HTTPClient(session: StubProtocol.session()), base: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)")),
+                               auth: .fixed(key: "k", token: "t"), verifier: ManifestVerifier(trustedKeys: [], requireSignature: false))
+        let url = client.fileURL(.v4_0, revision: "abc", path: StubBuild.weights)
+        let storage = CloudFixtures.storage()
+        let folder = "models/v4.0/.download-test"
+        try FileManager.default.createDirectory(at: storage.appendingPathComponent(folder), withIntermediateDirectories: true)
+        let downloader = BackgroundDownloader.shared(identifier: "ai.quranlab.models.test." + UUID().uuidString, parallel: 2)
+        downloader.attach(RangeDelivery.Sink(storage: storage, refused: { _ in }, redirected: { _ in }))
+        // the lift the session's first use starts has found an empty session
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let size = Int64(try XCTUnwrap(StubBuild.data(StubBuild.weights)).count)
+        // 4.0.1's request of an update's range, as its CDNClient made it, left in the session (not resumed: on a Mac
+        // the loopback is never metered, so a resumed one would run at once)
+        let made401 = await client.backgroundRequest(url, lower: 0, upper: 99, validator: nil)
+        var waiting = try XCTUnwrap(made401)
+        waiting.allowsExpensiveNetworkAccess = false
+        waiting.allowsConstrainedNetworkAccess = false
+        XCTAssertTrue(BackgroundDownloader.waitsForANetwork(waiting))
+        let range = BackgroundRange(folder: folder, path: StubBuild.weights, lower: 0, upper: 99, size: size)
+        let old = downloader.session.downloadTask(with: waiting)
+        old.taskDescription = range.key
+        // and one that waits for nothing (another range): it stays as it is
+        let madeFree = await client.backgroundRequest(url, lower: 100, upper: 199, validator: nil)
+        let free = try XCTUnwrap(madeFree)
+        XCTAssertFalse(BackgroundDownloader.waitsForANetwork(free))
+        let other = BackgroundRange(folder: folder, path: StubBuild.weights, lower: 100, upper: 199, size: size)
+        let kept = downloader.session.downloadTask(with: free)
+        kept.taskDescription = other.key
+        let lifted = await downloader.liftNetworkConditions()
+        XCTAssertEqual(lifted, [range.key], "the waiting task, and only it, is made again")
+        let now = await downloader.session.allTasks.filter { $0.state == .running || $0.state == .suspended }
+        let again = now.filter { $0.taskDescription == range.key }
+        XCTAssertEqual(again.count, 1, "one task under the range's name")
+        XCTAssertNotEqual(again.first?.taskIdentifier, old.taskIdentifier)
+        let made = try XCTUnwrap(again.first?.originalRequest)
+        XCTAssertFalse(BackgroundDownloader.waitsForANetwork(made), "its request waits for no network")
+        XCTAssertEqual(made.value(forHTTPHeaderField: "range"), "bytes=0-99")
+        XCTAssertEqual(made.value(forHTTPHeaderField: "authorization"), "Bearer t")
+        XCTAssertTrue(now.contains { $0.taskIdentifier == kept.taskIdentifier }, "the task that waited for nothing is left as it is")
+        let second = await downloader.liftNetworkConditions()
+        XCTAssertEqual(second, [], "nothing more to make again")
+        let file = BackgroundRange.file(part: BackgroundRange.part(storage.appendingPathComponent(folder), range.path), lower: 0)
+        let end = Date().addingTimeInterval(30)
+        while ModelInstaller.sizeOnDisk(file) == 0, Date() < end { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertEqual(ModelInstaller.sizeOnDisk(file), 100, "the range was fetched and kept")
+        var left = await downloader.pending(prefix: BackgroundRange.prefix(folder: folder))
+        while left != [other.key], Date() < end {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            left = await downloader.pending(prefix: BackgroundRange.prefix(folder: folder))
+        }
+        XCTAssertEqual(left, [other.key], "the new task counts as under way until its own end, not the old one's")
+        kept.cancel()
     }
 }

@@ -42,7 +42,7 @@ enum RecognizerError: Error, Equatable, Sendable, CustomStringConvertible {
     case serverRejected(status: Int, code: String, message: String, reason: String? = nil)
     /// Not enough free space for a model update.
     case insufficientStorage(needed: Int64, available: Int64)
-    /// A model update was not started (policy: no Wi-Fi, updates off) or not activated yet.
+    /// A model update was not started (updates off) or not activated yet.
     case updateDeferred(String)
     /// A file could not be written or moved (a model file, the sharing outbox).
     case storageFailed(String)

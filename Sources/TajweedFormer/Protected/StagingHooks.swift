@@ -20,5 +20,21 @@ enum StagingHooks {
     /// real SDK against production with some hosts unreachable for the test process only. Nil by default: the
     /// system's proxy settings. Background sessions are not changed.
     static let connectionProxy = Locked<[String: any Sendable]?>(nil)
+    /// SDK 4.0.2: the Core's part of a model install, for the tests that run an install and a Session through the
+    /// public Client (no stub server can give a lease the Core accepts): the lease answer of a build, each file's
+    /// install to its device form, and whether the lease in force allows accelerator programs. Nil by default: the
+    /// Core.
+    static let core = Locked<CoreStandIn?>(nil)
+    /// Tests only (SDK 4.0.2): told right before a lease the Core accepted is stored (`storeLease`), so a test can hold
+    /// that store while a stop arrives.
+    static let beforeLeaseStore = Locked<(@Sendable () -> Void)?>(nil)
+}
+
+/// What `StagingHooks.core` stands in for (`ProtectedRuntime.ensureLease`, `install`, `acceleratorAllowed`).
+/// (untyped throws: a typed-throws function type as a generic argument needs iOS 18 / macOS 15 at run time)
+struct CoreStandIn: Sendable {
+    var lease: @Sendable (_ manifest: ModelManifest) async throws -> LeaseRecord
+    var install: @Sendable (_ manifest: ModelManifest, _ decodedPath: String, _ folder: URL) throws -> Void
+    var acceleratorAllowed: @Sendable () -> Bool? = { nil }
 }
 #endif

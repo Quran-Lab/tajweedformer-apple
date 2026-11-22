@@ -229,6 +229,15 @@ struct ContributionClient: Sendable {
 /// `item.json`. Since 2.0.3 a recording that holds two or more takes also has `takes.json`
 /// (`{"takes":[{"start_ms","gap_ms"}]}`, rewritten when a take joins), which the outbox sends after the last segment.
 enum ShareFiles {
+    /// Tests only (SDK 4.0.2, section 29, `share_write_40.json`): every write of a recording fails, as on a full disk
+    /// (a page of a segment, a marker, `capture.json`, the take list, `end.json`, the recovery's own writes).
+    static let refusesWrites = Locked(false)
+
+    /// Throws as a write on a full disk does while `refusesWrites` is on.
+    static func checkWritable() throws {
+        if refusesWrites.withLock({ $0 }) { throw CocoaError(.fileWriteOutOfSpace) }
+    }
+
     static let session = "session.json"
     static let capture = "capture.json"
     static let end = "end.json"
@@ -309,6 +318,7 @@ enum ShareFiles {
 
     /// `takes.json`: the recording's takes so far (written when a take joins, so two or more), replaced in one step.
     static func writeTakes(_ folder: URL, _ takes: [ShareTake]) throws {
+        try checkWritable()
         try takesBody(takes).write(to: folder.appendingPathComponent(takesFile), options: StorageProtection.atomic)
     }
 
@@ -368,6 +378,7 @@ enum ShareFiles {
     }
 
     static func write<T: Encodable>(_ v: T, _ url: URL) throws {
+        try checkWritable()
         try JSONEncoder().encode(v).write(to: url, options: StorageProtection.atomic)
     }
 
@@ -584,6 +595,9 @@ final class ShareCapture: ShareRecording {
     private var preSkip = 0
     private var ended = false
     private var abandoned = false
+    /// A write of the recording failed inside the writer's own call (a marker, `capture.json`): the recording ends
+    /// when that call returns (section 29).
+    private var writeFailed = false
     /// Sharing went off (`discard()`): nothing of the capture is kept.
     private var off = false
 
@@ -631,7 +645,8 @@ final class ShareCapture: ShareRecording {
     /// A list that cannot be written leaves the earlier one: the audio still joins.
     func takes(_ list: [ShareTake]) {
         guard writer != nil, !failed, !ended else { return }
-        try? ShareFiles.writeTakes(folder, list)
+        // section 29 (SDK 4.0.2): a take list that cannot be written ends the recording, as any failed write of it
+        do { try ShareFiles.writeTakes(folder, list) } catch { abandon() }
     }
 
     func append(_ mono: [Float], rate: Double) throws(RecognizerError) {
@@ -644,19 +659,21 @@ final class ShareCapture: ShareRecording {
                 try StorageProtection.makeFolder(folder)
                 // the stamp before anything else is in the folder: a recording without one reads as begun under count 0
                 try ShareFiles.write(ShareFiles.Stamp(count: consentCount), folder.appendingPathComponent(ShareFiles.stampFile))
+                try ShareFiles.checkWritable()
                 try session(Int(rate.rounded()), AudioRoute.current(), takeSeq, gapMsPrev, flac)
                     .write(to: folder.appendingPathComponent(ShareFiles.session), options: StorageProtection.inPlace)
             } catch {
-                throw .storageFailed("cannot create \(folder.lastPathComponent): \(error.localizedDescription)")
+                // section 29: the recording ends at once; with no segment closed nothing of it is kept. The take goes on
+                return abandon()
             }
             let folder = self.folder
             if flac {
                 // lossless at the capture rate: no resampling, no bitrate ladder, no pre-skip
                 let w = try OggFlacWriter(segmentURL: { n in folder.appendingPathComponent(ShareFiles.audioName(n, flac: true)) },
                                           plan: SegmentPlan.seconds, inputRate: rate) { [unowned self] seg in self.closed(seg) }
-                try? ShareFiles.write(ShareFiles.Capture(preSkip: 0, bitrates: nil, rate: w.rate),
-                                      folder.appendingPathComponent(ShareFiles.capture))
                 writer = w
+                guard (try? ShareFiles.write(ShareFiles.Capture(preSkip: 0, bitrates: nil, rate: w.rate),
+                                             folder.appendingPathComponent(ShareFiles.capture))) != nil else { return abandon() }
             } else {
                 let w = try OggOpusWriter(segmentURL: { n in folder.appendingPathComponent(ShareFiles.name(n)).appendingPathExtension("opus") },
                                           plan: SegmentPlan.seconds, inputRate: rate) { [unowned self] seg in self.closed(seg) }
@@ -665,18 +682,31 @@ final class ShareCapture: ShareRecording {
                 w.bitrateForSegment = { (_: Int) -> Int in ladder.bitrate }
                 w.onSegmentOpen = { [unowned self] (n: Int, bps: Int) in self.opened(n, bitrate: bps) }
                 preSkip = w.preSkip
-                try? ShareFiles.write(ShareFiles.Capture(preSkip: w.preSkip, bitrates: []), folder.appendingPathComponent(ShareFiles.capture))
                 writer = w
+                guard (try? ShareFiles.write(ShareFiles.Capture(preSkip: w.preSkip, bitrates: []),
+                                             folder.appendingPathComponent(ShareFiles.capture))) != nil else { return abandon() }
             }
         }
         guard writer?.inputRate == rate else { return }
-        try writer?.append(mono)
+        do throws(RecognizerError) {
+            try writer?.append(mono)
+        } catch {
+            // section 29 (SDK 4.0.2): a page that cannot be written ends the recording at once, as a crash would, and the
+            // 2.0.1 recovery closes it (`abandon`): the closed segments and the open one's whole pages stay while sharing
+            // is on. The take goes on; the next take starts a new recording. Tried before (4.0.1): the failure was thrown
+            // to the take, and the recording went on to its end with the pages that could not be written missing
+            guard case .storageFailed = error else { throw error }
+            return abandon()
+        }
+        if writeFailed { abandon() }
     }
 
     /// A segment opened: its bitrate goes to the capture file before any of its audio is on disk.
     private func opened(_ n: Int, bitrate: Int) {
         if bitrates.count == n - 1 { bitrates.append(bitrate) }
-        try? ShareFiles.write(ShareFiles.Capture(preSkip: preSkip, bitrates: bitrates), folder.appendingPathComponent(ShareFiles.capture))
+        if (try? ShareFiles.write(ShareFiles.Capture(preSkip: preSkip, bitrates: bitrates), folder.appendingPathComponent(ShareFiles.capture))) == nil {
+            writeFailed = true
+        }
     }
 
     /// A segment closed: its marker is written, the ladder hears of the outbox's backlog (before the next segment
@@ -686,7 +716,8 @@ final class ShareCapture: ShareRecording {
         do {
             try ShareFiles.mark(folder, n: seg.n, granule: seg.granule, bitrate: seg.bitrate, rate: seg.rate)
         } catch {
-            failed = true
+            // ends when the writer's call returns (section 29): the writer is in the middle of its page here
+            writeFailed = true
             return
         }
         self.outbox.ladder.segmentClosed(backlogSeconds: ShareFiles.backlogSeconds(root: self.outbox.root))
@@ -704,6 +735,8 @@ final class ShareCapture: ShareRecording {
               completed || writer.duration >= Self.minimumPartial || segments > 0 else { return abandon() }
         do {
             let ms = try writer.finish()
+            // the last segment's marker failed inside the writer's call (section 29)
+            if writeFailed { return abandon() }
             try ShareFiles.write(ShareFiles.End(durationMs: ms, completed: completed), folder.appendingPathComponent(ShareFiles.end))
         } catch {
             return abandon()

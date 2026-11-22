@@ -1,5 +1,78 @@
 # Changelog
 
+## 4.0.2
+
+- **Apps with the SDK pass App Store Connect validation.** The Core framework's `CFBundleVersion` is now a plain
+  build number (`3`). In 4.0.0 and 4.0.1 it was `4.0.0-c3`, which App Store Connect refuses, so an app with the SDK
+  could not be uploaded. The Core's code is unchanged.
+- **The reference table reads right after `fetch()`.** On a first launch, `model.reference.units(...)` right after
+  `reference.fetch()` failed with `reference_missing`: installing the table closed the model, and nothing opened it
+  again. A fetch that fails now says why (`needs_connection` or `download_failed`, with its cause) instead of
+  `reference_missing`.
+- **An install never fails a take that has just started.** An install (the reference table, the Neural Engine's
+  build, an update) between the start of a Session and its first chunk closed the model, and the take failed with
+  `engine_failed`. A take now holds the model from its start, and the install waits for it to end.
+- **Nothing waits for Wi-Fi.** `prefetch(unmeteredOnly:)` is gone, with no compatibility shim: `prefetch(onProgress:)`
+  downloads on whatever network the device has. Every download and upload of the SDK uses any network: a first
+  install, an update, another context's files, the Neural Engine's build, `prefetch()` and shared recordings. The
+  system may still pause a transfer by its own settings (Low Data Mode, background limits); the SDK adds no wait of its
+  own and never reads the kind of network to hold a request. `diagnose().connection` stays, as a report only. Fixes
+  4.0.1, where after `prefetch()` installed the default context, a Session on another context (`c24_l256`) on mobile
+  data got `model_missing` at every retry: that context's files were taken for an update, and updates waited for
+  Wi-Fi. A background download that an earlier SDK left waiting for Wi-Fi is made again for any network at the first
+  start.
+- **`TajweedError.cause`**: what failed, as tokens (`stage`, `reason`, and when known `httpStatus`, `errorName`,
+  `errorCode`), the same as the error report Quran Lab gets for it, set whether or not reports are on; nil for the
+  codes that only say the app used the API wrongly. On `needs_connection`, `cause.needs` is `model` (the model files are
+  not on the device yet: connect to download them) or `lease` (the model is on the device and needs Quran Lab's answer
+  to open). The cause takes part in the error's equality. A Session, `prepare(options:)` or `prepareAccelerator` whose
+  context's files cannot be fetched now fails as `client.model()` does: no answer at all is `needs_connection` with
+  `needs` `model`, a server's answer `download_failed` (4.0.1: `model_missing`).
+- **A lease that does not allow accelerator programs is not a failure.** The CPU engine runs and nothing is counted
+  against the build; the preparation goes on from where it stood once a lease allows programs, and a build already
+  promoted stays promoted. 4.0.1 counted it as a failure, so the Neural Engine could stay off for that build and OS
+  build for good; such builds are tried again after the update.
+- **On a Mac the SDK's Keychain calls never ask the user.** A command-line tool run over SSH, whose login keychain is
+  locked, waited in 4.0.1 on the keychain's prompt and then failed with `storage_failed`; 4.0.2 keeps the key that marks
+  the model as this install's download in a file of the SDK's folder at once, as the README describes. A signed app's
+  key stays where it was, so its model is not downloaded again.
+- **Sharing: a write that fails keeps the finished segments.** When the device refuses a write of a shared recording
+  (a full disk), the recording ends there: its closed segments and the whole pages of the open one are kept and upload
+  like any recording while sharing is on, and the take goes on. In 4.0.1 the failure reached the take and the
+  recording went on with the pages that could not be written missing.
+- **Under load, the SDK steps back.** Every request honours the server's `Retry-After` on a 429 and on a 503 that
+  carries one, the routes a learner needs to start included. While a route waits, a call that needs it fails at once
+  as the server's last answer did, without a request, and the wait outlives a restart: a new process of the app waits
+  as the old one would have. After a 429, telemetry, error reports and shared-recording uploads keep what they were
+  sending and wait the larger of its `Retry-After` (five minutes without one) and their next send point, doubling for
+  each 429 in a row up to an hour, across restarts too; nothing is dropped for it. When Quran Lab cannot answer, the
+  SDK's own retries step back further and are spread across installs, a `Retry-After` never shortens the wait, and a
+  restart does not bring them sooner; a learner whose model opens never notices, and a call that cannot go on without
+  a lease still asks at once unless the server asked it to wait.
+- **App Attest under load.** When App Attest cannot attest now (Apple throttles an app that asks too often), the SDK
+  goes on unattested, as on a device without App Attest, and asks again only after a wait that grows, never at every
+  call; a shared recording waits for the attested token instead of failing. A 429 from Quran Lab on an attestation
+  counts the same: the next attestation waits at least its `Retry-After` and the install goes on unattested meanwhile,
+  because a new attestation costs what is short when the server sheds. 4.0.1 asked again at the next token or
+  certificate, and after a server failure at every call that needed a token.
+- **One request per model file.** Each model file is downloaded with one request for the whole file, written to the
+  device as it arrives, and a transfer that was cut is resumed with one request for the rest, from the last byte on
+  the device. A first install of the default context with the Neural Engine's build makes 11 model-file requests in
+  the SDK's test, where 4.0.1 made 32 (ranges of 8 MiB one after another). On iOS the background session carries one
+  transfer per file, and when the app is back the transfers still under way go on and the app waits for them, so
+  nothing they fetched is fetched again (4.0.1 cancelled them). What an earlier SDK left on the device (partial files,
+  the ranges it kept, transfers still under way) is completed, not started again.
+- **A Client made again keeps Quran Lab's latest answer.** When an app closes its Client and makes a new one while a
+  request is still on its way, the new Client keeps the newer answer. In 4.0.1 the older one could come back, so a
+  learner could need a connection sooner than expected.
+- **A stopped key stays stopped.** If Quran Lab stops an app's key while a request is still on its way, the late
+  answer is ignored, also after a restart with no network.
+- **A wait for one model file holds only that file.** When a server asks the SDK to wait before fetching one model
+  file, the other files go on.
+- **Download counts per model host.** To keep model downloads fast, the SDK counts per model host and day the files,
+  bytes and requests it fetched there, the failures, the time to the first answer and the speed, in buckets: counts
+  only, with no identifier, address or path. They are sent with the daily telemetry.
+
 ## 4.0.1
 
 - If Quran Lab's main servers can't be reached, the SDK uses backup servers automatically. There is nothing to set.

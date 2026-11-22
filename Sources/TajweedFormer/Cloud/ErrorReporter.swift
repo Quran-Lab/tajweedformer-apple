@@ -48,8 +48,8 @@ struct ErrorReportBody: Encodable, Sendable {
         code = e.code
         error = Detail(stage: e.stage, reason: e.reason,
                        http_status: e.httpStatus.flatMap { (100...599).contains($0) ? $0 : nil },
-                       error_name: e.errorName.flatMap { Self.token($0, #"^[A-Za-z][A-Za-z0-9_.:$-]{0,47}$"#) },
-                       error_code: e.errorCode.flatMap { Self.token($0, #"^[A-Za-z0-9_.:-]{1,32}$"#) },
+                       error_name: e.errorName.flatMap { Self.token($0, ErrorRules.errorNamePattern) },
+                       error_code: e.errorCode.flatMap { Self.token($0, ErrorRules.errorCodePattern) },
                        count: max(1, min(ErrorReportBook.countMax, e.count)),
                        retries: e.retries.map { max(0, min(1000, $0)) },
                        first_launch: e.firstLaunch, first_report: e.firstReport,
@@ -61,9 +61,7 @@ struct ErrorReportBody: Encodable, Sendable {
     }
 
     /// `value` when the whole of it matches `pattern`, else nil.
-    static func token(_ value: String, _ pattern: String) -> String? {
-        value.range(of: pattern, options: .regularExpression) != nil ? value : nil
-    }
+    static func token(_ value: String, _ pattern: String) -> String? { ErrorRules.token(value, pattern) }
 
     /// The process's ABI (24.2): `arm64`; an Intel Mac `x86_64_mac`; the x86_64 simulator `x86_64`.
     static var abi: String {

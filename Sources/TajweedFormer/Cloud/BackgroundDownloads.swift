@@ -8,15 +8,22 @@ import UIKit
 // On iOS an app is suspended within seconds of the learner leaving it, and a download that runs in the app's
 // process stops there. A background URLSession goes on without the process. What it can carry is narrow: download
 // tasks only, each with its request fixed when it is made (no new token later), finished out of process, and
-// handed to the app as a file when the app runs again. So the background session here only FETCHES BYTES: one
-// download task per range of a model file. Every decision stays with the code that runs in the app: a finished
-// range is placed beside the partial file as a range file, and the installer's own loop joins it, in order, and
-// hashes the whole file against the signed manifest as it always did.
+// handed to the app as a file when the app runs again. So the background session here only FETCHES BYTES: from
+// 4.0.2 one download task per model file, for the rest of it from its first byte not on disk (SPEC 16.7: the whole
+// file with no Range, else `bytes=N-` with the validator as `If-Range`). Every decision stays with the code that runs
+// in the app: a finished task's bytes are placed beside the partial file as a range file, and the installer's own loop
+// joins them, in order, and hashes the whole file against the signed manifest as it always did. The background session
+// needs no pieces: a download task takes a file of any size to a file of the system's. A task's bytes are the
+// system's until it ends, so from 4.0.2 a task that has not ended when the app returns is not cancelled: it goes on,
+// and the app waits for it at its first byte (`ModelInstaller.adopt`) and joins what it brings, so nothing it fetched
+// is fetched again (4.0.1 cancelled it, losing up to its 8 MiB). Only a task that brings no byte for a minute after
+// the return is given up, and the app fetches those bytes itself.
 //
 // Two ways to use it (`BackgroundDownloadPolicy`):
 // - `whenLeaving`, the default on iOS: the download runs in the foreground as before, and what is left of it is
-//   handed to background tasks when the app has entered the background, and taken back when the app returns.
-// - `fromFirstByte`: every range is a background task from the start.
+//   handed to background tasks when the app has entered the background; when the app returns the tasks go on and
+//   the app waits for them, then goes on in the foreground.
+// - `fromFirstByte`: every file is a background task from the start.
 // Which of the two is the default is decided by a measurement on a phone; until then `whenLeaving`, because the
 // foreground path is the one the tests can run.
 //
@@ -33,12 +40,12 @@ enum BackgroundDownloadPolicy: String, Sendable {
     case whenLeaving
     /// For the measurement on a phone (the switch of debug builds; never a release build's policy): the background
     /// tasks are made when the app RESIGNS (`willResignActive`), while it still counts as in the foreground, for
-    /// every range after the one the app is fetching. The app's own request is not cut. When the app is active
+    /// what comes after the stretch the app is fetching. The app's own request is not cut. When the app is active
     /// again without having been in the background (Control Center, a banner, an alert), the tasks are cancelled
     /// and what they fetched is dropped; when it has entered the background, the app's request ends with its range
     /// and the rest stays with the tasks. A range belongs to the app or to a task, never to both.
     case whenResigning
-    /// Every range is a background task from the first byte.
+    /// Every file is a background task from the first byte.
     case fromFirstByte
 }
 
@@ -304,14 +311,18 @@ enum RangeDelivery {
             if status == 401 || status == 403 { return .refused }
             return .discarded("status \(status)")
         }
-        guard status == 206, let body else {
+        // SDK 4.0.2 (SPEC 16.7): a task for a whole file asks it with no Range, and its answer is a 200 of the file
+        let wholeFile = range.lower == 0 && range.upper == range.size - 1
+        guard status == 206 || (status == 200 && wholeFile), let body else {
             drop()
             return .discarded("status \(status)")
         }
-        guard let named = HTTPClient.contentRange(arrival.contentRange), named.lower == range.lower, named.upper == range.upper,
-              named.total == range.size else {
-            drop()
-            return .discarded("a 206 for another range or another file size than the one asked for")
+        if status == 206 {
+            guard let named = HTTPClient.contentRange(arrival.contentRange), named.lower == range.lower, named.upper == range.upper,
+                  named.total == range.size else {
+                drop()
+                return .discarded("a 206 for another range or another file size than the one asked for")
+            }
         }
         guard ModelInstaller.sizeOnDisk(body) == range.upper - range.lower + 1 else {
             drop()
@@ -349,13 +360,15 @@ struct BackgroundPlan: Sendable {
     let handOver: DownloadHandOver
     /// The build's download folder, relative to the SDK's storage (the first part of a task's name).
     let folder: String
-    /// The request of one range of a stored file: the token as it is now (and the key, unless the signed config
-    /// says a background transfer sends the token alone), the validator, the mark of an update that waits for an
-    /// unmetered network. Nil when no token can be had now. A background task keeps the request it was made with:
+    /// The request of one stretch `lower...upper` of a stored file of `size` bytes (SPEC 16.7: the whole file with no
+    /// Range, the rest of it as `bytes=N-`): the token as it is now (and the key, unless the signed config says a
+    /// background transfer sends the token alone) and the validator; it may go over any network (SDK 4.0.2).
+    /// Nil when no token can be had now. A background task keeps the request it was made with:
     /// its token is not renewed, and a range that the server refuses for its token is fetched by the installer
     /// itself, which renews.
-    let request: @Sendable (_ path: String, _ lower: Int64, _ upper: Int64, _ validator: String?) async -> URLRequest?
-    /// Told how many tasks were cancelled before they ended when the app returned (each abandoned whole).
+    let request: @Sendable (_ path: String, _ lower: Int64, _ upper: Int64, _ size: Int64, _ validator: String?) async -> URLRequest?
+    /// Told how many tasks were cancelled before they ended, each abandoned whole: from 4.0.2 (`whenLeaving`) only a task
+    /// the app waited for that brought no byte for `ModelInstaller.stallLimit`, and a round of the debug policies.
     let abandoned: @Sendable (Int) -> Void
     /// The refusal that stops the model, when one has arrived (a background task may have met it): the round
     /// ends, its tasks are cancelled, and the installer makes no further request.
@@ -405,6 +418,8 @@ final class BackgroundDownloader: NSObject, URLSessionDownloadDelegate, Backgrou
             m[identifier] = d
             // the system's completion handler came before the Client was made: it was waiting for this session
             if let waited = BackgroundEvents.take(identifier) { d.setFinishedHandler(waited) }
+            // SDK 4.0.2 (section 33.3): what an earlier SDK left waiting for an unmetered network goes on now
+            Task.detached(priority: .utility) { _ = await d.liftNetworkConditions() }
             return d
         }
     }
@@ -426,9 +441,12 @@ final class BackgroundDownloader: NSObject, URLSessionDownloadDelegate, Backgrou
         var protocols: [Int: String] = [:]
         /// What ended before a sink was attached: judged at `attach`.
         var waiting: [RangeDelivery.Arrival] = []
+        /// The tasks cancelled to be made again without a network condition (`liftNetworkConditions`), by task
+        /// identifier: their end is not the end of the task that took their place under the same name.
+        var replaced: Set<Int> = []
     }
     private let state = Locked(State())
-    private var session: URLSession!
+    private(set) var session: URLSession!
 
     private init(identifier: String, parallel: Int) {
         self.identifier = identifier
@@ -438,6 +456,11 @@ final class BackgroundDownloader: NSObject, URLSessionDownloadDelegate, Backgrou
         // a learner waits for this download: it is not left to the system's discretion. (Tasks made while the app
         // is in the background are discretionary whatever this says.)
         c.isDiscretionary = false
+        // SDK 4.0.2 (section 33): any network the device has, a cellular, metered or constrained one too; the system
+        // may still pause a transfer by its own settings, the SDK adds no condition of its own
+        c.allowsCellularAccess = true
+        c.allowsExpensiveNetworkAccess = true
+        c.allowsConstrainedNetworkAccess = true
         c.httpMaximumConnectionsPerHost = max(1, parallel)
         c.httpCookieStorage = nil
         c.httpShouldSetCookies = false
@@ -492,6 +515,35 @@ final class BackgroundDownloader: NSObject, URLSessionDownloadDelegate, Backgrou
         await unfinished(prefix: prefix).reduce(Int64(0)) { $0 + max(0, $1.countOfBytesReceived) }
     }
 
+    /// SDK 4.0.2 (section 33.3): a task of this session whose request waits for an unmetered or unconstrained network
+    /// (to 4.0.1 an update's ranges were made so, and the system keeps a task's request until the task ends, also
+    /// across an update of the app) is made again without that condition: it is cancelled, and a task with the same
+    /// request, its marks allowing any network, takes its place under the same name. Run once per process, when the
+    /// session is made (`shared`). The names of the tasks made again.
+    @discardableResult
+    func liftNetworkConditions() async -> [String] {
+        var lifted: [String] = []
+        for t in await session.allTasks where t.state == .running || t.state == .suspended {
+            guard let key = t.taskDescription, let asked = t.originalRequest ?? t.currentRequest, Self.waitsForANetwork(asked) else { continue }
+            var again = asked
+            again.allowsExpensiveNetworkAccess = true
+            again.allowsConstrainedNetworkAccess = true
+            again.allowsCellularAccess = true
+            state.withLock { _ = $0.replaced.insert(t.taskIdentifier) }
+            t.cancel()
+            start(again, key: key)
+            lifted.append(key)
+        }
+        if !lifted.isEmpty { SDKLatest.debugOnly("model download: \(lifted.count) background ranges an earlier SDK left waiting for Wi-Fi were made again for any network") }
+        return lifted
+    }
+
+    /// Whether a request may not go over every network (one of the system's marks keeps it off a cellular, metered
+    /// or constrained network).
+    static func waitsForANetwork(_ r: URLRequest) -> Bool {
+        !r.allowsExpensiveNetworkAccess || !r.allowsConstrainedNetworkAccess || !r.allowsCellularAccess
+    }
+
     /// For the measurement on a phone (debug builds): when a range's task was made, when its request went out and
     /// when its answer ended, as the system's metrics say. The system keeps these while the app is suspended, so
     /// the line says when a handed-over range really started and finished, whenever the app gets to write it.
@@ -530,12 +582,14 @@ final class BackgroundDownloader: NSObject, URLSessionDownloadDelegate, Backgrou
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
         let id = task.taskIdentifier
-        let (held, redirects, named, sink) = state.withLock { (s: inout State) -> (URL?, Int, String?, RangeDelivery.Sink?) in
-            (s.held.removeValue(forKey: id), s.redirects.removeValue(forKey: id) ?? 0, s.protocols.removeValue(forKey: id), s.sink)
+        let (held, redirects, named, sink, replaced) = state.withLock { (s: inout State) -> (URL?, Int, String?, RangeDelivery.Sink?, Bool) in
+            (s.held.removeValue(forKey: id), s.redirects.removeValue(forKey: id) ?? 0, s.protocols.removeValue(forKey: id), s.sink,
+             s.replaced.remove(id) != nil)
         }
         defer {
-            // the task has ended, and what it brought was judged (or is kept for the sink)
-            if let key = task.taskDescription {
+            // the task has ended, and what it brought was judged (or is kept for the sink); a task made again in its
+            // place under the same name (`liftNetworkConditions`) counts on
+            if !replaced, let key = task.taskDescription {
                 state.withLock { s in
                     guard let count = s.inFlight[key] else { return }
                     s.inFlight[key] = count > 1 ? count - 1 : nil

@@ -1,0 +1,1575 @@
+{
+ "about": "STEERING_40.md (section 34): made by tools/steering40.py; do not edit by hand",
+ "server_lists": {
+  "table": {
+   "v": 1,
+   "providers": {
+    "p1": {
+     "models": [
+      "cdn.quranlab.ai"
+     ],
+     "api": [
+      "api.quranlab.ai"
+     ]
+    },
+    "p2": {
+     "models": [
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com"
+     ],
+     "guard": "plan"
+    },
+    "p3": {
+     "models": [
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com"
+     ],
+     "api": [
+      "api-g.tajweedformer.com"
+     ],
+     "guard": "per_byte"
+    },
+    "p4": {
+     "models": [
+      "cdn-b.tajweedformer.com"
+     ],
+     "api": [
+      "api-b.tajweedformer.com"
+     ]
+    }
+   },
+   "rows": {
+    "EG": {
+     "models": [
+      "p3",
+      "p1",
+      "p2",
+      "p4"
+     ]
+    },
+    "AE": {
+     "models": [
+      "p2",
+      "p1",
+      "p3",
+      "p4"
+     ]
+    },
+    "AE:5384": {
+     "models": [
+      "p1",
+      "p2"
+     ]
+    },
+    "SA": {
+     "models": [
+      "p1",
+      "p3",
+      "p2",
+      "p4"
+     ],
+     "api": [
+      "p1",
+      "p3",
+      "p4"
+     ]
+    },
+    "BH": {
+     "models": [
+      "p1",
+      "p4",
+      "p3"
+     ]
+    },
+    "app:windows:ai.quranlab.selftest.desktop": {
+     "models": [
+      "p2",
+      "p1"
+     ]
+    }
+   }
+  },
+  "now": 1795350000,
+  "month": "2026-11",
+  "guard_stale_s": 129600,
+  "guard_share": 0.8,
+  "cases": [
+   {
+    "name": "a country with a row: its providers, then the built-in hosts it did not name",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "EG",
+     "asn": 8452
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "an SDK before 4.0.1: nothing",
+    "request": {
+     "sdk": "4.0.0",
+     "country": "EG"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": null
+   },
+   {
+    "name": "a country without a row and no * row: nothing",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "DE"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": null
+   },
+   {
+    "name": "no country (a standby): nothing",
+    "request": {
+     "sdk": "4.0.1"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": null
+   },
+   {
+    "name": "a network row beats its country",
+    "request": {
+     "sdk": "4.0.2",
+     "country": "AE",
+     "asn": 5384
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn-b.tajweedformer.com",
+      "cdn-g.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "the same country on another network",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE",
+     "asn": 8966
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "the api role too",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "SA"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "api": [
+      "api.quranlab.ai",
+      "api-g.tajweedformer.com",
+      "api-b.tajweedformer.com",
+      "api-a.tajweedformer.com"
+     ],
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a row that gives the built-in order sends nothing",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "BH"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn-b.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-a.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "the test app row",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "DK",
+     "app": "windows:ai.quranlab.selftest.desktop"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn.quranlab.ai",
+      "cdn-b.tajweedformer.com",
+      "cdn-g.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a guarded provider at 80%: behind the first unguarded one",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "EG"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": true
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "no reading at all: every guarded provider moved",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE",
+     "asn": 8966
+    },
+    "guard": null,
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a reading older than 36 h is none",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795220399,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795220399,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "last month's reading is none",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "EG"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-10",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-10",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "the * row for a country without its own",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "DE"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "the * row for a standby (no country)",
+    "request": {
+     "sdk": "4.0.1"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   }
+  ]
+ },
+ "hedge": {
+  "hedge_s": 1.5,
+  "cases": [
+   {
+    "name": "the first host answers at 0.4 s: no second request",
+    "first": [
+     0.4,
+     "taken"
+    ],
+    "second": null,
+    "second_sent_at": null,
+    "decided_by": "first",
+    "at": 0.4,
+    "outcome": "taken"
+   },
+   {
+    "name": "the first host is silent: the second, sent at 1.5 s, answers at 1.8 s",
+    "first": [
+     10.0,
+     "unreachable"
+    ],
+    "second": [
+     0.3,
+     "taken"
+    ],
+    "second_sent_at": 1.5,
+    "decided_by": "second",
+    "at": 1.8,
+    "outcome": "taken"
+   },
+   {
+    "name": "the first answers at 2.0 s, before the second (2.6 s): the first is taken",
+    "first": [
+     2.0,
+     "taken"
+    ],
+    "second": [
+     1.1,
+     "taken"
+    ],
+    "second_sent_at": 1.5,
+    "decided_by": "first",
+    "at": 2.0,
+    "outcome": "taken"
+   },
+   {
+    "name": "the first refuses at 2.0 s: the refusal ends it, the second is cancelled",
+    "first": [
+     2.0,
+     "refused"
+    ],
+    "second": [
+     5.0,
+     "taken"
+    ],
+    "second_sent_at": 1.5,
+    "decided_by": "first",
+    "at": 2.0,
+    "outcome": "refused"
+   },
+   {
+    "name": "the second answers 429 first: a slow down ends it",
+    "first": [
+     9.0,
+     "taken"
+    ],
+    "second": [
+     0.2,
+     "slow_down"
+    ],
+    "second_sent_at": 1.5,
+    "decided_by": "second",
+    "at": 1.7,
+    "outcome": "slow_down"
+   },
+   {
+    "name": "the first fails at 3 s, the second answers at 4 s: taken",
+    "first": [
+     3.0,
+     "unreachable"
+    ],
+    "second": [
+     2.5,
+     "taken"
+    ],
+    "second_sent_at": 1.5,
+    "decided_by": "second",
+    "at": 4.0,
+    "outcome": "taken"
+   },
+   {
+    "name": "both fail: unreachable, the order goes on after both",
+    "first": [
+     5.0,
+     "unreachable"
+    ],
+    "second": [
+     3.0,
+     "unreachable"
+    ],
+    "second_sent_at": 1.5,
+    "decided_by": null,
+    "at": 5.0,
+    "outcome": "unreachable"
+   }
+  ]
+ },
+ "slow_switch": {
+  "warmup_s": 2,
+  "window_s": 10,
+  "floor_bps": 64000,
+  "expect_fraction": 0.5,
+  "min_left": 1048576,
+  "note": "each host answers its status at once; a step's range is the Range sent (none for the first); no step sends If-Range",
+  "cases": [
+   {
+    "name": "fast throughout: no switch",
+    "size": 56623104,
+    "order": [
+     "cdn2.quranlab.ai",
+     "cdn.quranlab.ai",
+     "cdn3.quranlab.ai"
+    ],
+    "expected_bps": null,
+    "rates_bps": {
+     "cdn2.quranlab.ai": [
+      4194304
+     ]
+    },
+    "steps": [
+     {
+      "host": "cdn2.quranlab.ai",
+      "range": null,
+      "from_byte": 0,
+      "started_s": 0,
+      "ended_s": 14,
+      "bytes_at_end": 56623104,
+      "end": "done"
+     }
+    ],
+    "finished_by": "cdn2.quranlab.ai",
+    "p_after": "cdn2.quranlab.ai",
+    "if_range": null
+   },
+   {
+    "name": "the first host drops to 20 kB/s: one switch, from the byte reached",
+    "size": 56623104,
+    "order": [
+     "cdn2.quranlab.ai",
+     "cdn.quranlab.ai",
+     "cdn3.quranlab.ai"
+    ],
+    "expected_bps": null,
+    "rates_bps": {
+     "cdn2.quranlab.ai": [
+      2097152,
+      2097152,
+      2097152,
+      2097152,
+      2097152,
+      20000
+     ],
+     "cdn.quranlab.ai": [
+      3145728
+     ]
+    },
+    "steps": [
+     {
+      "host": "cdn2.quranlab.ai",
+      "range": null,
+      "from_byte": 0,
+      "started_s": 0,
+      "ended_s": 14,
+      "bytes_at_end": 10665760,
+      "end": "slow"
+     },
+     {
+      "host": "cdn.quranlab.ai",
+      "range": "bytes=10665760-",
+      "from_byte": 10665760,
+      "started_s": 14,
+      "ended_s": 29,
+      "bytes_at_end": 56623104,
+      "end": "done"
+     }
+    ],
+    "finished_by": "cdn.quranlab.ai",
+    "p_after": "cdn.quranlab.ai",
+    "if_range": null
+   },
+   {
+    "name": "half the expected rate: a switch even above the floor",
+    "size": 56623104,
+    "order": [
+     "cdn2.quranlab.ai",
+     "cdn.quranlab.ai",
+     "cdn3.quranlab.ai"
+    ],
+    "expected_bps": 1000000,
+    "rates_bps": {
+     "cdn2.quranlab.ai": [
+      400000
+     ],
+     "cdn.quranlab.ai": [
+      3145728
+     ]
+    },
+    "steps": [
+     {
+      "host": "cdn2.quranlab.ai",
+      "range": null,
+      "from_byte": 0,
+      "started_s": 0,
+      "ended_s": 12,
+      "bytes_at_end": 4800000,
+      "end": "slow"
+     },
+     {
+      "host": "cdn.quranlab.ai",
+      "range": "bytes=4800000-",
+      "from_byte": 4800000,
+      "started_s": 12,
+      "ended_s": 29,
+      "bytes_at_end": 56623104,
+      "end": "done"
+     }
+    ],
+    "finished_by": "cdn.quranlab.ai",
+    "p_after": "cdn.quranlab.ai",
+    "if_range": null
+   },
+   {
+    "name": "slow near the end (under 1 MiB left): no switch",
+    "size": 3145728,
+    "order": [
+     "cdn2.quranlab.ai",
+     "cdn.quranlab.ai"
+    ],
+    "expected_bps": null,
+    "rates_bps": {
+     "cdn2.quranlab.ai": [
+      300000,
+      300000,
+      300000,
+      300000,
+      300000,
+      300000,
+      300000,
+      300000,
+      300000,
+      30000
+     ]
+    },
+    "steps": [
+     {
+      "host": "cdn2.quranlab.ai",
+      "range": null,
+      "from_byte": 0,
+      "started_s": 0,
+      "ended_s": 24,
+      "bytes_at_end": 3145728,
+      "end": "done"
+     }
+    ],
+    "finished_by": "cdn2.quranlab.ai",
+    "p_after": "cdn2.quranlab.ai",
+    "if_range": null
+   },
+   {
+    "name": "slow on every host: each left once, then no more cuts",
+    "size": 56623104,
+    "order": [
+     "cdn2.quranlab.ai",
+     "cdn.quranlab.ai",
+     "cdn3.quranlab.ai"
+    ],
+    "expected_bps": null,
+    "rates_bps": {
+     "cdn2.quranlab.ai": [
+      50000
+     ],
+     "cdn.quranlab.ai": [
+      40000
+     ],
+     "cdn3.quranlab.ai": [
+      30000
+     ]
+    },
+    "steps": [
+     {
+      "host": "cdn2.quranlab.ai",
+      "range": null,
+      "from_byte": 0,
+      "started_s": 0,
+      "ended_s": 12,
+      "bytes_at_end": 600000,
+      "end": "slow"
+     },
+     {
+      "host": "cdn.quranlab.ai",
+      "range": "bytes=600000-",
+      "from_byte": 600000,
+      "started_s": 12,
+      "ended_s": 24,
+      "bytes_at_end": 1080000,
+      "end": "slow"
+     },
+     {
+      "host": "cdn3.quranlab.ai",
+      "range": "bytes=1080000-",
+      "from_byte": 1080000,
+      "started_s": 24,
+      "ended_s": 1876,
+      "bytes_at_end": 56623104,
+      "end": "done"
+     }
+    ],
+    "finished_by": "cdn3.quranlab.ai",
+    "p_after": "cdn3.quranlab.ai",
+    "if_range": null
+   }
+  ]
+ },
+ "telemetry": {
+  "ttfb_buckets_ms": [
+   100,
+   250,
+   500,
+   1000,
+   1500,
+   3000,
+   6000,
+   10000
+  ],
+  "kbps_buckets": [
+   32,
+   64,
+   128,
+   256,
+   512,
+   1024,
+   2048,
+   4096,
+   8192
+  ],
+  "cases": [
+   {
+    "name": "one host",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "two hosts",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "cdn.quranlab.ai",
+      "files": 1,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "none that day",
+    "hosts": [],
+    "accepted": true
+   },
+   {
+    "name": "a host off the allow-list",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn.example.com",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a lookalike",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "evilquranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "nine entries",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "n0.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n1.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n3.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n4.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n5.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n6.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n7.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n8.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "the same host twice",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     },
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a bucket list of the wrong length",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a negative count",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": -1,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "another role",
+    "hosts": [
+     {
+      "role": "api",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a field more (a path)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "path": "/models/x"
+     }
+    ],
+    "accepted": false
+   }
+  ]
+ }
+}

@@ -7,6 +7,9 @@ import Foundation
 ///     do { session = try await model.listen() } catch {
 ///         if error.code == "microphone_denied" { showSettingsHint(error.fix) }
 ///     }
+///
+/// SDK 4.0.2: `cause` says what failed, in the same tokens as the error report Quran Lab gets for it, so an app can log
+/// it, word its message, and send it in a support request.
 public struct TajweedError: Error, Sendable, Hashable, CustomStringConvertible, LocalizedError {
     /// One of the 26 codes of the catalogue (`invalid_key`, `needs_connection`, `session_open`, ...).
     public let code: String
@@ -15,10 +18,35 @@ public struct TajweedError: Error, Sendable, Hashable, CustomStringConvertible, 
     public let fix: String
     /// `https://sdk.quranlab.ai/docs/errors#<code>`.
     public let docs: String
+    /// What failed (SDK 4.0.2): where, why, and what answered, as tokens. Nil for the codes that only say the app used
+    /// the API wrongly (`invalid_argument`, `client_exists`, `session_open`, `session_closed`, `cancelled`). It is set
+    /// whether or not error reports are on, and it takes part in the error's equality.
+    public let cause: Cause?
 
     public var description: String { "\(code): \(message) \(fix)" }
     public var errorDescription: String? { message }
     public var recoverySuggestion: String? { fix }
+
+    /// What failed, as tokens: never a message, a path, an address, a host, a key or an identifier. A value the SDK
+    /// cannot give as a token is left out.
+    public struct Cause: Sendable, Hashable {
+        /// Where the cause is: `config`, `register`, `attest`, `lease`, `manifest`, `download`, `verify`, `storage`,
+        /// `runtime`, `model_open`, `accelerator`, `audio`, `session`, `sharing` or `events`.
+        public let stage: String
+        /// Why, at that stage (`network`, `timeout`, `http`, `rate_limited`, `refused`, `quota`, `memory`, ...;
+        /// `other` when none fits).
+        public let reason: String
+        /// The HTTP status of the answer that failed, when there was one.
+        public let httpStatus: Int?
+        /// The system error's domain or class (`NSURLErrorDomain`, `NSCocoaErrorDomain`), when there was one.
+        public let errorName: String?
+        /// Its code (`-1009`), the server's error (`model_limit`, `app_blocked`) or a Core status (`nomem`).
+        public let errorCode: String?
+        /// On `needs_connection` only, what the SDK needs Quran Lab for: `model` (the model files the call needs are
+        /// not on the device yet: connect to download them) or `lease` (the model is on the device and needs Quran
+        /// Lab's answer to open).
+        public let needs: String?
+    }
 }
 
 /// The 26 codes of the catalogue (errors.json, shared by the four SDKs), in its order.
@@ -137,14 +165,18 @@ extension TajweedError {
     /// SDK 4.0: this and `init(from:)` are where every error the app gets is made, so every one is
     /// reported here, once, with the stage of its CAUSE (`cause`; without one, the code's own, `ErrorCause.of(code:)`).
     /// The codes of the app's own misuse make no report (`ErrorRules.notReported`).
+    /// SDK 4.0.2 (24.13): the error carries the same cause as its report (`Cause.made`); `onDevice`: what of the files
+    /// the call needs is on the device, which says what a `needs_connection` needs (nil: by the cause's stage).
     init(_ code: ErrorCode, _ values: [String: String] = [:], reason: String? = nil, catalogue c: ErrorCatalogue = .shared,
-         cause: ErrorCause? = nil) {
-        self.init(made: code, values, reason: reason, catalogue: c)
-        ErrorReporter.raised(code.rawValue, cause: cause ?? ErrorCause.of(code: code))
+         cause: ErrorCause? = nil, onDevice: ErrorRules.OnDevice? = nil) {
+        let made = cause ?? ErrorCause.of(code: code)
+        self.init(made: code, values, reason: reason, catalogue: c, cause: Cause.made(made, code: code.rawValue, onDevice: onDevice))
+        ErrorReporter.raised(code.rawValue, cause: made)
     }
 
     /// The error, made and not reported: `init(from:)` reports it once, with the cause of the failure.
-    private init(made code: ErrorCode, _ values: [String: String] = [:], reason: String? = nil, catalogue c: ErrorCatalogue = .shared) {
+    private init(made code: ErrorCode, _ values: [String: String] = [:], reason: String? = nil, catalogue c: ErrorCatalogue = .shared,
+                 cause: Cause?) {
         let e = c.texts(code.rawValue, reason: reason)
         var v = values
         if v["sdk"] == nil { v["sdk"] = SDKInfo.version }
@@ -153,7 +185,7 @@ extension TajweedError {
         // one line, no path beyond a file name, bounded
         if let d = v["detail"] { v["detail"] = String(d.replacingOccurrences(of: "\n", with: " ").prefix(300)) }
         self.init(code: code.rawValue, message: ErrorCatalogue.fill(e?.message ?? code.rawValue, v),
-                  fix: ErrorCatalogue.fill(e?.fix ?? "", v), docs: c.docsBase + code.rawValue)
+                  fix: ErrorCatalogue.fill(e?.fix ?? "", v), docs: c.docsBase + code.rawValue, cause: cause)
         ErrorCatalogue.lastRaised.withLock { $0 = code.rawValue }
     }
 
@@ -162,66 +194,74 @@ extension TajweedError {
 
     /// The catalogue code of an internal failure. Every failure the SDK raises maps to one of the 26 codes. Reported
     /// once (24.1) with `cause`, else the failure's own at `stage` (where the call was: `model_open`, `session`, ...).
-    init(from e: RecognizerError, cause: ErrorCause? = nil, stage: String? = nil) {
+    /// SDK 4.0.2 (24.13): the error carries that same cause; `onDevice` as for `init(_:)`.
+    init(from e: RecognizerError, cause: ErrorCause? = nil, stage: String? = nil, onDevice: ErrorRules.OnDevice? = nil) {
+        let (code, values, reason) = Self.mapped(e)
+        let made = cause ?? ErrorCause.of(e, stage: stage)
+        self.init(made: code, values, reason: reason, cause: Cause.made(made, code: code.rawValue, onDevice: onDevice))
+        ErrorReporter.raised(code.rawValue, cause: made)
+    }
+
+    /// The code of an internal failure, the values of its message and the reason that picks a refusal's own texts.
+    static func mapped(_ e: RecognizerError) -> (ErrorCode, [String: String], String?) {
         switch e {
-        case .modelMissing(let why): self.init(made: .modelMissing, ["detail": why])
-        case .checksumMismatch(let file): self.init(made: .checksumMismatch, ["file": file])
-        case .signatureInvalid: self.init(made: .signatureInvalid)
-        case .manifestInvalid(let why): self.init(made: .modelInvalid, ["detail": why])
-        case .modelIncompatible(let why): self.init(made: .modelIncompatible, ["detail": why])
-        case .unsupportedAudioFormat(let why): self.init(made: .invalidArgument, ["detail": "audio format: \(why)"])
+        case .modelMissing(let why): return (.modelMissing, ["detail": why], nil)
+        case .checksumMismatch(let file): return (.checksumMismatch, ["file": file], nil)
+        case .signatureInvalid: return (.signatureInvalid, [:], nil)
+        case .manifestInvalid(let why): return (.modelInvalid, ["detail": why], nil)
+        case .modelIncompatible(let why): return (.modelIncompatible, ["detail": why], nil)
+        case .unsupportedAudioFormat(let why): return (.invalidArgument, ["detail": "audio format: \(why)"], nil)
         case .microphoneUnavailable(let why):
-            self.init(made: why.hasPrefix(Self.deniedMark) ? .microphoneDenied : .microphoneUnavailable, ["detail": why])
-        case .neuralEngineUnavailable(let why): self.init(made: .engineFailed, ["detail": "Neural Engine: \(why)"])
-        case .engineFailed(let code, let message): self.init(made: .engineFailed, ["detail": "\(message) (\(code))"])
-        case .sessionActive: self.init(made: .sessionOpen)
-        case .sessionClosed: self.init(made: .sessionClosed)
-        case .cancelled: self.init(made: .cancelled)
-        case .serviceUnavailable: self.init(made: .sharingUnavailable)
+            return (why.hasPrefix(Self.deniedMark) ? .microphoneDenied : .microphoneUnavailable, ["detail": why], nil)
+        case .neuralEngineUnavailable(let why): return (.engineFailed, ["detail": "Neural Engine: \(why)"], nil)
+        case .engineFailed(let code, let message): return (.engineFailed, ["detail": "\(message) (\(code))"], nil)
+        case .sessionActive: return (.sessionOpen, [:], nil)
+        case .sessionClosed: return (.sessionClosed, [:], nil)
+        case .cancelled: return (.cancelled, [:], nil)
+        case .serviceUnavailable: return (.sharingUnavailable, [:], nil)
         // no valid lease on the device and none could be asked for; any other: the download
-        case .offline(let why): self.init(made: why.hasPrefix("needs_connection") ? .needsConnection : .downloadFailed, ["detail": why])
+        case .offline(let why): return (why.hasPrefix("needs_connection") ? .needsConnection : .downloadFailed, ["detail": why], nil)
         case .serverRejected(let status, let code, let message, let reason):
             // a reason that names the page's origin names the app id here (an app has no origin)
             let app = QuranLab.cloud?.app.bundleID ?? Bundle.main.bundleIdentifier ?? "this app"
             if let reason, ModelGate.keyReasons.contains(reason) {
                 // a key Quran Lab revoked or never issued, whatever the answer's `error` (also a token whose key was
                 // revoked after it was issued, and the CDN's 401 to a model request)
-                self.init(made: .invalidKey)
+                return (.invalidKey, [:], nil)
             } else if let named = Self.knownReason(reason) {
                 // the answer's `reason` is read first: the API answers an origin, key-type or allow-list refusal as a
                 // bad key (401 `invalid_key`) and names the check that refused there
-                self.init(made: .serverRejected, ["detail": named, "origin": app], reason: named)
+                return (.serverRejected, ["detail": named, "origin": app], named)
             } else if code == "invalid_key" || (status == 401 && code == Self.cdnBareRefusal) {
                 // a key the server does not know; the CDN's bare 401 says the same of a model request
-                self.init(made: .invalidKey)
+                return (.invalidKey, [:], nil)
             } else if HTTPClient.redirects.contains(status) {
                 // a model file's request was answered with a redirect, which is never followed: the download failed
-                self.init(made: .downloadFailed, ["detail": "the download server answered with a redirect, which is never followed"])
+                return (.downloadFailed, ["detail": "the download server answered with a redirect, which is never followed"], nil)
             } else if status == 429 && code == "model_limit" {
                 // a model request over Quran Lab's daily limit: the download stopped, try later; never a refusal
-                self.init(made: .downloadFailed, ["detail": "Quran Lab's daily limit for model downloads is reached; try again later"])
+                return (.downloadFailed, ["detail": "Quran Lab's daily limit for model downloads is reached; try again later"], nil)
             } else if code == "lease_integrity_failed" {
                 // ERRORS_40 24.3 (69326fb): the developer's message names the check the server named (the reason of
                 // the refusal, `verdict:boot`); the app's code stays server_rejected
-                self.init(made: .serverRejected, ["detail": reason.map { "\(code) (\($0))" } ?? code, "origin": app], reason: code)
+                return (.serverRejected, ["detail": reason.map { "\(code) (\($0))" } ?? code, "origin": app], code)
             } else if status == 401 && code == "invalid_token" {
                 // the token was renewed once and the repeat was refused too: the download failed, as any download does
-                self.init(made: .downloadFailed, ["detail": "Quran Lab did not accept this install's token"])
+                return (.downloadFailed, ["detail": "Quran Lab did not accept this install's token"], nil)
             } else if code == "sdk_too_old" {
-                self.init(made: .sdkTooOld, ["version": Self.version(in: message) ?? "a newer version"])
+                return (.sdkTooOld, ["version": Self.version(in: message) ?? "a newer version"], nil)
             } else {
                 // the answer's `error` picks its own message and fix when the catalogue has them; any other refusal
                 // names that code
-                self.init(made: .serverRejected, ["detail": code, "origin": app], reason: code)
+                return (.serverRejected, ["detail": code, "origin": app], code)
             }
         case .insufficientStorage(let needed, let available):
-            self.init(made: .storageFull, ["needed": String(needed), "available": String(available)])
-        case .updateDeferred(let why): self.init(made: .downloadFailed, ["detail": why])
-        case .storageFailed(let why): self.init(made: .storageFailed, ["detail": why])
-        case .contributionUnavailable: self.init(made: .sharingUnavailable)
-        case .invalidArgument(let why): self.init(made: .invalidArgument, ["detail": why])
+            return (.storageFull, ["needed": String(needed), "available": String(available)], nil)
+        case .updateDeferred(let why): return (.downloadFailed, ["detail": why], nil)
+        case .storageFailed(let why): return (.storageFailed, ["detail": why], nil)
+        case .contributionUnavailable: return (.sharingUnavailable, [:], nil)
+        case .invalidArgument(let why): return (.invalidArgument, ["detail": why], nil)
         }
-        ErrorReporter.raised(code, cause: cause ?? ErrorCause.of(e, stage: stage))
     }
 
     /// The `error` of the CDN's 401 to a model request without a key it knows.

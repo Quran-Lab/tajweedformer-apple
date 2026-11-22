@@ -508,6 +508,8 @@ final class OggFlacWriter: ShareSegmentWriter {
     }
 
     private func write(_ d: Data) throws(RecognizerError) {
+        // tests: a full disk (section 29)
+        guard !ShareFiles.refusesWrites.withLock({ $0 }) else { throw .storageFailed("cannot write a page: the disk is full") }
         if handle == nil {
             segment += 1
             segmentFrames = 0

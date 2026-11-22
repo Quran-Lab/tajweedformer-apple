@@ -168,7 +168,10 @@ public final class TajweedClient: Sendable {
     /// network then; the SDK keeps it up to date in the background when online), else a new one. When the SDK needs
     /// Quran Lab to continue: `needs_connection`, and nothing is decrypted.
     private static func lease(_ folder: ModelFolder) async throws(TajweedError) {
-        guard let runtime = ProtectedRuntime.current.withLock({ $0 }) else { throw TajweedError(.needsConnection) }
+        // the folder is on the device: what a `needs_connection` here needs is the lease (24.13)
+        guard let runtime = ProtectedRuntime.current.withLock({ $0 }) else {
+            throw TajweedError(.needsConnection, cause: ErrorCause(stage: "lease", reason: "network"), onDevice: .complete)
+        }
         do throws(RecognizerError) {
             _ = try await runtime.ensureLease(folder.manifest)
             runtime.refreshIfDue(folder)
@@ -179,8 +182,8 @@ public final class TajweedClient: Sendable {
             // or unverified refusal is `server_rejected` (rule 3). Before, every failure worded as `offline` was
             // `needs_connection`, a server failure and an unsigned stop among them
             switch error {
-            case .offline, .serverRejected: throw Self.modelCallError(cause, onDevice: .nothing, error: error)
-            default: throw TajweedError(from: error, cause: cause)
+            case .offline, .serverRejected: throw Self.modelCallError(cause, onDevice: .nothing, error: error, needs: .complete)
+            default: throw TajweedError(from: error, cause: cause, onDevice: .complete)
             }
         }
     }
@@ -189,12 +192,14 @@ public final class TajweedClient: Sendable {
     /// only when no request got an answer and nothing of what the call needs is on the device; a server's answer is
     /// `download_failed` with what answered as its detail.
     /// A refusal is `invalid_key` or `server_rejected` with the refusal's own words (15.3), and `sdk_too_old` keeps the
-    /// version the answer names (`error`, the failure itself).
-    static func modelCallError(_ cause: ErrorCause, onDevice: ErrorRules.OnDevice, error: RecognizerError? = nil) -> TajweedError {
+    /// version the answer names (`error`, the failure itself). `needs`: what of the files the call needs is on the
+    /// device, when it is not `onDevice` (the lease of a model that is on the device; 24.13).
+    static func modelCallError(_ cause: ErrorCause, onDevice: ErrorRules.OnDevice, error: RecognizerError? = nil,
+                               needs: ErrorRules.OnDevice? = nil) -> TajweedError {
         let code = ErrorRules.modelCallCode(cause, onDevice: onDevice)
         switch code {
         case ErrorCode.needsConnection.rawValue:
-            return TajweedError(.needsConnection, cause: cause)
+            return TajweedError(.needsConnection, cause: cause, onDevice: needs ?? onDevice)
         case ErrorCode.invalidKey.rawValue:
             return TajweedError(.invalidKey, cause: cause)
         case ErrorCode.serverRejected.rawValue:
@@ -209,21 +214,14 @@ public final class TajweedClient: Sendable {
         }
     }
 
-    /// Downloads and verifies the model ahead of use. Resumable: a download that stopped goes on where it stopped.
-    /// With `unmeteredOnly` it follows the connection `diagnose()` reports: it downloads on `unmetered` (Wi-Fi,
-    /// Ethernet) and on `unknown`, and does nothing on `metered` (cellular, a personal hotspot, Low Data Mode) and
-    /// on `none`; call it again later. A no-op when the model is on the device. `onProgress` gets the bytes done and
-    /// the total of the files to download, as they arrive.
-    public func prefetch(unmeteredOnly: Bool = false,
-                         onProgress: (@Sendable (_ done: Int64, _ total: Int64) -> Void)? = nil) async throws(TajweedError) {
+    /// Downloads and verifies the model ahead of use, on whatever network the device has (SDK 4.0.2: there is no
+    /// option to wait for Wi-Fi; the system may still hold a download by its own settings, such as Low Data Mode).
+    /// Resumable: a download that stopped goes on where it stopped. A no-op when the model is on the device.
+    /// `onProgress` gets the bytes done and the total of the files to download, as they arrive.
+    public func prefetch(onProgress: (@Sendable (_ done: Int64, _ total: Int64) -> Void)? = nil) async throws(TajweedError) {
         try check()
-        if unmeteredOnly, QuranLab.cloud != nil, onDevice() == nil {
-            let connection = await ConnectionKind.current()
-            if !connection.downloadsWhenUnmeteredOnly { return }
-        }
-        // a download ahead of use goes on to its end also when its caller stops waiting; with `unmeteredOnly` its
-        // requests carry the system's marks for an unmetered network, for as long as it runs
-        _ = try await install(progress: onProgress, ahead: true, unmeteredOnly: unmeteredOnly)
+        // a download ahead of use goes on to its end also when its caller stops waiting
+        _ = try await install(progress: onProgress, ahead: true)
     }
 
     /// The model folder in the SDK's store, when one is there, is this Client's own download (its install record)
@@ -243,7 +241,7 @@ public final class TajweedClient: Sendable {
     /// `opening`: the caller's hold on the files of the model it opens (`ModelsInUse`), which it releases; nil: this
     /// call holds them until it ends.
     private func install(progress: (@Sendable (Int64, Int64) -> Void)?, ahead: Bool = false,
-                         unmeteredOnly: Bool = false, opening: UUID? = nil) async throws(TajweedError) -> ModelFolder {
+                         opening: UUID? = nil) async throws(TajweedError) -> ModelFolder {
         let config = QuranLab.configuration
         let cloud = QuranLab.cloud
         // a Client the server has refused does not run the model, also not one a real download left (SPEC 15.3)
@@ -276,8 +274,17 @@ public final class TajweedClient: Sendable {
             throw TajweedError(from: local ?? .modelMissing("no model on this device"))
         }
         await cloud.updater.setProgress(progress)
-        let outcome = await cloud.install(id, context: nil, activate: true, keep: ahead, unmeteredOnly: unmeteredOnly)
+        let outcome = await cloud.install(id, context: nil, activate: true, keep: ahead)
         await cloud.updater.setProgress(nil)
+        return try await Self.installed(outcome, cloud: cloud, id: id, context: nil, local: local)
+    }
+
+    /// The folder an install's outcome gives a model call, or the app's error for it. `context`: the context the call
+    /// opens (nil: the model's own, `client.model()` and `prefetch`; another one: a Session's first use of it);
+    /// `local`: why the device's own copy did not serve, nil when there was none.
+    static func installed(_ outcome: ModelUpdater.Outcome, cloud: QuranLabCloud, id: ModelID, context: String?,
+                          local: RecognizerError?) async throws(TajweedError) -> ModelFolder {
+        let store = ModelStore.standard
         // the install's own failure, with the stage it was at, when the outcome is that failure
         let ran = cloud.updater.lastFailure.withLock { $0 }
         switch outcome {
@@ -286,10 +293,10 @@ public final class TajweedClient: Sendable {
             let cause = ran.flatMap { $0.error == e ? $0.cause : nil }
             // a refusal on the lease route: a stop only when the Core verified it
             if let cause, cause.stage == "lease", case .serverRejected = e { throw Self.modelCallError(cause, onDevice: .nothing, error: e) }
-            throw TajweedError(from: e, cause: cause)
+            throw TajweedError(from: e, cause: cause, onDevice: .nothing)
         case .upToDate, .pending:
             do throws(RecognizerError) {
-                return try await store.resolve(id, sources: [.cache], context: nil)
+                return try await store.resolve(id, sources: [.cache], context: context)
             } catch {
                 throw TajweedError(from: error)
             }
@@ -301,7 +308,7 @@ public final class TajweedClient: Sendable {
             // Quran Lab answered and names no model build for this SDK version
             if cloud.currentConfig != nil, cloud.targetRevision(id) == nil {
                 // a model this Client downloaded keeps serving
-                if let folder = try? await store.resolve(id, sources: [.cache], context: nil) { return folder }
+                if let folder = try? await store.resolve(id, sources: [.cache], context: context) { return folder }
                 throw TajweedError(.modelUnavailable)
             }
             // the install that was put off for its failure (no answer, a server's answer, no room): its cause
@@ -315,10 +322,10 @@ public final class TajweedClient: Sendable {
                 if cloud.currentConfig == nil, let cause = cloud.configFailure.withLock({ $0 }) {
                     throw Self.modelCallError(cause, onDevice: .nothing)
                 }
-                throw TajweedError(.needsConnection)
+                throw TajweedError(.needsConnection, onDevice: .nothing)
             }
             if let local { throw TajweedError(from: local) }
-            throw TajweedError(.needsConnection)
+            throw TajweedError(.needsConnection, onDevice: .nothing)
         }
     }
 
@@ -581,8 +588,8 @@ public struct TajweedDiagnosis: Sendable, Hashable {
     /// Client was made. Above 0, the app reads `chunks` late; the takes' Heads are whole all the same.
     public let droppedChunks: Int
     /// The device's connection: `unmetered` (Wi-Fi, Ethernet), `metered` (cellular, a personal hotspot, Low Data
-    /// Mode), `none`, or `unknown` when the system does not say. `prefetch(unmeteredOnly:)` downloads on `unmetered`
-    /// and `unknown`.
+    /// Mode), `none`, or `unknown` when the system does not say. A report only: nothing the SDK does waits on it
+    /// (SDK 4.0.2).
     public let connection: String
     /// The protocol of the last model request that was answered for this Client in this process: `h3`, `h2` or
     /// `http/1.1`; nil when none was made yet or the system named none. Held in memory and sent in no telemetry.

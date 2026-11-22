@@ -4298,5 +4298,237 @@
    "error_code": "busy",
    "code": "engine_failed"
   }
+ ],
+ "causes_are": "an occurrence to the code the app gets and the cause its error carries (24.13): the tokens of its report, a value that fails the pattern of 24.2 left out, and on needs_connection `needs` (`lease` when every file the call needs is on the device, else `model`); the codes of codes_not_reported carry no cause, a silent failure (code none) makes no error, and the cause is the same with reports off",
+ "causes": [
+  {
+   "label": "first launch offline: the config",
+   "stage": "config",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_name": "NSURLErrorDomain",
+   "error_code": "-1009",
+   "code": "needs_connection",
+   "cause": {
+    "stage": "config",
+    "reason": "network",
+    "error_name": "NSURLErrorDomain",
+    "error_code": "-1009",
+    "needs": "model"
+   }
+  },
+  {
+   "label": "first install: the lease before the files",
+   "stage": "lease",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_name": null,
+   "error_code": null,
+   "code": "needs_connection",
+   "cause": {
+    "stage": "lease",
+    "reason": "network",
+    "needs": "model"
+   }
+  },
+  {
+   "label": "another context whose files are missing (c24_l256), no network",
+   "stage": "download",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_name": "java.net.UnknownHostException",
+   "error_code": null,
+   "code": "needs_connection",
+   "cause": {
+    "stage": "download",
+    "reason": "network",
+    "error_name": "java.net.UnknownHostException",
+    "needs": "model"
+   }
+  },
+  {
+   "label": "model on the device, no valid lease, no answer",
+   "stage": "lease",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "complete",
+   "error_name": "NSURLErrorDomain",
+   "error_code": "-1001",
+   "code": "needs_connection",
+   "cause": {
+    "stage": "lease",
+    "reason": "network",
+    "error_name": "NSURLErrorDomain",
+    "error_code": "-1001",
+    "needs": "lease"
+   }
+  },
+  {
+   "label": "model on the device, the lease past its end and no grace",
+   "stage": "lease",
+   "reason": "expired",
+   "http_status": null,
+   "on_device": "complete",
+   "error_name": null,
+   "error_code": null,
+   "code": "needs_connection",
+   "cause": {
+    "stage": "lease",
+    "reason": "expired",
+    "needs": "lease"
+   }
+  },
+  {
+   "label": "a server answer is never needs_connection",
+   "stage": "download",
+   "reason": "http",
+   "http_status": 503,
+   "on_device": "partial",
+   "error_name": null,
+   "error_code": null,
+   "code": "download_failed",
+   "cause": {
+    "stage": "download",
+    "reason": "http",
+    "http_status": 503
+   }
+  },
+  {
+   "label": "the daily limit",
+   "stage": "download",
+   "reason": "rate_limited",
+   "http_status": 429,
+   "on_device": "none",
+   "error_name": null,
+   "error_code": "model_limit",
+   "code": "download_failed",
+   "cause": {
+    "stage": "download",
+    "reason": "rate_limited",
+    "http_status": 429,
+    "error_code": "model_limit"
+   }
+  },
+  {
+   "label": "a refusal",
+   "stage": "lease",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "complete",
+   "error_name": null,
+   "error_code": "app_blocked",
+   "code": "server_rejected",
+   "cause": {
+    "stage": "lease",
+    "reason": "refused",
+    "http_status": 403,
+    "error_code": "app_blocked"
+   }
+  },
+  {
+   "label": "a Core status at the open",
+   "stage": "model_open",
+   "reason": "memory",
+   "http_status": null,
+   "on_device": "complete",
+   "error_name": null,
+   "error_code": "nomem",
+   "code": "engine_failed",
+   "cause": {
+    "stage": "model_open",
+    "reason": "memory",
+    "error_code": "nomem"
+   }
+  },
+  {
+   "label": "a full store",
+   "stage": "storage",
+   "reason": "quota",
+   "http_status": null,
+   "on_device": "complete",
+   "error_name": "NSCocoaErrorDomain",
+   "error_code": "640",
+   "code": "storage_full",
+   "cause": {
+    "stage": "storage",
+    "reason": "quota",
+    "error_name": "NSCocoaErrorDomain",
+    "error_code": "640"
+   }
+  },
+  {
+   "label": "the engine file did not compile",
+   "stage": "runtime",
+   "reason": "wasm_compile",
+   "http_status": null,
+   "on_device": "none",
+   "error_name": "CompileError",
+   "error_code": null,
+   "code": "engine_failed",
+   "cause": {
+    "stage": "runtime",
+    "reason": "wasm_compile",
+    "error_name": "CompileError"
+   }
+  },
+  {
+   "label": "the microphone refused",
+   "stage": "audio",
+   "reason": "permission_denied",
+   "http_status": null,
+   "on_device": "complete",
+   "error_name": "NotAllowedError",
+   "error_code": null,
+   "code": "microphone_denied",
+   "cause": {
+    "stage": "audio",
+    "reason": "permission_denied",
+    "error_name": "NotAllowedError"
+   }
+  },
+  {
+   "label": "an error name that is not a token is left out",
+   "stage": "download",
+   "reason": "network",
+   "http_status": null,
+   "on_device": "none",
+   "error_name": "getaddrinfo ENOTFOUND cdn.quranlab.ai",
+   "error_code": null,
+   "code": "needs_connection",
+   "cause": {
+    "stage": "download",
+    "reason": "network",
+    "needs": "model"
+   }
+  },
+  {
+   "label": "an error code longer than 32 characters is left out",
+   "stage": "manifest",
+   "reason": "http",
+   "http_status": 500,
+   "on_device": "none",
+   "error_name": null,
+   "error_code": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "code": "download_failed",
+   "cause": {
+    "stage": "manifest",
+    "reason": "http",
+    "http_status": 500
+   }
+  },
+  {
+   "label": "a silent failure makes no error",
+   "stage": "config",
+   "reason": "http",
+   "http_status": 503,
+   "on_device": "complete",
+   "error_name": null,
+   "error_code": null,
+   "code": "none",
+   "cause": null
+  }
  ]
 }
