@@ -46,7 +46,7 @@ Everything an assistant needs to integrate this SDK correctly: use only the name
 - **Made for the Quran.** Trained on Quranic recitation, with its own sound units and heads for what tajweed is about.
 - **Feedback in the moment.** Output streams while the learner recites, so your app can respond on the word itself, not after the take.
 - **One engine on every platform.** The same engine runs the [iOS and macOS](https://github.com/Quran-Lab/tajweedformer-apple), [Android](https://github.com/Quran-Lab/tajweedformer-android), [web](https://github.com/Quran-Lab/tajweedformer-web) and [Windows and Linux](https://github.com/Quran-Lab/tajweedformer-c) SDKs, all set from one portal.
-- **Free, and it stays free.** Quran Lab is a non-profit waqf: the SDKs and models are never sold. The licence, NPL-1.2, and Quran Lab's access terms ask two things: no paywall on model features, and no output presented as an authoritative religious ruling. A line telling learners that automatic feedback can be wrong is encouraged, not required.
+- **Free, and it stays free.** Quran Lab is a non-profit waqf: the SDKs and models are never sold. The licence, NPL-1.3, and Quran Lab's access terms ask three things: no paywall on model features, no output presented as an authoritative religious ruling, and no training of other models on the model or its outputs. A line telling learners that automatic feedback can be wrong is encouraged, not required.
 
 ## Built for AI developers
 
@@ -466,8 +466,8 @@ shows you the text first.
 Quran Lab is a waqf: the SDKs and the models are free to use and are never sold.
 
 The source code in this repository and the TajweedFormer model weights are released under the
-Quran-Lab No-Profit License 1.2 ([NPL-1.2](LICENSE)): use, copy, modify and build on them freely,
-but never charge for them, for access to them, or for any feature they power. The weights are not
+Quran-Lab No-Profit License 1.3 ([NPL-1.3](LICENSE)): use, copy, modify and build apps on them freely,
+but never charge for them, for access to them, or for any feature they power. Neither they nor their outputs may be used to train other models. The weights are not
 stored in this repository; Quran Lab hosts them itself and serves them to apps by
 `cdn.quranlab.ai/models` under the same licence. Get access at
 [sdk.quranlab.ai](https://sdk.quranlab.ai).
