@@ -23,8 +23,6 @@ enum Endpoints {
     ]
     /// The roles a signed config may change (28.2): never `web_frame`.
     static let configRoles: [EndpointRole] = [.api, .models]
-    /// 28.1: Quran Lab's own domains. A host is Quran Lab's when it is one of them or ends with a dot and one of them.
-    static let suffixes = ["quranlab.ai", "tajweedformer.com", "quran-lab.com"]
     /// 28.2: a config's list of more entries than this, for a role, is refused whole.
     static let maxConfigHosts = 8
     /// 28.3 item 1: after the sticky host became preferred, the first host is asked first again (the probe back).
@@ -32,25 +30,6 @@ enum Endpoints {
     /// 28.3 item 6: URLSession bounds no connect alone, so a host has 10 seconds without a byte before the answer's
     /// status; after that the limits of before hold (the session's 30 seconds of silence).
     static let silenceLimit: TimeInterval = 10
-
-    /// ASCII lower case: only A to Z change (a name with another letter is not a host of the allow-list anyway).
-    static func asciiLower(_ s: String) -> String {
-        String(String.UnicodeScalarView(s.unicodeScalars.map { (65...90).contains($0.value) ? Unicode.Scalar($0.value + 32)! : $0 }))
-    }
-
-    /// 28.1, the allow-list: labels of a-z, 0-9 and `-` (1 to 63 characters, not starting or ending with `-`), at most
-    /// 253 characters, one of `suffixes` or under one, compared in ASCII lower case. Never an IP literal, a port, user
-    /// information, a trailing dot or a name that only contains one of the domains.
-    static func hostAllowed(_ host: String) -> Bool {
-        guard (1...253).contains(host.utf8.count) else { return false }
-        let h = asciiLower(host)
-        for label in h.split(separator: ".", omittingEmptySubsequences: false) {
-            let bytes = Array(label.utf8)
-            guard (1...63).contains(bytes.count), bytes.first != 45, bytes.last != 45,
-                  bytes.allSatisfy({ (97...122).contains($0) || (48...57).contains($0) || $0 == 45 }) else { return false }
-        }
-        return suffixes.contains { h == $0 || h.hasSuffix("." + $0) }
-    }
 
     /// 28.2: a role's hosts while a config is in force (`inForce`): the config's `endpoints` list for the role, each
     /// entry a host of the allow-list (others, and repeats after the first, dropped; it may reorder, disable and add
@@ -68,21 +47,6 @@ enum Endpoints {
         return out.isEmpty ? builtIn : out
     }
 
-    /// 28.4: the host and path of a lease answer's `base`, or nil when it is no base: `https://<host><path>` with the
-    /// host in the allow-list, the path starting and ending with `/`, printable ASCII, at most 511 characters, and no
-    /// port, user information, query, fragment, backslash, space or `..`.
-    static func baseParts(_ base: String) -> (host: String, path: String)? {
-        let bytes = Array(base.utf8)
-        guard (9...511).contains(bytes.count), base.hasPrefix("https://"), base.hasSuffix("/"),
-              bytes.allSatisfy({ (0x21...0x7e).contains($0) }), !base.contains(".."),
-              !base.contains(where: { "?#@\\".contains($0) }) else { return nil }
-        let rest = base.dropFirst(8)
-        guard let slash = rest.firstIndex(of: "/") else { return nil }
-        let host = String(rest[..<slash]), path = String(rest[slash...])
-        guard !host.contains(":"), hostAllowed(host) else { return nil }
-        return (asciiLower(host), path)
-    }
-
     /// `https://<host>`: where a host of a role is asked (every host over https on port 443, 28.2).
     static func origin(_ host: String) -> URL {
         #if DEBUG
@@ -90,6 +54,19 @@ enum Endpoints {
         if let mapped = StagingHooks.hostOrigins.withLock({ $0[asciiLower(host)] }) { return mapped }
         #endif
         return URL(string: "https://" + host)!
+    }
+
+    /// The host name a request to `origin` asked: its host, or in a debug build the name whose stand-in a test's
+    /// loopback server is (StagingHooks; `origin(_:)` the other way). A cause chain's hop reads it for `first` or
+    /// `standby` (40.6), which a loopback address would always make `standby`.
+    static func askedName(_ origin: URL) -> String? {
+        #if DEBUG
+        let stand = StagingHooks.hostOrigins.withLock { m in
+            m.first { $0.value.host == origin.host && $0.value.port == origin.port && $0.value.scheme == origin.scheme }?.key
+        }
+        if let stand { return stand }
+        #endif
+        return origin.host
     }
 
     /// The scheme, host and port of `url`, as an origin to compare and to put another host in.

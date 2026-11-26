@@ -1,0 +1,2274 @@
+{
+ "section": "ATTEST_40.md (section 40), SDK 4.0.5, 2026-11-25",
+ "checks_are": "the closed set of checks a rejected answer names (40.5), by route, in the order an SDK applies them",
+ "checks": [
+  {
+   "check": "not_json",
+   "route": "api",
+   "meaning": "the body is not JSON: a captive portal's or an edge's page answered with a 2xx"
+  },
+  {
+   "check": "schema:v",
+   "route": "lease",
+   "meaning": "`v` is not 1"
+  },
+  {
+   "check": "schema:lease",
+   "route": "lease",
+   "meaning": "`lease` is missing, not base64url, empty or over 4096 bytes"
+  },
+  {
+   "check": "schema:iat",
+   "route": "lease",
+   "meaning": "`iat` is missing or not an integer"
+  },
+  {
+   "check": "schema:exp",
+   "route": "lease",
+   "meaning": "`exp` is missing or not an integer"
+  },
+  {
+   "check": "schema:refresh_after",
+   "route": "lease",
+   "meaning": "`refresh_after` is missing or not an integer"
+  },
+  {
+   "check": "schema:base",
+   "route": "lease",
+   "meaning": "`base` is missing, not https, has no host, is not printable ASCII or does not end with /"
+  },
+  {
+   "check": "base_host",
+   "route": "lease",
+   "meaning": "`base` names a host off the allow-list (28.1, 28.4)"
+  },
+  {
+   "check": "format_version",
+   "route": "lease",
+   "meaning": "the binary lease is not of a format and version the Core reads (QLC_D_LEASE_FORMAT)"
+  },
+  {
+   "check": "signature",
+   "route": "lease",
+   "meaning": "the lease is not signed by a key the Core pins (QLC_D_LEASE_SIGNATURE)"
+  },
+  {
+   "check": "install_mismatch",
+   "route": "lease",
+   "meaning": "the lease is for another install key (QLC_D_LEASE_INSTALL)"
+  },
+  {
+   "check": "release_mismatch",
+   "route": "lease",
+   "meaning": "the lease is for another Core release (QLC_D_LEASE_RELEASE)"
+  },
+  {
+   "check": "build_mismatch",
+   "route": "lease",
+   "meaning": "the lease is for another build (QLC_D_LEASE_BUILD)"
+  },
+  {
+   "check": "key_id",
+   "route": "lease",
+   "meaning": "the lease names another key id than the manifest (QLC_D_LEASE_KEY_ID)"
+  },
+  {
+   "check": "model_mismatch",
+   "route": "lease",
+   "meaning": "the lease is for another model (QLC_D_LEASE_MODEL)"
+  },
+  {
+   "check": "expired_on_arrival",
+   "route": "lease",
+   "meaning": "the lease was at or past its exp on the Core's clock when it arrived (QLC_D_LEASE_EXPIRED)"
+  },
+  {
+   "check": "outer_tag",
+   "route": "lease",
+   "meaning": "the lease's outer tag does not verify (QLC_D_LEASE_OUTER_TAG)"
+  },
+  {
+   "check": "inner_tag",
+   "route": "lease",
+   "meaning": "the lease's inner tag does not verify (QLC_D_LEASE_INNER_TAG)"
+  },
+  {
+   "check": "site_mismatch",
+   "route": "lease",
+   "meaning": "the web lease is for another site (QLC_D_LEASE_SITE)"
+  },
+  {
+   "check": "node_cert_format",
+   "route": "lease",
+   "meaning": "a node lease's certificate is malformed (QLC_D_LEASE_CERT_FORMAT, section 36)"
+  },
+  {
+   "check": "node_cert_signature",
+   "route": "lease",
+   "meaning": "a node lease's certificate does not verify (QLC_D_LEASE_CERT_SIGNATURE)"
+  },
+  {
+   "check": "node_cert_kid",
+   "route": "lease",
+   "meaning": "a node lease's certificate names an unknown key (QLC_D_LEASE_CERT_KID)"
+  },
+  {
+   "check": "node_cert_tier",
+   "route": "lease",
+   "meaning": "a node lease's certificate tier does not allow it (QLC_D_LEASE_CERT_TIER)"
+  },
+  {
+   "check": "node_cert_window",
+   "route": "lease",
+   "meaning": "a node lease's certificate is out of its window (QLC_D_LEASE_CERT_WINDOW)"
+  },
+  {
+   "check": "node_life",
+   "route": "lease",
+   "meaning": "a node lease outlives what its certificate allows (QLC_D_LEASE_NODE_LIFE)"
+  },
+  {
+   "check": "unwrap",
+   "route": "lease",
+   "meaning": "the install key could not unwrap the lease (QLC_D_LEASE_UNWRAP)"
+  },
+  {
+   "check": "lease_detail",
+   "route": "lease",
+   "meaning": "QLC_E_LEASE with a detail this table does not name: `lease_detail:<n>`"
+  },
+  {
+   "check": "manifest",
+   "route": "lease",
+   "meaning": "the Core refused the signed manifest the lease was asked for (QLC_E_MANIFEST at the accept)"
+  },
+  {
+   "check": "core",
+   "route": "lease",
+   "meaning": "the Core failed for a cause of the device at the accept: `core:<status name>` (keystore, storage, nomem, busy, arg)"
+  },
+  {
+   "check": "schema:challenge",
+   "route": "challenge",
+   "meaning": "`challenge` is missing or not in the strict form c1.<10 digits>.<22>.<22>"
+  },
+  {
+   "check": "schema:token",
+   "route": "attest",
+   "meaning": "`token` is missing or does not start with qlt_"
+  },
+  {
+   "check": "schema:install_cert",
+   "route": "attest",
+   "meaning": "`install_cert` is missing although install keys were sent"
+  },
+  {
+   "check": "cert_format",
+   "route": "attest",
+   "meaning": "the install certificate is not two base64url parts, or its text is not the 13 lines of 18.4.3"
+  },
+  {
+   "check": "cert_signature",
+   "route": "attest",
+   "meaning": "the install certificate is not signed by a key the SDK pins"
+  },
+  {
+   "check": "cert_install",
+   "route": "attest",
+   "meaning": "the install certificate names another install hash than the key it was asked for"
+  },
+  {
+   "check": "size",
+   "route": "download",
+   "meaning": "a 200 shorter or longer than the manifest's size of the file"
+  },
+  {
+   "check": "range_mismatch",
+   "route": "download",
+   "meaning": "a 206 for another range, or another file size, than the one asked for"
+  },
+  {
+   "check": "content_range",
+   "route": "download",
+   "meaning": "a 206 without a Content-Range the SDK can hold it to"
+  },
+  {
+   "check": "short_range",
+   "route": "download",
+   "meaning": "a range that ended cleanly short of what it named"
+  },
+  {
+   "check": "no_bytes",
+   "route": "download",
+   "meaning": "a 2xx that brought no byte"
+  },
+  {
+   "check": "status",
+   "route": "download",
+   "meaning": "a 2xx other than 200 and 206"
+  }
+ ],
+ "not_checks": {
+  "not_yet_valid": "no SDK or Core check: a lease newer than the Core's clock re-anchors it (18.4.7), never refused",
+  "app_mismatch": "no SDK check: the SDK does not compare the certificate's `app` with its own; the server judges it",
+  "content_type": "no SDK check reads the Content-Type header; an API body that is not JSON is `not_json`"
+ },
+ "core_accept_are": "a failed qlc_lease_accept, its status and qlc_detail, to its check (40.5)",
+ "core_accept": [
+  {
+   "status": -1,
+   "status_name": "QLC_E_ARG",
+   "detail": 0,
+   "check": "core:arg"
+  },
+  {
+   "status": -2,
+   "status_name": "QLC_E_NOMEM",
+   "detail": 0,
+   "check": "core:nomem"
+  },
+  {
+   "status": -3,
+   "status_name": "QLC_E_STORAGE",
+   "detail": 0,
+   "check": "core:storage"
+  },
+  {
+   "status": -4,
+   "status_name": "QLC_E_MANIFEST",
+   "detail": 0,
+   "check": "manifest"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 1,
+   "check": "format_version"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 2,
+   "check": "signature"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 3,
+   "check": "install_mismatch"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 4,
+   "check": "release_mismatch"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 5,
+   "check": "build_mismatch"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 6,
+   "check": "key_id"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 7,
+   "check": "model_mismatch"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 8,
+   "check": "expired_on_arrival"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 10,
+   "check": "outer_tag"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 11,
+   "check": "inner_tag"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 12,
+   "check": "site_mismatch"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 13,
+   "check": "node_cert_format"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 14,
+   "check": "node_cert_signature"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 15,
+   "check": "node_cert_kid"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 16,
+   "check": "node_cert_tier"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 17,
+   "check": "node_cert_window"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 18,
+   "check": "node_life"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 32,
+   "check": "unwrap"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 9,
+   "check": "lease_detail:9"
+  },
+  {
+   "status": -5,
+   "status_name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 33,
+   "check": "lease_detail:33"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 1,
+   "check": "format_version"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 2,
+   "check": "signature"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 3,
+   "check": "install_mismatch"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 4,
+   "check": "release_mismatch"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 5,
+   "check": "build_mismatch"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 6,
+   "check": "key_id"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 7,
+   "check": "model_mismatch"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 8,
+   "check": "expired_on_arrival"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 10,
+   "check": "outer_tag"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 11,
+   "check": "inner_tag"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 12,
+   "check": "site_mismatch"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 13,
+   "check": "node_cert_format"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 14,
+   "check": "node_cert_signature"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 15,
+   "check": "node_cert_kid"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 16,
+   "check": "node_cert_tier"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 17,
+   "check": "node_cert_window"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 18,
+   "check": "node_life"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 32,
+   "check": "unwrap"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 9,
+   "check": "lease_detail:9"
+  },
+  {
+   "status": -6,
+   "status_name": "QLC_E_LEASE",
+   "detail": 33,
+   "check": "lease_detail:33"
+  },
+  {
+   "status": -7,
+   "status_name": "QLC_E_FILE",
+   "detail": 0,
+   "check": "core:file"
+  },
+  {
+   "status": -8,
+   "status_name": "QLC_E_ENGINE",
+   "detail": 0,
+   "check": "core:engine"
+  },
+  {
+   "status": -10,
+   "status_name": "QLC_E_KEYSTORE",
+   "detail": 32,
+   "check": "unwrap"
+  },
+  {
+   "status": -10,
+   "status_name": "QLC_E_KEYSTORE",
+   "detail": 0,
+   "check": "core:keystore"
+  },
+  {
+   "status": -11,
+   "status_name": "QLC_E_BUSY",
+   "detail": 0,
+   "check": "core:busy"
+  }
+ ],
+ "lease_answers_are": "a 200 body of POST /v1/model-key to the first check it fails before the Core, or null",
+ "lease_answers": [
+  {
+   "name": "a lease answer",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": null
+  },
+  {
+   "name": "a captive portal's page with 200",
+   "body": "<html><body>Login to the hotel Wi-Fi</body></html>",
+   "check": "not_json"
+  },
+  {
+   "name": "JSON that is not an object",
+   "body": "[1, 2]",
+   "check": "schema:v"
+  },
+  {
+   "name": "v 2",
+   "body": "{\"v\": 2, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:v"
+  },
+  {
+   "name": "no v",
+   "body": "{\"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:v"
+  },
+  {
+   "name": "no lease",
+   "body": "{\"v\": 1, \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:lease"
+  },
+  {
+   "name": "an empty lease",
+   "body": "{\"v\": 1, \"lease\": \"\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:lease"
+  },
+  {
+   "name": "a lease that is not base64url",
+   "body": "{\"v\": 1, \"lease\": \"QUJD+/==\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:lease"
+  },
+  {
+   "name": "a lease over 4096 bytes",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:lease"
+  },
+  {
+   "name": "iat a string",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": \"1795000000\", \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:iat"
+  },
+  {
+   "name": "no exp",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:exp"
+  },
+  {
+   "name": "refresh_after a float",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000.5, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:refresh_after"
+  },
+  {
+   "name": "no base",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"install_cert\": \"x.y\"}",
+   "check": "schema:base"
+  },
+  {
+   "name": "a base over http",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"http://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:base"
+  },
+  {
+   "name": "a base without its last slash",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0\", \"install_cert\": \"x.y\"}",
+   "check": "schema:base"
+  },
+  {
+   "name": "a base with a space",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/s dk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:base"
+  },
+  {
+   "name": "a base with a backslash",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/s\\\\dk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:base"
+  },
+  {
+   "name": "a base on a standby's model host",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn-b.tajweedformer.com/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": null
+  },
+  {
+   "name": "a base off the allow-list",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.example.net/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "base_host"
+  },
+  {
+   "name": "a base on a lookalike",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://evilquranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "base_host"
+  },
+  {
+   "name": "a base with a port",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://cdn.quranlab.ai:8443/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "base_host"
+  },
+  {
+   "name": "a base with user information",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https://u@cdn.quranlab.ai/models/quran-lab/tajweedformer/4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b/sdk/v4.0/\", \"install_cert\": \"x.y\"}",
+   "check": "base_host"
+  },
+  {
+   "name": "a base with no host",
+   "body": "{\"v\": 1, \"lease\": \"QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD\", \"iat\": 1795000000, \"exp\": 1796209600, \"refresh_after\": 1795080000, \"base\": \"https:///models/x/\", \"install_cert\": \"x.y\"}",
+   "check": "schema:base"
+  }
+ ],
+ "challenges": [
+  {
+   "name": "a challenge",
+   "body": "{\"challenge\": \"c1.1795000300.AAAAAAAAAAAAAAAAAAAAAA.bbbbbbbbbbbbbbbbbbbbbb\", \"expires_in\": 300}",
+   "check": null
+  },
+  {
+   "name": "a page",
+   "body": "Service Temporarily Unavailable",
+   "check": "not_json"
+  },
+  {
+   "name": "no challenge",
+   "body": "{\"expires_in\": 300}",
+   "check": "schema:challenge"
+  },
+  {
+   "name": "a challenge not in the strict form",
+   "body": "{\"challenge\": \"c1.12.abc.def\"}",
+   "check": "schema:challenge"
+  }
+ ],
+ "tokens_are": "a 200 body of POST /v1/attest (install_keys: sent with install keys) or /v1/attest/assert",
+ "tokens": [
+  {
+   "name": "a token, no install keys sent",
+   "body": "{\"token\": \"qlt_abc\", \"expires_in\": 86400, \"attested\": true}",
+   "install_keys": false,
+   "check": null
+  },
+  {
+   "name": "a token and a certificate",
+   "body": "{\"token\": \"qlt_abc\", \"attested\": true, \"install_cert\": \"x.y\"}",
+   "install_keys": true,
+   "check": null
+  },
+  {
+   "name": "a page",
+   "body": "<html></html>",
+   "install_keys": false,
+   "check": "not_json"
+  },
+  {
+   "name": "no token",
+   "body": "{\"attested\": true}",
+   "install_keys": false,
+   "check": "schema:token"
+  },
+  {
+   "name": "a token of another form",
+   "body": "{\"token\": \"abc\"}",
+   "install_keys": false,
+   "check": "schema:token"
+  },
+  {
+   "name": "install keys sent, no certificate (the protected model off on that host)",
+   "body": "{\"token\": \"qlt_abc\"}",
+   "install_keys": true,
+   "check": "schema:install_cert"
+  }
+ ],
+ "certificates": [
+  {
+   "name": "a certificate for this install",
+   "form": true,
+   "signature": true,
+   "install": true,
+   "check": null
+  },
+  {
+   "name": "two parts that are not base64url, or 12 lines",
+   "form": false,
+   "signature": false,
+   "install": false,
+   "check": "cert_format"
+  },
+  {
+   "name": "signed by a key the SDK does not pin",
+   "form": true,
+   "signature": false,
+   "install": true,
+   "check": "cert_signature"
+  },
+  {
+   "name": "for another install hash",
+   "form": true,
+   "signature": true,
+   "install": false,
+   "check": "cert_install"
+  }
+ ],
+ "files_are": "an answer of a model file that said success (16.1), to the check it fails, or null",
+ "files": [
+  {
+   "name": "the whole file",
+   "status": 200,
+   "size": 1000,
+   "asked": null,
+   "got_bytes": 1000,
+   "check": null
+  },
+  {
+   "name": "a 200 short of the file",
+   "status": 200,
+   "size": 1000,
+   "asked": null,
+   "got_bytes": 999,
+   "check": "size"
+  },
+  {
+   "name": "a 200 past the file",
+   "status": 200,
+   "size": 1000,
+   "asked": null,
+   "got_bytes": 1001,
+   "check": "size"
+  },
+  {
+   "name": "a 204",
+   "status": 204,
+   "size": 1000,
+   "asked": null,
+   "got_bytes": 0,
+   "check": "status"
+  },
+  {
+   "name": "a 200 without a byte",
+   "status": 200,
+   "size": 1000,
+   "asked": null,
+   "got_bytes": 0,
+   "check": "no_bytes"
+  },
+  {
+   "name": "a 206 without Content-Range",
+   "status": 206,
+   "size": 1000,
+   "asked": [
+    0,
+    99
+   ],
+   "got_bytes": 100,
+   "check": "content_range"
+  },
+  {
+   "name": "a 206 for another range",
+   "status": 206,
+   "size": 1000,
+   "asked": [
+    0,
+    99
+   ],
+   "got_bytes": 100,
+   "content_range": "bytes 100-199/1000",
+   "range_ok": false,
+   "check": "range_mismatch"
+  },
+  {
+   "name": "a 206 cleanly short",
+   "status": 206,
+   "size": 1000,
+   "asked": [
+    0,
+    99
+   ],
+   "got_bytes": 50,
+   "content_range": "bytes 0-99/1000",
+   "check": "short_range"
+  },
+  {
+   "name": "the range asked for",
+   "status": 206,
+   "size": 1000,
+   "asked": [
+    0,
+    99
+   ],
+   "got_bytes": 100,
+   "content_range": "bytes 0-99/1000",
+   "check": null
+  }
+ ],
+ "classes": {
+  "transient": "no answer, a stall, a 5xx, a 2xx that is not what was asked on every host, a challenge refused, a platform service failing for the moment: the same key, again after the background wait (and inside the call's budget)",
+  "transient_apple": "App Attest's DCError.serverUnavailable: the same key and, while the challenge is fresh, the same client data hash; never before APPLE_FLOOR",
+  "slow_down": "a 429 of the attest routes, or Play over its quota (TOO_MANY_REQUESTS): its Retry-After is the floor of the background wait; no try inside the call; Play over its quota is the named path at once (40.3)",
+  "new_key": "DCError.invalidKey or invalidInput, attest_key_unknown, assertion_failed, StrongBox unavailable: the key is gone or cannot be used; a new key at once, once per attempt (a second in the same attempt is judged)",
+  "judged": "the server refused the attestation (attestation_failed, team_mismatch, attest_key_revoked, lease_integrity_failed), App Attest failed with another error (Apple: discard the key), Play failed with an error that is not transient: the key is discarded and SDK 4.0.2's hold applies (1 h, doubling to 24 h)",
+  "unsupported": "the platform cannot attest on this device or in this process: the named unattested path (40.3); asked again only when the app's release changes",
+  "refusal": "a refusal that is not about the attestation (a stop, key_revoked, app_blocked, sdk_too_old): the route's own rules (15.3, 18.4.10); not retried by this policy"
+ },
+ "policy": {
+  "in_call_tries": 3,
+  "in_call_waits": [
+   1.0,
+   3.0
+  ],
+  "in_call_wall": 20.0,
+  "draw": [
+   0.5,
+   1.5
+  ],
+  "background_base": 30,
+  "background_cap": 3600,
+  "apple_floor": 60,
+  "path_delay": [
+   0.0,
+   3.0
+  ],
+  "path_min_gap": 60,
+  "hold_base": 3600,
+  "hold_cap": 86400,
+  "named_after": 86400,
+  "named_min_tries": 6
+ },
+ "classify_are": "one failure of the attestation to its class (40.2)",
+ "classify": [
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "no_answer"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "timeout"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 503,
+    "error": "service_unavailable"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 502
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "invalid_answer"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 429,
+    "error": "rate_limited"
+   },
+   "class": "slow_down"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 401,
+    "error": "challenge_invalid"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 401,
+    "error": "attestation_failed"
+   },
+   "class": "judged"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 400,
+    "error": "attestation_failed"
+   },
+   "class": "judged"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 409,
+    "error": "team_mismatch"
+   },
+   "class": "judged"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 401,
+    "error": "attest_key_revoked"
+   },
+   "class": "judged"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 401,
+    "error": "attest_key_unknown"
+   },
+   "class": "new_key"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 401,
+    "error": "assertion_failed"
+   },
+   "class": "new_key"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 401,
+    "error": "invalid_key"
+   },
+   "class": "refusal"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "http",
+    "status": 403,
+    "error": "environment_mismatch"
+   },
+   "class": "refusal"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "apple",
+    "code": "serverUnavailable"
+   },
+   "class": "transient_apple"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "apple",
+    "code": "invalidKey"
+   },
+   "class": "new_key"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "apple",
+    "code": "invalidInput"
+   },
+   "class": "new_key"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "apple",
+    "code": "featureUnsupported"
+   },
+   "class": "unsupported"
+  },
+  {
+   "platform": "ios",
+   "failure": {
+    "kind": "apple",
+    "code": "unknownSystemFailure"
+   },
+   "class": "judged"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "play",
+    "code": "NETWORK_ERROR"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "play",
+    "code": "GOOGLE_SERVER_UNAVAILABLE"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "play",
+    "code": "TOO_MANY_REQUESTS"
+   },
+   "class": "slow_down"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "play",
+    "code": "CLIENT_TRANSIENT_ERROR"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "play",
+    "code": "API_NOT_AVAILABLE"
+   },
+   "class": "unsupported"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "play",
+    "code": "PLAY_STORE_NOT_FOUND"
+   },
+   "class": "unsupported"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "play",
+    "code": "APP_UID_MISMATCH"
+   },
+   "class": "judged"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "http",
+    "status": 503,
+    "error": "integrity_unavailable"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "http",
+    "status": 403,
+    "error": "lease_integrity_failed"
+   },
+   "class": "judged"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "keystore",
+    "code": "strongbox_unavailable"
+   },
+   "class": "new_key"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "keystore",
+    "code": "provider"
+   },
+   "class": "transient"
+  },
+  {
+   "platform": "android",
+   "failure": {
+    "kind": "keystore",
+    "code": "no_attestation"
+   },
+   "class": "unsupported"
+  }
+ ],
+ "background_are": "a failure's class and its row to the seconds before the next background try (null: none)",
+ "background": [
+  {
+   "class": "transient",
+   "failures": 1,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 30
+  },
+  {
+   "class": "transient",
+   "failures": 1,
+   "draw": 0.5,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 15
+  },
+  {
+   "class": "transient",
+   "failures": 1,
+   "draw": 1.5,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 45
+  },
+  {
+   "class": "transient",
+   "failures": 2,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 60
+  },
+  {
+   "class": "transient",
+   "failures": 5,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 480
+  },
+  {
+   "class": "transient",
+   "failures": 8,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 3600
+  },
+  {
+   "class": "transient",
+   "failures": 12,
+   "draw": 1.5,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 5400
+  },
+  {
+   "class": "transient_apple",
+   "failures": 1,
+   "draw": 0.5,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 60
+  },
+  {
+   "class": "transient_apple",
+   "failures": 3,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 120
+  },
+  {
+   "class": "slow_down",
+   "failures": 1,
+   "draw": 1.0,
+   "retry_after": 900,
+   "judged": 0,
+   "wait": 900
+  },
+  {
+   "class": "slow_down",
+   "failures": 7,
+   "draw": 1.0,
+   "retry_after": 120,
+   "judged": 0,
+   "wait": 1920
+  },
+  {
+   "class": "transient",
+   "failures": 1,
+   "draw": 1.0,
+   "retry_after": 30,
+   "judged": 0,
+   "wait": 30
+  },
+  {
+   "class": "transient",
+   "failures": 1,
+   "draw": 1.0,
+   "retry_after": 21601,
+   "judged": 0,
+   "wait": 30
+  },
+  {
+   "class": "judged",
+   "failures": 0,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 1,
+   "wait": 3600
+  },
+  {
+   "class": "judged",
+   "failures": 0,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 3,
+   "wait": 14400
+  },
+  {
+   "class": "judged",
+   "failures": 0,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 9,
+   "wait": 86400
+  },
+  {
+   "class": "new_key",
+   "failures": 0,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": 0
+  },
+  {
+   "class": "unsupported",
+   "failures": 0,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": null
+  },
+  {
+   "class": "refusal",
+   "failures": 0,
+   "draw": 1.0,
+   "retry_after": 0,
+   "judged": 0,
+   "wait": null
+  }
+ ],
+ "in_call_are": "the tries inside one call: when each starts and how the call ends (40.2)",
+ "in_call": [
+  {
+   "name": "attested at once",
+   "failures": [
+    null
+   ],
+   "draws": [],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0
+   ],
+   "outcome": "attested"
+  },
+  {
+   "name": "one network blip, then attested",
+   "failures": [
+    "transient",
+    null
+   ],
+   "draws": [
+    1.0
+   ],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0,
+    1.0
+   ],
+   "outcome": "attested"
+  },
+  {
+   "name": "three transient: the background takes over",
+   "failures": [
+    "transient",
+    "transient",
+    "transient"
+   ],
+   "draws": [
+    1.0,
+    1.0
+   ],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0,
+    1.0,
+    4.0
+   ],
+   "outcome": "pending"
+  },
+  {
+   "name": "jittered waits",
+   "failures": [
+    "transient",
+    "transient",
+    null
+   ],
+   "draws": [
+    0.5,
+    1.5
+   ],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0,
+    0.5,
+    5.0
+   ],
+   "outcome": "attested"
+  },
+  {
+   "name": "offline, the network back at 6 s",
+   "failures": [
+    "transient",
+    null
+   ],
+   "draws": [
+    1.0
+   ],
+   "path_back_at": 6.0,
+   "elapsed": null,
+   "starts": [
+    0.0,
+    6.0
+   ],
+   "outcome": "attested"
+  },
+  {
+   "name": "offline past the wall: pending",
+   "failures": [
+    "transient"
+   ],
+   "draws": [
+    1.0
+   ],
+   "path_back_at": 25.0,
+   "elapsed": null,
+   "starts": [
+    0.0
+   ],
+   "outcome": "pending"
+  },
+  {
+   "name": "slow tries: no try after the wall",
+   "failures": [
+    "transient",
+    "transient"
+   ],
+   "draws": [
+    1.0,
+    1.0
+   ],
+   "path_back_at": null,
+   "elapsed": [
+    12.0,
+    9.0
+   ],
+   "starts": [
+    0.0,
+    13.0
+   ],
+   "outcome": "pending"
+  },
+  {
+   "name": "a 429: pending at once",
+   "failures": [
+    "slow_down"
+   ],
+   "draws": [],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0
+   ],
+   "outcome": "pending"
+  },
+  {
+   "name": "the key gone: a new key at once",
+   "failures": [
+    "new_key",
+    null
+   ],
+   "draws": [],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0,
+    0.0
+   ],
+   "outcome": "attested"
+  },
+  {
+   "name": "the new key gone too: judged",
+   "failures": [
+    "new_key",
+    "new_key"
+   ],
+   "draws": [],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0,
+    0.0
+   ],
+   "outcome": "judged"
+  },
+  {
+   "name": "refused by the server",
+   "failures": [
+    "judged"
+   ],
+   "draws": [],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0
+   ],
+   "outcome": "judged"
+  },
+  {
+   "name": "not on this device",
+   "failures": [
+    "unsupported"
+   ],
+   "draws": [],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0
+   ],
+   "outcome": "unsupported"
+  },
+  {
+   "name": "Apple unavailable twice, then attested",
+   "failures": [
+    "transient_apple",
+    "transient_apple",
+    null
+   ],
+   "draws": [
+    1.0,
+    1.0
+   ],
+   "path_back_at": null,
+   "elapsed": null,
+   "starts": [
+    0.0,
+    1.0,
+    4.0
+   ],
+   "outcome": "attested"
+  }
+ ],
+ "unattested": [
+  {
+   "unattested": "unsupported",
+   "platforms": "apple, android",
+   "meaning": "the platform says this device cannot attest: DCAppAttestService.isSupported is false (a Mac without a Secure Enclave, a virtual machine), DCError.featureUnsupported; Android with no hardware attestation and no Play Integrity"
+  },
+  {
+   "unattested": "extension",
+   "platforms": "apple",
+   "meaning": "the process is an app extension of a kind App Attest does not serve (Apple: only action, extensible SSO and watchOS extensions are)"
+  },
+  {
+   "unattested": "no_team",
+   "platforms": "apple",
+   "meaning": "the binary has no team id (unsigned or ad hoc signed): App Attest cannot work in it"
+  },
+  {
+   "unattested": "apple_unavailable",
+   "platforms": "apple",
+   "meaning": "App Attest's service answered DCError.serverUnavailable at every try for 24 hours (6 tries or more) while Quran Lab answered"
+  },
+  {
+   "unattested": "play_unavailable",
+   "platforms": "android",
+   "meaning": "Play Integrity is not on the device (no Play Store or Play services, too old, no account), or failed for the moment at every try for 24 hours while Quran Lab answered, and the device has no usable hardware chain"
+  }
+ ],
+ "named_are": "an attestation's failures (second, class, Quran Lab answered, the platform service) to the named unattested path they give (40.3), or null",
+ "named": [
+  {
+   "name": "Apple unavailable a day, Quran Lab answering",
+   "platform": "ios",
+   "history": [
+    [
+     0,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     14400,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     28800,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     43200,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     57600,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     72000,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     86400,
+     "transient_apple",
+     true,
+     "apple"
+    ]
+   ],
+   "unattested": "apple_unavailable"
+  },
+  {
+   "name": "Apple unavailable 20 hours: not yet",
+   "platform": "ios",
+   "history": [
+    [
+     0,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     14400,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     28800,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     43200,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     57600,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     72000,
+     "transient_apple",
+     true,
+     "apple"
+    ]
+   ],
+   "unattested": null
+  },
+  {
+   "name": "a day offline: nothing answered, no named path",
+   "platform": "ios",
+   "history": [
+    [
+     0,
+     "transient_apple",
+     false,
+     "apple"
+    ],
+    [
+     14400,
+     "transient_apple",
+     false,
+     "apple"
+    ],
+    [
+     28800,
+     "transient_apple",
+     false,
+     "apple"
+    ],
+    [
+     43200,
+     "transient_apple",
+     false,
+     "apple"
+    ],
+    [
+     57600,
+     "transient_apple",
+     false,
+     "apple"
+    ],
+    [
+     72000,
+     "transient_apple",
+     false,
+     "apple"
+    ],
+    [
+     86400,
+     "transient_apple",
+     false,
+     "apple"
+    ]
+   ],
+   "unattested": null
+  },
+  {
+   "name": "five tries over two days: not enough tries",
+   "platform": "ios",
+   "history": [
+    [
+     0,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     43200,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     86400,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     129600,
+     "transient_apple",
+     true,
+     "apple"
+    ],
+    [
+     172800,
+     "transient_apple",
+     true,
+     "apple"
+    ]
+   ],
+   "unattested": null
+  },
+  {
+   "name": "Play failing a day, Quran Lab answering",
+   "platform": "android",
+   "history": [
+    [
+     0,
+     "transient",
+     true,
+     "play"
+    ],
+    [
+     14400,
+     "transient",
+     true,
+     "play"
+    ],
+    [
+     28800,
+     "transient",
+     true,
+     "play"
+    ],
+    [
+     43200,
+     "transient",
+     true,
+     "play"
+    ],
+    [
+     57600,
+     "transient",
+     true,
+     "play"
+    ],
+    [
+     72000,
+     "transient",
+     true,
+     "play"
+    ],
+    [
+     86400,
+     "transient",
+     true,
+     "play"
+    ]
+   ],
+   "unattested": "play_unavailable"
+  },
+  {
+   "name": "Play over its quota once: the named path at once",
+   "platform": "android",
+   "history": [
+    [
+     0,
+     "slow_down",
+     true,
+     "play"
+    ]
+   ],
+   "unattested": "play_unavailable"
+  },
+  {
+   "name": "Quran Lab unreachable a day: not the platform",
+   "platform": "android",
+   "history": [
+    [
+     0,
+     "transient",
+     false,
+     null
+    ],
+    [
+     14400,
+     "transient",
+     false,
+     null
+    ],
+    [
+     28800,
+     "transient",
+     false,
+     null
+    ],
+    [
+     43200,
+     "transient",
+     false,
+     null
+    ],
+    [
+     57600,
+     "transient",
+     false,
+     null
+    ],
+    [
+     72000,
+     "transient",
+     false,
+     null
+    ],
+    [
+     86400,
+     "transient",
+     false,
+     null
+    ]
+   ],
+   "unattested": null
+  }
+ ],
+ "renew_are": "a lease's iat, exp and refresh_after to the time the SDK asks for a new one by itself (40.4)",
+ "renew": [
+  {
+   "name": "a 14-day lease: the server's refresh_after comes first",
+   "iat": 1795000000,
+   "exp": 1796204600,
+   "refresh_after": 1795080000,
+   "due": 1795080000
+  },
+  {
+   "name": "a refresh_after past the half-life: the half-life",
+   "iat": 1795000000,
+   "exp": 1796209600,
+   "refresh_after": 1796123200,
+   "due": 1795604800
+  },
+  {
+   "name": "a 1-day lease: its half-life, a little before the refresh_after of the server",
+   "iat": 1795000000,
+   "exp": 1795085200,
+   "refresh_after": 1795043300,
+   "due": 1795042600
+  },
+  {
+   "name": "a 1-day lease whose refresh_after is late: half-life",
+   "iat": 1795000000,
+   "exp": 1795086400,
+   "refresh_after": 1795086340,
+   "due": 1795043200
+  },
+  {
+   "name": "a record without iat: refresh_after",
+   "iat": null,
+   "exp": 1796209600,
+   "refresh_after": 1795080000,
+   "due": 1795080000
+  }
+ ],
+ "chains_are": "the hops an operation recorded (a host name where it had one) to the report's chain (40.6)",
+ "chains": [
+  {
+   "name": "a renewal every host answered with a lease the Core refused",
+   "hops": [
+    {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "http_status": 200,
+     "error_code": "expired_on_arrival"
+    },
+    {
+     "stage": "lease",
+     "reason": "http",
+     "host_role": "api",
+     "host": "api-b.tajweedformer.com",
+     "http_status": 503,
+     "error_code": "service_unavailable"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api-g.tajweedformer.com",
+     "error_name": "NSURLErrorDomain",
+     "error_code": "-1003"
+    },
+    {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "host_role": "api",
+     "host": "api-a.tajweedformer.com",
+     "http_status": 200,
+     "error_code": "expired_on_arrival"
+    }
+   ],
+   "chain": [
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "http_status": 200,
+     "reason": "invalid_answer",
+     "error_code": "expired_on_arrival"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "standby",
+     "http_status": 503,
+     "reason": "http",
+     "error_code": "service_unavailable"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "standby",
+     "reason": "network",
+     "error_name": "NSURLErrorDomain",
+     "error_code": "-1003"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "standby",
+     "http_status": 200,
+     "reason": "invalid_answer",
+     "error_code": "expired_on_arrival"
+    }
+   ]
+  },
+  {
+   "name": "App Attest offline, the attest offline, then the lease refused",
+   "hops": [
+    {
+     "stage": "attest",
+     "reason": "attestation_failed",
+     "error_name": "com.apple.devicecheck.error",
+     "error_code": "4"
+    },
+    {
+     "stage": "attest",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_name": "NSURLErrorDomain",
+     "error_code": "-1009"
+    },
+    {
+     "stage": "lease",
+     "reason": "refused",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "http_status": 403,
+     "error_code": "lease_attestation_required"
+    }
+   ],
+   "chain": [
+    {
+     "stage": "attest",
+     "reason": "attestation_failed",
+     "error_name": "com.apple.devicecheck.error",
+     "error_code": "4"
+    },
+    {
+     "stage": "attest",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_name": "NSURLErrorDomain",
+     "error_code": "-1009"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "http_status": 403,
+     "reason": "refused",
+     "error_code": "lease_attestation_required"
+    }
+   ]
+  },
+  {
+   "name": "ten hops: the last eight",
+   "hops": [
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1000"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1001"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1002"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1003"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1004"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1005"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1006"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1007"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1008"
+    },
+    {
+     "stage": "lease",
+     "reason": "network",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "error_code": "-1009"
+    }
+   ],
+   "chain": [
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_code": "-1002"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_code": "-1003"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_code": "-1004"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_code": "-1005"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_code": "-1006"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_code": "-1007"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_code": "-1008"
+    },
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "reason": "network",
+     "error_code": "-1009"
+    }
+   ]
+  },
+  {
+   "name": "a value that fails its pattern is left out, a hop without a token reason dropped",
+   "hops": [
+    {
+     "stage": "lease",
+     "reason": "http",
+     "host_role": "api",
+     "host": "api.quranlab.ai",
+     "http_status": 503,
+     "error_code": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "stage": "lease",
+     "reason": "Not A Token",
+     "host_role": "api",
+     "host": "api.quranlab.ai"
+    }
+   ],
+   "chain": [
+    {
+     "stage": "lease",
+     "host_role": "api",
+     "host": "first",
+     "http_status": 503,
+     "reason": "http"
+    }
+   ]
+  },
+  {
+   "name": "a host a config added (another provider under an allowed domain) is a standby",
+   "hops": [
+    {
+     "stage": "download",
+     "reason": "timeout",
+     "host_role": "models",
+     "host": "cdn-z.quran-lab.com"
+    }
+   ],
+   "chain": [
+    {
+     "stage": "download",
+     "host_role": "models",
+     "host": "standby",
+     "reason": "timeout"
+    }
+   ]
+  },
+  {
+   "name": "nothing to chain",
+   "hops": [],
+   "chain": null
+  }
+ ],
+ "plans_are": "40.2 item 1: the config's attest \"required\" (true) or none (false) and how the certificate's attestation ended inside the call, to the certificate the lease is asked with (null: no lease asked), whether the attestation stays owed, and the tries inside the call (patient: item 3's; one: one try)",
+ "plans": [
+  {
+   "attest_required": true,
+   "in_call": "attested",
+   "certificate": "attested",
+   "owed": false,
+   "in_call_tries": "patient"
+  },
+  {
+   "attest_required": true,
+   "in_call": "pending",
+   "certificate": null,
+   "owed": true,
+   "in_call_tries": "patient"
+  },
+  {
+   "attest_required": true,
+   "in_call": "judged",
+   "certificate": "none",
+   "owed": false,
+   "in_call_tries": "patient"
+  },
+  {
+   "attest_required": true,
+   "in_call": "unsupported",
+   "certificate": "none",
+   "owed": false,
+   "in_call_tries": "patient"
+  },
+  {
+   "attest_required": false,
+   "in_call": "attested",
+   "certificate": "attested",
+   "owed": false,
+   "in_call_tries": "one"
+  },
+  {
+   "attest_required": false,
+   "in_call": "pending",
+   "certificate": "none",
+   "owed": true,
+   "in_call_tries": "one"
+  },
+  {
+   "attest_required": false,
+   "in_call": "judged",
+   "certificate": "none",
+   "owed": false,
+   "in_call_tries": "one"
+  },
+  {
+   "attest_required": false,
+   "in_call": "unsupported",
+   "certificate": "none",
+   "owed": false,
+   "in_call_tries": "one"
+  }
+ ],
+ "upgrades_are": "40.2 item 10: one upgrade try of a capped install (a take in progress, how the attestation ended, how the full lease request ended) to the lease and install key in force after it, whether the upgrade stays owed, and whether the next key and its certificate are kept for the next try",
+ "upgrades": [
+  {
+   "name": "a take in progress: the upgrade waits",
+   "model_open": true,
+   "attestation": "attested",
+   "lease": null,
+   "in_force": "capped",
+   "key": "old",
+   "owed": true,
+   "next_kept": false
+  },
+  {
+   "name": "the attestation does not succeed: nothing changes",
+   "model_open": false,
+   "attestation": "transient",
+   "lease": null,
+   "in_force": "capped",
+   "key": "old",
+   "owed": true,
+   "next_kept": false
+  },
+  {
+   "name": "attested, the full lease accepted: switched",
+   "model_open": false,
+   "attestation": "attested",
+   "lease": "accepted",
+   "in_force": "full",
+   "key": "new",
+   "owed": false,
+   "next_kept": false
+  },
+  {
+   "name": "attested, no answer on any host: still capped, still works",
+   "model_open": false,
+   "attestation": "attested",
+   "lease": "unreachable",
+   "in_force": "capped",
+   "key": "old",
+   "owed": true,
+   "next_kept": true
+  },
+  {
+   "name": "attested, refused: still capped",
+   "model_open": false,
+   "attestation": "attested",
+   "lease": "refused",
+   "in_force": "capped",
+   "key": "old",
+   "owed": true,
+   "next_kept": true
+  },
+  {
+   "name": "attested, a lease the Core refuses: still capped",
+   "model_open": false,
+   "attestation": "attested",
+   "lease": "core_refused",
+   "in_force": "capped",
+   "key": "old",
+   "owed": true,
+   "next_kept": true
+  }
+ ]
+}

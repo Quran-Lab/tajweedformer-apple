@@ -66,6 +66,18 @@ struct DownloadProfile: Sendable, Hashable {
             && !Self.appleRoles.contains($0.role) && $0.role != "selftest" }
     }
 
+    /// The self-test set as the model's sample clips (SDK 4.0.5): `selftest.json`, its clips, and the expected tokens of
+    /// this context and of the manifest's default context (`model.sampleClips` reads the default context's). The
+    /// installer fetches them right after the CPU set, as Android, C and the web do, so `model.sampleClips` is the
+    /// build's own set on Apple too. Before 4.0.5 they came only with an accelerator build (`appleFiles`), so on a
+    /// CPU-only build, or before the Neural Engine's files, Apple's sample clips were the three the SDK carries.
+    /// Never part of the CPU set: the engine runs without them, a folder installed before 4.0.5 stays usable
+    /// (`ModelFolder.isUsable` reads `cpuFiles`), and a network that drops them leaves the model working.
+    func sampleFiles(_ m: ModelManifest) -> [ModelManifest.File] {
+        m.files.filter { $0.isFor(platform: Self.platform) && $0.role == "selftest"
+            && ($0.context == "*" || $0.context == context || $0.context == m.defaultContext) }
+    }
+
     /// The accelerator files of this profile's build for this context: the package, the context's keep table and the
     /// self-test set (empty without `coreML`, or when the folder ships none of that build).
     func appleFiles(_ m: ModelManifest) -> [ModelManifest.File] {

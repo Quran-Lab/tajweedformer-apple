@@ -51,7 +51,8 @@
    "attestation_failed",
    "integrity_failed",
    "turnstile",
-   "failover"
+   "failover",
+   "invalid_answer"
   ],
   "lease": [
    "network",
@@ -69,7 +70,8 @@
    "invalid",
    "grace",
    "lease_unavailable",
-   "failover"
+   "failover",
+   "invalid_answer"
   ],
   "manifest": [
    "network",
@@ -1146,6 +1148,443 @@
     }
    },
    "accepted": true
+  },
+  {
+   "name": "a renewal every host answered with a lease the Core refused (40.6)",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "http_status": 200,
+     "error_code": "expired_on_arrival",
+     "host_role": "api",
+     "fallback": true,
+     "chain": [
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "first",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 503,
+       "reason": "http",
+       "error_code": "service_unavailable"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "reason": "network",
+       "error_name": "NSURLErrorDomain",
+       "error_code": "-1003"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      }
+     ]
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "an attestation offline, then the lease refused (40.6)",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "server_rejected",
+    "error": {
+     "stage": "lease",
+     "reason": "refused",
+     "http_status": 403,
+     "error_code": "lease_attestation_required",
+     "host_role": "api",
+     "fallback": false,
+     "chain": [
+      {
+       "stage": "attest",
+       "reason": "attestation_failed",
+       "error_name": "com.apple.devicecheck.error",
+       "error_code": "4"
+      },
+      {
+       "stage": "attest",
+       "host_role": "api",
+       "host": "first",
+       "reason": "network",
+       "error_name": "NSURLErrorDomain",
+       "error_code": "-1009"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "first",
+       "http_status": 403,
+       "reason": "refused",
+       "error_code": "lease_attestation_required"
+      }
+     ]
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "a hop with the stage and reason only",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "none",
+    "error": {
+     "stage": "attest",
+     "reason": "unsupported",
+     "error_code": "no_team",
+     "chain": [
+      {
+       "stage": "attest",
+       "reason": "unsupported"
+      }
+     ]
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "eight hops",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "chain": [
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "first",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 503,
+       "reason": "http",
+       "error_code": "service_unavailable"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "reason": "network",
+       "error_name": "NSURLErrorDomain",
+       "error_code": "-1003"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "first",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 503,
+       "reason": "http",
+       "error_code": "service_unavailable"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "reason": "network",
+       "error_name": "NSURLErrorDomain",
+       "error_code": "-1003"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      }
+     ]
+    }
+   },
+   "accepted": true
+  },
+  {
+   "name": "nine hops",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "chain": [
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "first",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 503,
+       "reason": "http",
+       "error_code": "service_unavailable"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "reason": "network",
+       "error_name": "NSURLErrorDomain",
+       "error_code": "-1003"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "first",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 503,
+       "reason": "http",
+       "error_code": "service_unavailable"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "reason": "network",
+       "error_name": "NSURLErrorDomain",
+       "error_code": "-1003"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "standby",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      },
+      {
+       "stage": "lease",
+       "host_role": "api",
+       "host": "first",
+       "http_status": 200,
+       "reason": "invalid_answer",
+       "error_code": "expired_on_arrival"
+      }
+     ]
+    }
+   },
+   "accepted": false,
+   "field": "error.chain"
+  },
+  {
+   "name": "an empty chain",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "chain": []
+    }
+   },
+   "accepted": false,
+   "field": "error.chain"
+  },
+  {
+   "name": "a hop with a host name (never sent)",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "chain": [
+      {
+       "stage": "lease",
+       "reason": "http",
+       "host": "api-b.tajweedformer.com"
+      }
+     ]
+    }
+   },
+   "accepted": false,
+   "field": "error.chain[0].host"
+  },
+  {
+   "name": "a hop with a field of its own",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "chain": [
+      {
+       "stage": "lease",
+       "reason": "http",
+       "url": "/v1/model-key"
+      }
+     ]
+    }
+   },
+   "accepted": false,
+   "field": "error.chain[0].url"
+  },
+  {
+   "name": "a hop without a reason",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "chain": [
+      {
+       "stage": "lease",
+       "http_status": 503
+      }
+     ]
+    }
+   },
+   "accepted": false,
+   "field": "error.chain[0].reason"
+  },
+  {
+   "name": "a hop whose error code is a message",
+   "body": {
+    "day": "2026-11-18",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.4.0",
+    "os_version": "18.1",
+    "device_class": "phone",
+    "revision": "4.0.0",
+    "kind": "error",
+    "code": "download_failed",
+    "error": {
+     "stage": "lease",
+     "reason": "invalid_answer",
+     "chain": [
+      {
+       "stage": "lease",
+       "reason": "http",
+       "error_code": "the lease has expired"
+      }
+     ]
+    }
+   },
+   "accepted": false,
+   "field": "error.chain[0].error_code"
   }
  ],
  "codes": [
@@ -1804,6 +2243,78 @@
    "on_device": "complete",
    "error_code": "arg",
    "code": "engine_failed",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "stopped",
+   "http_status": 403,
+   "on_device": "complete",
+   "error_code": "install_blocked",
+   "code": "server_rejected",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "complete",
+   "error_code": "install_blocked",
+   "code": "server_rejected",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "invalid_answer",
+   "http_status": 200,
+   "on_device": "complete",
+   "error_code": "expired_on_arrival",
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "invalid_answer",
+   "http_status": 200,
+   "on_device": "none",
+   "error_code": "schema:base",
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "invalid_answer",
+   "http_status": 200,
+   "on_device": "complete",
+   "error_code": "not_json",
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "attest",
+   "reason": "invalid_answer",
+   "http_status": 200,
+   "on_device": "none",
+   "error_code": "schema:token",
+   "code": "download_failed",
+   "reported": true
+  },
+  {
+   "stage": "attest",
+   "reason": "invalid_answer",
+   "http_status": 200,
+   "on_device": "complete",
+   "error_code": "cert_signature",
+   "code": "none",
+   "reported": true
+  },
+  {
+   "stage": "lease",
+   "reason": "failover",
+   "http_status": 200,
+   "on_device": "complete",
+   "error_code": "invalid_answer",
+   "code": "none",
    "reported": true
   }
  ],
@@ -4529,6 +5040,158 @@
    "error_code": null,
    "code": "none",
    "cause": null
+  },
+  {
+   "label": "a lease refused for attestation, the build on the device: not a stop, reason refused (24.14)",
+   "stage": "lease",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "complete",
+   "error_name": null,
+   "error_code": "lease_attestation_required",
+   "code": "server_rejected",
+   "cause": {
+    "stage": "lease",
+    "reason": "refused",
+    "http_status": 403,
+    "error_code": "lease_attestation_required"
+   }
+  },
+  {
+   "label": "a lease refused for attestation at the first install: the same code and cause (24.14)",
+   "stage": "lease",
+   "reason": "refused",
+   "http_status": 403,
+   "on_device": "none",
+   "error_name": null,
+   "error_code": "lease_attestation_required",
+   "code": "server_rejected",
+   "cause": {
+    "stage": "lease",
+    "reason": "refused",
+    "http_status": 403,
+    "error_code": "lease_attestation_required"
+   }
+  },
+  {
+   "label": "a lease the Core refused as expired on arrival, on every host: download_failed, never needs_connection (40.5)",
+   "stage": "lease",
+   "reason": "invalid_answer",
+   "http_status": 200,
+   "on_device": "complete",
+   "error_name": null,
+   "error_code": "expired_on_arrival",
+   "code": "download_failed",
+   "cause": {
+    "stage": "lease",
+    "reason": "invalid_answer",
+    "http_status": 200,
+    "error_code": "expired_on_arrival"
+   }
+  },
+  {
+   "label": "a captive portal page for the token at the first launch (40.5)",
+   "stage": "attest",
+   "reason": "invalid_answer",
+   "http_status": 200,
+   "on_device": "none",
+   "error_name": null,
+   "error_code": "not_json",
+   "code": "download_failed",
+   "cause": {
+    "stage": "attest",
+    "reason": "invalid_answer",
+    "http_status": 200,
+    "error_code": "not_json"
+   }
+  }
+ ],
+ "core_open_details_are": "a Core status with a detail at qlc_model_open, to the code the app gets (24.4 rule 3c), whether it makes an error report, and whether the SDK removes anything",
+ "core_open_details": [
+  {
+   "status": -5,
+   "name": "QLC_E_NEEDS_CONNECTION",
+   "detail": 64,
+   "detail_name": "QLC_D_STOP_PENDING",
+   "code": "download_failed",
+   "reported": false,
+   "removes": false,
+   "message_detail": "the install's access is being checked again"
+  }
+ ],
+ "words_are": "the message and fix of the error the app gets, from sdk_3.0.0/errors.json (24.14): the code's entry, or for server_rejected the entry of the answer's error when `reasons` lists it; the fix of the platform the SDK runs on when that entry lists it under `platforms`, else its own; placeholders as written",
+ "words": [
+  {
+   "label": "iOS: App Attest",
+   "code": "server_rejected",
+   "error": "lease_attestation_required",
+   "platform": "ios",
+   "reason": "lease_attestation_required",
+   "message": "Quran Lab serves the model to this app's production installs only once the install is verified, and this one is not (lease_attestation_required).",
+   "fix": "App Attest is unavailable in the iOS Simulator: use a development key for Simulator builds; on devices, add the App Attest capability."
+  },
+  {
+   "label": "macOS: App Attest, with a provisioning profile",
+   "code": "server_rejected",
+   "error": "lease_attestation_required",
+   "platform": "macos",
+   "reason": "lease_attestation_required",
+   "message": "Quran Lab serves the model to this app's production installs only once the install is verified, and this one is not (lease_attestation_required).",
+   "fix": "Add the App Attest capability to the Mac app (Signing & Capabilities in Xcode, signed with a provisioning profile; a command-line tool cannot attest) and run the build you publish."
+  },
+  {
+   "label": "Android: the signing certificates on the production key",
+   "code": "server_rejected",
+   "error": "lease_attestation_required",
+   "platform": "android",
+   "reason": "lease_attestation_required",
+   "message": "Quran Lab serves the model to this app's production installs only once the install is verified, and this one is not (lease_attestation_required).",
+   "fix": "Register the SHA-256 fingerprints of your app signing key and upload key (Play Console, App integrity) on this app's production key at https://sdk.quranlab.ai/keys; on an emulator use this app's development key."
+  },
+  {
+   "label": "web (the web SDK, Node on a Mac included): the reason's own fix",
+   "code": "server_rejected",
+   "error": "lease_attestation_required",
+   "platform": "web",
+   "reason": "lease_attestation_required",
+   "message": "Quran Lab serves the model to this app's production installs only once the install is verified, and this one is not (lease_attestation_required).",
+   "fix": "Open the app's Setup tab on sdk.quranlab.ai: it says what the app's production installs need. A simulator, an emulator or a build you run yourself needs this app's development key."
+  },
+  {
+   "label": "Windows: the reason's own fix",
+   "code": "server_rejected",
+   "error": "lease_attestation_required",
+   "platform": "windows",
+   "reason": "lease_attestation_required",
+   "message": "Quran Lab serves the model to this app's production installs only once the install is verified, and this one is not (lease_attestation_required).",
+   "fix": "Open the app's Setup tab on sdk.quranlab.ai: it says what the app's production installs need. A simulator, an emulator or a build you run yourself needs this app's development key."
+  },
+  {
+   "label": "Linux: the reason's own fix",
+   "code": "server_rejected",
+   "error": "lease_attestation_required",
+   "platform": "linux",
+   "reason": "lease_attestation_required",
+   "message": "Quran Lab serves the model to this app's production installs only once the install is verified, and this one is not (lease_attestation_required).",
+   "fix": "Open the app's Setup tab on sdk.quranlab.ai: it says what the app's production installs need. A simulator, an emulator or a build you run yourself needs this app's development key."
+  },
+  {
+   "label": "a reason without platforms: the same fix on every platform",
+   "code": "server_rejected",
+   "error": "app_blocked",
+   "platform": "android",
+   "reason": "app_blocked",
+   "message": "Quran Lab does not serve this app at the moment: it is blocked by Quran Lab or paused by its developer (app_blocked).",
+   "fix": "Open the app's page on sdk.quranlab.ai: unpause the app there, or read the reason for the block and write to Quran Lab from the account that owns the app."
+  },
+  {
+   "label": "an error the catalogue does not list: the code's own words",
+   "code": "server_rejected",
+   "error": "not_in_the_catalogue",
+   "platform": "ios",
+   "reason": null,
+   "message": "Quran Lab refused this app: {detail}.",
+   "fix": "Check in sdk.quranlab.ai that the key belongs to this app id and platform and that the app is not blocked."
   }
  ]
 }

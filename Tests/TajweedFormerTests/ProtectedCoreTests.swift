@@ -188,7 +188,9 @@ final class ProtectedCoreTests: XCTestCase {
         let core = try XCTUnwrap(body["core"] as? [String: Any])
         XCTAssertEqual(core["release"] as? String, "4.0.0-c1")
         XCTAssertEqual((core["proof"] as? String)?.count, 22, "16 bytes, base64url")
-        XCTAssertEqual(Set(core.keys), ["release", "target", "proof", "signals", "piece"])
+        // spec fix 17: a Core of it adds its clock record (`clock`), which the SDK sends as the Core wrote it
+        XCTAssertEqual(Set(core.keys), CoreOptional.leaseTime != nil ? ["release", "target", "proof", "signals", "piece", "clock"]
+                                                                    : ["release", "target", "proof", "signals", "piece"])
         // install_sig: the install key over "quranlab-lease-ask 1\n" challenge "\n" build "\n"
         let sig = try XCTUnwrap(Data(base64URL: try XCTUnwrap(body["install_sig"] as? String)))
         let text = Data("quranlab-lease-ask 1\n\(Self.challenge)\n\(s.manifest.build)\n".utf8)
@@ -289,6 +291,28 @@ final class ProtectedCoreTests: XCTestCase {
             guard case .serverRejected(403, "lease_attestation_required", _, _) = error else { return XCTFail("\(error)") }
         }
         XCTAssertFalse(s.runtime.hasValidLease(build: s.manifest.build))
+    }
+
+    /// SDK 4.0.5 (ERRORS_40 24.14): a lease refused for attestation is reason `refused` (Apple 4.0.3 and 4.0.4 said
+    /// `attestation_failed`), not a stop, and the app's next call within 10 minutes gets the same error and cause without
+    /// a request (items 2 to 4).
+    func testALeaseRefusedForAttestationIsRememberedForTheAppsNextCall() async throws {
+        let s = try prepare(answer: { (r: URLRequest, _: Int) -> HTTPClient.Response? in
+            r.url?.path.hasSuffix("v1/model-key") == true ? Self.response(403, ["error": "lease_attestation_required", "message": "no"]) : nil
+        })
+        for call in 1...2 {
+            do throws(RecognizerError) {
+                _ = try await s.runtime.ensureLease(s.manifest)
+                XCTFail("no lease")
+            } catch {
+                guard case .serverRejected(403, "lease_attestation_required", _, _) = error else { return XCTFail("\(error)") }
+            }
+            let cause = try XCTUnwrap(s.runtime.lastFailure.withLock { $0 }?.cause, "call \(call)")
+            XCTAssertEqual([cause.stage, cause.reason, cause.errorCode ?? ""], ["lease", "refused", "lease_attestation_required"], "call \(call)")
+            XCTAssertEqual(cause.httpStatus, 403)
+        }
+        XCTAssertEqual(s.transport.bodies("v1/model-key").count, 1, "the second call asked nothing")
+        XCTAssertNil(s.runtime.leaseRecord, "nothing was removed or kept: not a stop")
     }
 
     /// The route switched off (production answers 404 today): no lease, and the error says the route is off.

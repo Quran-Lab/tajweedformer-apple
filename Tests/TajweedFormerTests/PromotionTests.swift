@@ -270,6 +270,170 @@ final class PromotionTests: XCTestCase {
         XCTAssertEqual(c.record?.status, .retry)
     }
 
+    /// SDK 4.0.5: a stage's limit counts the time the process ran (`AcceleratorController.RunClock`). A compile the
+    /// system suspended with the app for an hour is no timeout; a compile that runs past the limit still is. Until 4.0.4
+    /// the limit was wall time, and the 4.0.x timeouts of the 7 days to 2026-11-25 sat at the limit itself (600 s).
+    /// Not compiled or run on 11-25 (no Mac).
+    func testACompileTheSystemSuspendedIsNoTimeout() async {
+        let offset = Locked<TimeInterval>(0)
+        AcceleratorController.runClock.withLock {
+            $0 = AcceleratorController.RunClock(now: { ProcessInfo.processInfo.systemUptime + offset.withLock { $0 } }, step: 0.05, stalled: 0.5)
+        }
+        defer { AcceleratorController.runClock.withLock { $0 = .live } }
+        h.slowCompile.withLock { $0 = 0.6 }
+        var t = AcceleratorController.Timeouts()
+        t.compile = 1.0
+        let c = h.controller(timeouts: t)
+        // 0.2 s into the compile, an hour passes on the clock while the process does not run
+        let jump = Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            offset.withLock { $0 += 3600 }
+        }
+        await c.run(h.stages())
+        await jump.value
+        XCTAssertEqual(c.state, .ready, "the hour suspended is no part of the limit")
+        XCTAssertNil(c.record?.lastReason)
+
+        h = Harness()
+        h.slowCompile.withLock { $0 = 3 }
+        t.compile = 0.4
+        let d = h.controller(timeouts: t)
+        let t0 = Date()
+        await d.run(h.stages())
+        XCTAssertEqual(d.record?.lastReason, .compileTimeout, "running past the limit is still a timeout")
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 2.5)
+    }
+
+    /// SDK 4.0.5: the compile and the load wait for the device unlocked and the app not in the background (the Core
+    /// writes the program with complete file protection, and a lock during Core ML's compile was a SIGBUS in the field);
+    /// the download does not. Waiting is no failure. Not compiled or run on 11-25 (no Mac).
+    /// SDK 4.0.5: a compile the device's lock or the app's leaving cut (the program unreadable once the lock takes the key
+    /// of its complete protection away, "not a valid .mlmodelc") is not a failure of the build: no failure recorded, no
+    /// backoff, no incident, `not_now` in telemetry; the run waits for an unlocked device and the foreground and compiles
+    /// again in the same attempt, which promotes. A compile error with no lock and no leaving counts as before.
+    /// SDK 4.0.5 on the Core c3: the compile asks the system for no background time. c3 writes the package with
+    /// complete file protection; with extra time an app that leaves runs on past the moment those files lock, and Core
+    /// ML's mapped reads fault (SIGBUS, 4.0.2 crash reports). Without it the app is suspended first.
+    func testTheCompileAsksForNoBackgroundTime() async {
+        let asked = Locked<[String]>([])
+        InstallGrace.override.withLock { $0 = { name in asked.withLock { $0.append(name) }; return {} } }
+        defer { InstallGrace.override.withLock { $0 = nil } }
+        h = Harness()
+        let c = h.controller(revision: "no-grace")
+        await c.run(h.stages())
+        XCTAssertEqual(c.state, .ready)
+        XCTAssertEqual(h.calls.withLock { $0 }.filter { $0 == "compile" }.count, 1)
+        XCTAssertEqual(asked.withLock { $0 }, [], "no beginBackgroundTask around the compile, or anywhere in the run")
+    }
+
+    func testACompileTheLockOrTheAppsLeavingCutRunsAgainAndCountsNothing() async {
+        for (cut, why) in [(PromotionConditions(protectedData: false), "locked"), (PromotionConditions(background: true), "background")] {
+            h = Harness()
+            let cond = h.conditions, fails = h.failures, calls = h.calls
+            h.failures.withLock { $0[.compile] = PromotionFailure(.compileError, "Failed to open file: coremldata.bin. It is not a valid .mlmodelc file.") }
+            var e = h.env(revision: "cut-\(why)")
+            // the fake compile: the device locks (or the app leaves) while it runs, and the compile fails for it
+            let compile = h.stages().compile
+            var stages = h.stages()
+            stages.compile = { () async throws(PromotionFailure) -> UncheckedBox<any AcceleratorBackend> in
+                if fails.withLock({ $0[.compile] }) != nil { cond.withLock { $0 = cut } }
+                return try await compile()
+            }
+            // the wait for conditions: the learner unlocks (or comes back), and the next compile goes through
+            let waits = Locked(0)
+            e.sleep = { _ in
+                waits.withLock { $0 += 1 }
+                cond.withLock { $0 = PromotionConditions() }
+                fails.withLock { $0[.compile] = nil }
+            }
+            let c = AcceleratorController(e)
+            await c.run(stages)
+            XCTAssertEqual(c.state, .ready, "\(why): the same attempt compiles again and promotes")
+            XCTAssertEqual(calls.withLock { $0 }.filter { $0 == "compile" }.count, 2, why)
+            XCTAssertEqual(waits.withLock { $0 }, 1, "\(why): it waited for the device and the foreground once")
+            XCTAssertEqual(c.record?.attempts, 1, why)
+            XCTAssertEqual(c.record?.failures, 0, why)
+            XCTAssertNil(c.record?.lastReason, why)
+            XCTAssertNil(c.record?.backoffUntil, why)
+            XCTAssertTrue(h.incidents.withLock { $0 }.isEmpty, "\(why): no incident")
+            let kinds = h.events.withLock { $0 }.compactMap { (ev: AnalyticsEvent) -> PromotionTelemetry.Kind? in
+                if case .promotion(let t) = ev { return t.kind }
+                return nil
+            }
+            XCTAssertTrue(kinds.contains(.notNow(stage: .compile, why: why)), "\(why): \(kinds)")
+            XCTAssertFalse(kinds.contains { if case .attempt(false, _, _, _, _) = $0 { return true }; return false }, "\(why): no failed attempt")
+        }
+        // the same error with no lock and no leaving: a failure of the build, as before
+        h = Harness()
+        h.failures.withLock { $0[.compile] = PromotionFailure(.compileError, "Failed to open file: coremldata.bin. It is not a valid .mlmodelc file.") }
+        let d = h.controller(revision: "plain")
+        await d.run(h.stages())
+        XCTAssertEqual(d.record?.failures, 1)
+        XCTAssertEqual(d.record?.lastReason, .compileError)
+    }
+
+    /// SDK 4.0.5: a run whose compile the lock keeps cutting gives up for now after `notNowRunsMax` and leaves the
+    /// attempt as it stood; nothing is counted, and the next run goes on.
+    func testACompileCutAgainAndAgainGoesOnAtTheNextRun() async {
+        h = Harness()
+        let cond = h.conditions, fails = h.failures
+        h.failures.withLock { $0[.compile] = PromotionFailure(.compileError, "not a valid .mlmodelc") }
+        var e = h.env(revision: "again")
+        let compile = h.stages().compile
+        var stages = h.stages()
+        stages.compile = { () async throws(PromotionFailure) -> UncheckedBox<any AcceleratorBackend> in
+            if fails.withLock({ $0[.compile] }) != nil { cond.withLock { $0 = PromotionConditions(protectedData: false) } }
+            return try await compile()
+        }
+        e.sleep = { _ in cond.withLock { $0 = PromotionConditions() } }
+        let c = AcceleratorController(e)
+        await c.run(stages)
+        XCTAssertEqual(h.count("compile"), AcceleratorController.notNowRunsMax + 1)
+        XCTAssertEqual(c.state, .cpu)
+        XCTAssertEqual(c.record?.failures, 0)
+        XCTAssertNil(c.record?.lastReason)
+        XCTAssertTrue(h.incidents.withLock { $0 }.isEmpty)
+        fails.withLock { $0[.compile] = nil }
+        await c.run(stages)
+        XCTAssertEqual(c.state, .ready, "the next run goes on with the same attempt")
+        XCTAssertEqual(c.record?.attempts, 1)
+    }
+
+    func testTheCompileWaitsForAnUnlockedDeviceAndTheForeground() async {
+        XCTAssertEqual(PromotionConditions(protectedData: false).blocker(for: .compile, prepares: true), "the device is locked")
+        XCTAssertEqual(PromotionConditions(background: true).blocker(for: .warmup, prepares: true), "the app is in the background")
+        XCTAssertNil(PromotionConditions(protectedData: false, background: true).blocker(for: .download))
+        XCTAssertNil(PromotionConditions(protectedData: false, background: true).blocker(for: .golden))
+        XCTAssertNil(PromotionConditions(protectedData: false, background: true).blocker(for: .warmup), "a warm-up of the program in memory")
+        for blocked in [PromotionConditions(protectedData: false), PromotionConditions(background: true)] {
+            h = Harness()
+            h.conditions.withLock { $0 = blocked }
+            let c = h.controller(revision: "gate")
+            await c.run(h.stages())
+            XCTAssertEqual(h.calls.withLock { $0 }, ["download"], "the download only")
+            XCTAssertEqual(c.state, .cpu)
+            XCTAssertEqual(c.record?.failures, 0)
+            XCTAssertNil(c.record?.lastReason)
+            XCTAssertTrue(h.incidents.withLock { $0 }.isEmpty)
+            h.conditions.withLock { $0 = PromotionConditions() }
+            await c.run(h.stages())
+            XCTAssertEqual(c.state, .ready, "unlocked and in the foreground, the same attempt goes on and promotes")
+        }
+        // the app leaves while the compile runs: the warm-up of the program just compiled does not wait (it prepares
+        // nothing), and the attempt promotes
+        h = Harness()
+        h.slowCompile.withLock { $0 = 0.3 }
+        let cond = h.conditions
+        let leave = Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            cond.withLock { $0 = PromotionConditions(protectedData: false, background: true) }
+        }
+        let d = h.controller(revision: "left")
+        await d.run(h.stages())
+        await leave.value
+        XCTAssertEqual(d.state, .ready)
+    }
+
     // MARK: restarts
 
     /// A record left in the middle of an attempt by an earlier launch (killed, rebooted): the next launch resumes at

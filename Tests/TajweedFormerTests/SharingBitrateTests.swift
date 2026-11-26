@@ -187,6 +187,9 @@ final class SharingBitrateTests: XCTestCase {
 
     /// An executable named `name` on PATH or in Homebrew's folders.
     static func tool(_ name: String) -> URL? {
+        #if !os(macOS)
+        return nil // iOS and its Simulator start no processes
+        #else
         let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
         let dirs = path.split(separator: ":").map(String.init) + ["/opt/homebrew/bin", "/usr/local/bin"]
         for d in dirs {
@@ -194,10 +197,14 @@ final class SharingBitrateTests: XCTestCase {
             if FileManager.default.isExecutableFile(atPath: u.path) { return u }
         }
         return nil
+        #endif
     }
 
     /// Runs a tool; its standard output, or a throw when it fails.
     static func runTool(_ tool: URL, _ args: [String]) throws -> Data {
+        #if !os(macOS)
+        throw CocoaError(.featureUnsupported)
+        #else
         let p = Process()
         p.executableURL = tool
         p.arguments = args
@@ -209,6 +216,7 @@ final class SharingBitrateTests: XCTestCase {
         p.waitUntilExit()
         guard p.terminationStatus == 0 else { throw CocoaError(.fileReadCorruptFile) }
         return data
+        #endif
     }
 
     // MARK: recovery

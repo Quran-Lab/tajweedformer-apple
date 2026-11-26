@@ -313,6 +313,10 @@ final class SharingTests: XCTestCase {
     /// The duration an independent decoder (ffmpeg, when installed) gets: the decoded 48 kHz
     /// samples, after pre-skip and end trimming.
     static func ffprobeDuration(_ url: URL) throws -> Double {
+        #if !os(macOS)
+        // iOS and its Simulator start no processes: no independent decoder there
+        throw CocoaError(.featureUnsupported)
+        #else
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
         p.arguments = ["-v", "error", "-i", url.path, "-f", "f32le", "-ac", "1", "-ar", "48000", "-"]
@@ -324,6 +328,7 @@ final class SharingTests: XCTestCase {
         p.waitUntilExit()
         guard p.terminationStatus == 0 else { throw CocoaError(.fileReadCorruptFile) }
         return Double(data.count / 4) / 48_000
+        #endif
     }
 
     /// Opus size per minute on the parity clips (16 kHz), and one upsampled to 48 kHz first.

@@ -90,11 +90,19 @@ struct ErrorCatalogue: Sendable {
         var reasons: [String: Texts] = [:]
     }
 
-    /// What an error says: what happened, and one sentence to act on.
+    /// What an error says: what happened, and one sentence to act on. SDK 4.0.5 (ERRORS_40 24.14): a reason may have a
+    /// fix per platform (`platforms`: ios, macos, android, web, windows, linux).
     struct Texts: Sendable, Hashable {
         let message: String
         let fix: String
+        var platforms: [String: String] = [:]
+
+        /// The texts with the fix of `platform` when there is one.
+        func on(_ platform: String) -> Texts { Texts(message: message, fix: platforms[platform] ?? fix) }
     }
+
+    /// The platform whose fix an error names (24.14 item 1): `ios` or `macos`, by where the SDK runs.
+    static var platform: String { AppIdentity.currentPlatform }
 
     let docsBase: String
     let entries: [String: Entry]
@@ -129,7 +137,11 @@ struct ErrorCatalogue: Sendable {
             var entry = Entry(message: message, fix: fix)
             for (reason, r) in (e["reasons"] as? [String: [String: Any]]) ?? [:] {
                 guard let m = r["message"] as? String, let f = r["fix"] as? String else { continue }
-                entry.reasons[reason] = Texts(message: m, fix: f)
+                var t = Texts(message: m, fix: f)
+                for (platform, p) in (r["platforms"] as? [String: [String: Any]]) ?? [:] {
+                    if let pf = p["fix"] as? String { t.platforms[platform] = pf }
+                }
+                entry.reasons[reason] = t
             }
             entries[code] = entry
             codes.append(code)
@@ -139,10 +151,10 @@ struct ErrorCatalogue: Sendable {
 
     /// The message and the fix of `code`: those of `reason` (the server's code of a refusal) when the catalogue's
     /// entry has that reason, else the entry's own. Nil for a code the catalogue does not have. The one place a
-    /// reason is looked up.
-    func texts(_ code: String, reason: String? = nil) -> Texts? {
+    /// reason is looked up. SDK 4.0.5 (24.14): a reason's fix is the one of `platform` when the reason lists it.
+    func texts(_ code: String, reason: String? = nil, platform: String = ErrorCatalogue.platform) -> Texts? {
         guard let e = entries[code] else { return nil }
-        if let reason, let r = e.reasons[reason] { return r }
+        if let reason, let r = e.reasons[reason] { return r.on(platform) }
         return Texts(message: e.message, fix: e.fix)
     }
 

@@ -202,11 +202,19 @@ final class HostCountsTests: XCTestCase {
     /// makes it from any counts (a host off the allow-list is left out, at most 8 hosts, fixed fields and buckets,
     /// no count below 0).
     func testTheContractsVectors() throws {
+        // the bodies with section 35's fields, as once the server takes them
+        AnalyticsStore.sendsSplitFields.withLock { $0 = true }
+        defer { AnalyticsStore.sendsSplitFields.withLock { $0 = false } }
         let t = try XCTUnwrap(try V40.json("steering_40.json")["telemetry"] as? [String: Any])
         XCTAssertEqual(t["ttfb_buckets_ms"] as? [Double], HostCount.ttfbBounds)
         XCTAssertEqual(t["kbps_buckets"] as? [Double], HostCount.kbpsBounds)
         let cases = try XCTUnwrap(t["cases"] as? [[String: Any]])
-        XCTAssertEqual(cases.count, 11)
+        XCTAssertEqual(cases.count, 36, "every case of the file is read")
+        XCTAssertEqual(t["fail_keys"] as? [String], FailClass.keys, "34.9.1's classes in the server's order")
+        XCTAssertEqual(t["proto_keys"] as? [String], FailClass.protos)
+        XCTAssertEqual(t["move_why"] as? [String], FailClass.moveWhy, "34.9.7's reasons of a move")
+        XCTAssertEqual(t["moves_max"] as? Int, HostCount.movesMax)
+        XCTAssertEqual(t["outcome_keys"] as? [String], FailClass.outcomeKeys)
         for c in cases {
             let name = c["name"] as? String ?? "?"
             let hosts = try XCTUnwrap(c["hosts"] as? [[String: Any]], name)
@@ -225,14 +233,61 @@ final class HostCountsTests: XCTestCase {
                 x.slowSwitches = h["slow_switches"] as? Int ?? 0
                 x.ttfb = h["ttfb_ms"] as? [Int] ?? []
                 x.kbps = h["kbps"] as? [Int] ?? []
+                x.fail = (h["fail"] as? [String: Any] ?? [:]).compactMapValues { $0 as? Int }
+                x.proto = (h["proto"] as? [String: Any] ?? [:]).compactMapValues { $0 as? Int }
+                // 34.9.7
+                for m in h["moves"] as? [[String: Any]] ?? [] {
+                    guard let to = m["to"] as? String, let why = m["why"] as? String, let n = m["n"] as? Int, n > 0 else { continue }
+                    // as the counter keeps them: each (to, why) once
+                    if let i = x.moves.firstIndex(where: { $0.to == to && $0.why == why }) { x.moves[i].n += n } else { x.moves.append(.init(to: to, why: why, n: n)) }
+                }
+                if let o = h["outcome"] as? [String: Any] {
+                    x.outcome.moved = o["moved"] as? Int ?? 0
+                    x.outcome.failed = (o["failed"] as? [String: Any] ?? [:]).compactMapValues { $0 as? Int }
+                    x.outcome.cancelled = o["cancelled"] as? Int ?? 0
+                    x.outcome.paused = o["paused"] as? Int ?? 0
+                    x.outcome.ready = o["ready"] as? Int ?? 0
+                    x.outcome.notReady = o["not_ready"] as? Int ?? 0
+                }
                 counts[host] = x
             }
-            let built = HostCount.body(counts)
+            // 34.9.4: an entry whose `day_first` is 0 had a body of its day before it
+            let sealedBefore = Set(hosts.filter { ($0["day_first"] as? Int) == 0 }.compactMap { $0["host"] as? String })
+            let built = HostCount.body(counts, sealedBefore: sealedBefore)
             XCTAssertNil(Self.refusal(built), "\(name): the SDK never builds a body the server refuses")
             if accepted {
-                let want = Dictionary(uniqueKeysWithValues: hosts.map { ($0["host"] as? String ?? "", NSDictionary(dictionary: $0)) })
-                let got = Dictionary(uniqueKeysWithValues: built.map { ($0["host"] as? String ?? "", NSDictionary(dictionary: $0)) })
+                // SDK 4.0.5: the entry is 34.6's with 34.9.1's three fields (`fail` and `proto` without their zeros) and
+                // the five of section 35 (all 0 here); a vector entry of an SDK before 4.0.4 is compared without 34.9's
+                func plain(_ e: [String: Any], keep349: Bool) -> NSDictionary {
+                    var x = e.filter { !Self.splitFields.contains($0.key) && (keep349 || !Self.fields349.contains($0.key)) }
+                    for k in ["fail", "proto"] {
+                        if let m = x[k] as? [String: Int] { x[k] = m.filter { $0.value != 0 } }
+                    }
+                    // 34.9.7: empty moves and an empty outcome are the same as none; a key left out of outcome is 0
+                    if (x["moves"] as? [Any])?.isEmpty == true { x["moves"] = nil }
+                    if var o = x["outcome"] as? [String: Any] {
+                        if var f = o["failed"] as? [String: Int] {
+                            f = f.filter { $0.value != 0 }
+                            o["failed"] = f.isEmpty ? nil : f
+                        }
+                        o = o.filter { ($0.value as? Int).map { $0 != 0 } ?? true }
+                        x["outcome"] = o.isEmpty ? nil : o
+                    }
+                    return NSDictionary(dictionary: x)
+                }
+                let want = Dictionary(uniqueKeysWithValues: hosts.map { ($0["host"] as? String ?? "", plain($0, keep349: true)) })
+                let got = Dictionary(uniqueKeysWithValues: built.map { e -> (String, NSDictionary) in
+                    let host = e["host"] as? String ?? ""
+                    let theirs = hosts.first { $0["host"] as? String == host }
+                    return (host, plain(e, keep349: theirs?["fail"] != nil))
+                })
                 XCTAssertEqual(got, want, "\(name): the same body")
+                for e in built {
+                    XCTAssertEqual(Set(e.keys).intersection(Self.fields349), Self.fields349, "\(name): the three fields of 34.9.1")
+                    XCTAssertEqual(Set(e.keys).intersection(Self.splitFields), Self.splitFields, "\(name): the five fields of 35.9")
+                    XCTAssertEqual(e["probes"] as? Int, 0)
+                    XCTAssertEqual(e["gain"] as? [Int], [0, 0, 0, 0, 0, 0])
+                }
             }
         }
     }
@@ -240,12 +295,71 @@ final class HostCountsTests: XCTestCase {
     /// The server's rules for `hosts` as 34.6 and its vectors state them: at most 8 entries, each host once and of the
     /// allow-list, role `models`, exactly the fields of 34.6, counts whole and at least 0, 9 and 10 buckets. Nil when
     /// taken, else why not.
+    /// SDK 4.0.5 (SPLIT_40 35.9): the fields of section 35, optional to the server, all five in every 4.0.5 entry.
+    static let splitFields: Set<String> = ["probes", "would_probe", "gain", "wasted", "arms"]
+    /// SDK 4.0.5 (STEERING_40 34.9.1): the three fields of the 4.0.4 erratum, optional to the server, all three in every
+    /// entry from 4.0.4. 34.9.7's `moves` and `outcome` are two more optional fields, each left out when empty, so not
+    /// among them (28de700 had them here, and the vector test asked every entry for them).
+    static let fields349: Set<String> = ["fail", "proto", "day_first"]
+
+    /// A JSON number that is a boolean (`true` decodes as an NSNumber).
+    static func isBool(_ v: Any) -> Bool { (v as AnyObject) is NSNumber && CFGetTypeID(v as CFTypeRef) == CFBooleanGetTypeID() }
+
     static func refusal(_ hosts: [[String: Any]]) -> String? {
         let fields: Set<String> = ["role", "host", "files", "bytes", "requests", "unreachable", "hedged", "slow_switches", "ttfb_ms", "kbps"]
         guard hosts.count <= 8 else { return "more than 8 entries" }
         var seen: Set<String> = []
+        var movesInBody = 0
+        defer { _ = movesInBody }
         for h in hosts {
-            guard Set(h.keys) == fields else { return "other fields" }
+            let keys = Set(h.keys)
+            guard fields.isSubset(of: keys), keys.isSubset(of: fields.union(splitFields).union(fields349).union(["moves", "outcome"])) else { return "other fields" }
+            // qlab-api HOSTS_SPEC: `fail` and `proto` closed objects of whole counts to 10,000,000 (a key left out is 0),
+            // `day_first` the number 0 or 1
+            for (k, allowed) in [("fail", FailClass.keys), ("proto", FailClass.protos)] where h[k] != nil {
+                guard let m = h[k] as? [String: Any], Set(m.keys).isSubset(of: Set(allowed)),
+                      m.values.allSatisfy({ !isBool($0) && ($0 as? Int).map { (0...10_000_000).contains($0) } == true }) else { return k }
+            }
+            if let d = h["day_first"] {
+                guard !isBool(d), let n = d as? Int, n == 0 || n == 1 else { return "day_first" }
+            }
+            // 34.9.7 (qlab-api dl-moves-404): moves items exactly {to, why, n}, `to` another host of the allow-list, `why` a
+            // class, slow or hedge, n from 1, each (to, why) once; outcome closed, `failed` of the 15 classes
+            if let mv = h["moves"] {
+                guard let mv = mv as? [[String: Any]] else { return "moves" }
+                var pairs: Set<String> = []
+                for m in mv {
+                    guard Set(m.keys) == ["to", "why", "n"], let to = m["to"] as? String, Endpoints.hostAllowed(to), to != h["host"] as? String,
+                          let why = m["why"] as? String, FailClass.moveWhy.contains(why), !isBool(m["n"] as Any),
+                          let n = m["n"] as? Int, (1...10_000_000).contains(n), pairs.insert(to + " " + why).inserted else { return "a move" }
+                }
+                movesInBody += mv.count
+            }
+            if let o = h["outcome"] {
+                guard let o = o as? [String: Any], Set(o.keys).isSubset(of: Set(FailClass.outcomeKeys)) else { return "outcome" }
+                for (k, v) in o {
+                    if k == "failed" {
+                        guard let f = v as? [String: Any], Set(f.keys).isSubset(of: Set(FailClass.keys)),
+                              f.values.allSatisfy({ !isBool($0) && ($0 as? Int).map { (0...10_000_000).contains($0) } == true }) else { return "outcome.failed" }
+                    } else {
+                        guard !isBool(v), let n = v as? Int, (0...10_000_000).contains(n) else { return "an outcome count" }
+                    }
+                }
+            }
+            // qlab-api HOSTS_SPEC (sdk-4.0.5-smart-download): each of 35.9 a whole count to 10,000,000, `gain` 6 of them,
+            // `arms` two pairs
+            if !keys.isDisjoint(with: splitFields) {
+                for k in ["probes", "would_probe", "wasted"] where h[k] != nil {
+                    guard let n = h[k] as? Int, (0...10_000_000).contains(n) else { return "a count of 35.9" }
+                }
+                if let g = h["gain"] {
+                    guard let g = g as? [Int], g.count == 6, g.allSatisfy({ (0...10_000_000).contains($0) }) else { return "gain" }
+                }
+                if let a = h["arms"] {
+                    guard let a = a as? [String: [Int]], Set(a.keys).isSubset(of: ["count", "acted"]),
+                          a.values.allSatisfy({ $0.count == 2 && $0.allSatisfy { (0...10_000_000).contains($0) } }) else { return "arms" }
+                }
+            }
             guard h["role"] as? String == "models" else { return "another role" }
             guard let host = h["host"] as? String, Endpoints.hostAllowed(host) else { return "a host off the allow-list" }
             guard seen.insert(host).inserted else { return "the same host twice" }
@@ -255,6 +369,7 @@ final class HostCountsTests: XCTestCase {
             guard let ttfb = h["ttfb_ms"] as? [Int], ttfb.count == 9, ttfb.allSatisfy({ $0 >= 0 }),
                   let kbps = h["kbps"] as? [Int], kbps.count == 10, kbps.allSatisfy({ $0 >= 0 }) else { return "the buckets" }
         }
+        if movesInBody > HostCount.movesMax { return "more than 32 moves" }
         return nil
     }
 }

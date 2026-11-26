@@ -54,6 +54,12 @@ enum CoreOptional {
     nonisolated(unsafe) static let streamCreateOn: StreamCreateOn? = symbol("qlc_stream_create_on").map { unsafeBitCast($0, to: StreamCreateOn.self) }
     nonisolated(unsafe) static let streamBackend: StreamBackend? = symbol("qlc_stream_backend").map { unsafeBitCast($0, to: StreamBackend.self) }
 
+    /// `int qlc_lease_time(qlc_core *c, const char *time, size_t n)` (spec fix 17, a Core of `QLC_CLOCK_ANCHOR`; Core c3
+    /// has none): the lease answer's signed server time, before the accept of the same answer. The Core sets its clock
+    /// to it when it answers the Core's own ask, else moves it forward only; one that does not verify changes nothing.
+    typealias LeaseTime = @convention(c) (OpaquePointer?, UnsafePointer<CChar>?, Int) -> Int32
+    nonisolated(unsafe) static let leaseTime: LeaseTime? = symbol("qlc_lease_time").map { unsafeBitCast($0, to: LeaseTime.self) }
+
     /// All five: the accelerator path needs every one of them.
     static var hasAccelerator: Bool {
         accelPrepare != nil && accelRelease != nil && accelAllowed != nil && streamCreateOn != nil && streamBackend != nil
@@ -77,24 +83,48 @@ enum AcceleratorGate {
     }
 
     /// The `dispatch_dir` of `qlc_accel_prepare`: where the Core writes the compiled package for the load when the build
-    /// ships no specification (a fresh `<random>.mlmodelc` it deletes before the call returns). A folder in the app's
-    /// container with complete file protection, excluded from backup, emptied before and after every prepare and at
-    /// every start. Core ML keeps its own device-specialised cache in Caches (`com.apple.e5rt.e5bundlecache`), which
-    /// neither the Core nor the SDK controls.
+    /// ships no specification (a fresh `<random>.mlmodelc` it deletes before the call returns). A folder of its own for
+    /// each prepare (SDK 4.0.5), `core/dispatch/<uuid>`, in the app's container with complete file protection, excluded
+    /// from backup; what earlier prepares or processes left in `core/dispatch` goes first, except the folders of
+    /// prepares in flight in this process. The caller gives it back with `release(_:)` when the prepare returns. Core ML
+    /// keeps its own device-specialised cache in Caches (`com.apple.e5rt.e5bundlecache`), which neither the Core nor the
+    /// SDK controls.
+    ///
+    /// Until 4.0.4 every prepare used `core/dispatch` itself and emptied it first and after, and every start of a
+    /// protected runtime (every Client made) emptied it too: a second Client made, or a second prepare begun, while a
+    /// prepare loaded its package deleted that package under Core ML, and the prepare failed (`accel_program`, counted
+    /// against the build). Apple 4.0.2 shows the pattern without proving it (the Core keeps no reason): 60 of the 63
+    /// accel_program failures of 4.0.x in the 7 days to 2026-11-25 came from one app on 11-24 and 11-25, the same app
+    /// and days as 22 of the 23 failures that met a second model open on the Core (a second Client).
     static func dispatchFolder(storage: URL) -> URL {
-        let u = storage.appendingPathComponent("core/dispatch", isDirectory: true)
-        clear(u)
-        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true,
-                                                 attributes: [.protectionKey: FileProtectionType.complete])
+        let root = storage.appendingPathComponent("core/dispatch", isDirectory: true)
+        clear(root)
+        let fm = FileManager.default
+        let protection: [FileAttributeKey: Any] = [.protectionKey: FileProtectionType.complete]
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true, attributes: protection)
         var v = URLResourceValues()
         v.isExcludedFromBackup = true
-        var w = u
+        var w = root
         try? w.setResourceValues(v)
+        let u = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? fm.createDirectory(at: u, withIntermediateDirectories: true, attributes: protection)
+        inFlight.withLock { _ = $0.insert(u.standardizedFileURL.path) }
         return u
     }
 
+    /// The end of the prepare that `dispatchFolder` gave `folder` to: the folder and anything left in it go.
+    static func release(_ folder: URL) {
+        inFlight.withLock { _ = $0.remove(folder.standardizedFileURL.path) }
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    /// The dispatch folders of the prepares running in this process: emptied only by their own prepare's end (or the
+    /// process's normal exit).
+    static let inFlight = Locked<Set<String>>([])
+
     /// Empties the dispatch folder of `storage` (at every start, and when the process exits normally), without making
-    /// it. A program a prepare wrote there is only ever there while that prepare runs.
+    /// it, except the folders of prepares in flight in this process. A program a prepare wrote there is only ever there
+    /// while that prepare runs.
     static func clearDispatch(storage: URL) {
         clear(storage.appendingPathComponent("core/dispatch", isDirectory: true))
         exitRoots.withLock { $0.insert(storage.path) }
@@ -102,18 +132,23 @@ enum AcceleratorGate {
     }
 
     /// The storages whose dispatch folder a normal exit empties (`atexit`: a process that returns from `main` or
-    /// calls `exit`, as a test runner and a command-line tool do).
+    /// calls `exit`, as a test runner and a command-line tool do). At exit every folder goes, a prepare's in flight too.
     static let exitRoots = Locked<Set<String>>([])
     private static let installExitHandler: Void = {
         atexit {
             for root in AcceleratorGate.exitRoots.withLock({ $0 }) {
-                AcceleratorGate.clear(URL(fileURLWithPath: root).appendingPathComponent("core/dispatch", isDirectory: true))
+                AcceleratorGate.clear(URL(fileURLWithPath: root).appendingPathComponent("core/dispatch", isDirectory: true), keepInFlight: false)
             }
         }
     }()
 
-    static func clear(_ folder: URL) {
+    static func clear(_ folder: URL, keepInFlight: Bool = true) {
         let fm = FileManager.default
-        for n in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] { try? fm.removeItem(at: folder.appendingPathComponent(n)) }
+        let keep: Set<String> = keepInFlight ? inFlight.withLock({ $0 }) : []
+        for n in (try? fm.contentsOfDirectory(atPath: folder.path)) ?? [] {
+            let u = folder.appendingPathComponent(n)
+            if keep.contains(u.standardizedFileURL.path) { continue }
+            try? fm.removeItem(at: u)
+        }
     }
 }

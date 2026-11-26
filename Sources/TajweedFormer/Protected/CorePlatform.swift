@@ -190,21 +190,34 @@ final class CoreStorage: @unchecked Sendable {
 /// The clocks the Core judges a lease by (18.4.7): the wall clock, and the boot clock with the boot's id.
 protocol CoreClocks: Sendable {
     func wallMs() -> Int64
-    /// Milliseconds since this boot, counting sleep (`mach_continuous_time`), and a 32-byte id of the boot.
+    /// Milliseconds since this boot, counting sleep (`mach_continuous_time`), and a 32-byte id of the boot. Core c3 reads
+    /// the id (a changed id is a new boot to it); a Core of spec fix 17 reads only the milliseconds.
     func boot() -> (ms: Int64, id: [UInt8])
 }
 
 struct SystemClocks: CoreClocks {
+    /// Where this install keeps the boot id it hands the Core between launches (`StickyBootID`); nil: the id derived in
+    /// this process (tests).
+    var bootIDFile: URL? = nil
+
     func wallMs() -> Int64 { Int64((Date().timeIntervalSince1970 * 1000).rounded(.down)) }
 
     func boot() -> (ms: Int64, id: [UInt8]) {
+        let ms = Self.continuousMs()
+        return (ms, bootIDFile.map { StickyBootID.process(file: $0, nowMs: ms) } ?? Self.bootID)
+    }
+
+    /// `mach_continuous_time` in milliseconds: the time since this boot, sleep counted.
+    static func continuousMs() -> Int64 {
         var tb = mach_timebase_info_data_t()
         mach_timebase_info(&tb)
         let ns = Double(mach_continuous_time()) * Double(tb.numer) / Double(max(1, tb.denom))
-        return (Int64(ns / 1_000_000), Self.bootID)
+        return Int64(ns / 1_000_000)
     }
 
-    /// The boot session's UUID (`kern.bootsessionuuid`, new at every boot), else the boot time; hashed to 32 bytes.
+    /// The boot session's UUID (`kern.bootsessionuuid`, new at every boot), else the boot time; hashed to 32 bytes. On
+    /// iOS 18 the first is refused to apps and the second moves at every calendar correction, without a reboot: kept
+    /// across launches by `StickyBootID`.
     static let bootID: [UInt8] = {
         var size = 0
         var text = ""
@@ -221,25 +234,51 @@ struct SystemClocks: CoreClocks {
     }()
 }
 
-/// The Core's saved state (18.4.7, spec fix 10): the sealed blob it hands the SDK to keep, the device-bound key that
-/// wraps its state secret, and a monotonic counter, so an older state handed back is seen.
-protocol CoreStateKeeping: Sendable {
-    func load() -> Data?
-    func save(_ blob: Data)
-    /// AES-256-GCM under a key of this device's Keychain that is not the install key: nonce, ciphertext, tag.
-    func seal(_ secret: Data) -> Data?
-    func open(_ sealed: Data) -> Data?
-    func counter() -> UInt64
-    func raise(_ v: UInt64) -> Bool
-    /// Whether the device-bound key can be made or read now. When it cannot (a process the Keychain refuses), the SDK
-    /// gives the Core no seal and no counter, and the Core seals its state under its release key (qlcore.h): the state
-    /// then opens only in the release that saved it, but the lease survives a restart, offline included.
-    var sealAvailable: Bool { get }
+/// SDK 4.0.5 (spec fix 17, 11-25): the boot id handed to the Core stays the one the last launch handed it while the
+/// boot clock has not gone back since. On iOS 18 `kern.bootsessionuuid` is refused, so the id came from
+/// `kern.boottime`'s seconds, which move at every calendar correction; Core c3 took each change for a reboot and added
+/// the whole uptime to its clock: a held lease expired and fresh leases came refused as expired. With the id kept, c3
+/// sees a new boot only when the boot clock went back (a real reboot), and the first launch after the update keeps the
+/// id c3 stored. A clock that already ran ahead stays ahead under c3 (it never moves its clock back); a Core of spec fix
+/// 17 reads no boot id and is set back by the server's signed time at its next lease.
+enum StickyBootID {
+    struct Stored: Codable, Equatable, Sendable {
+        /// The id, base64url of 32 bytes.
+        var id: String
+        /// The boot clock (`mach_continuous_time`, ms) when it was stored.
+        var ms: Int64
+    }
+
+    /// The id for this process, and what to store: the stored id while the boot clock is not below its stored reading
+    /// (the same boot by the counter), else `derive()`'s (a reboot, the first launch, or a stored pair that is not one).
+    static func choose(stored: Stored?, nowMs: Int64, derive: () -> [UInt8]) -> (id: [UInt8], store: Stored) {
+        if let s = stored, nowMs >= s.ms, let d = Data(base64URL: s.id), d.count == 32 {
+            return ([UInt8](d), Stored(id: s.id, ms: nowMs))
+        }
+        let id = derive()
+        return (id, Stored(id: Data(id).base64URL, ms: nowMs))
+    }
+
+    /// The ids chosen in this process, by file: one per process, so every call of the Core sees one id.
+    private static let chosen = Locked<[String: [UInt8]]>([:])
+
+    /// Once per process and file: the stored pair read, the id chosen, the pair stored again with this reading.
+    static func process(file: URL, nowMs: Int64, derive: () -> [UInt8] = { SystemClocks.bootID }) -> [UInt8] {
+        chosen.withLock { (m: inout [String: [UInt8]]) -> [UInt8] in
+            if let id = m[file.path] { return id }
+            let f = JSONFile<Stored>(url: file)
+            let c = choose(stored: f.read().takingUnreadableAsMissing, nowMs: nowMs, derive: derive)
+            f.write(c.store)
+            m[file.path] = c.id
+            return c.id
+        }
+    }
+
+    /// Tests: forget the ids this process chose.
+    static func reset() { chosen.withLock { $0 = [:] } }
 }
 
-extension CoreStateKeeping {
-    var sealAvailable: Bool { true }
-}
+/// `CoreStateKeeping` and the gate on one Core's saves (`CoreStateGate`) are in CoreStateGate.swift.
 
 /// The state file in the storage folder, its key and counter in the Keychain (this device only, after first unlock).
 struct KeychainCoreState: CoreStateKeeping {

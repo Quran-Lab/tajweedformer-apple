@@ -1,0 +1,2419 @@
+{
+ "format": 1,
+ "about": "quranlab-contract sdk_4.0.0/CONTINUITY_40.md (section 38, SDK 4.0.5); made by tools/continuity40.py. relaunch: the state an earlier process left, and the actions at the Client's start in order. leave: what carries a download once the app is in the background. answer: the first answer of a resumed request. lease: what a lease answer does to kept bytes. record: whether the owed record stays when a download stops. telemetry: continuity fields of a downloads entry the server takes or refuses.",
+ "constants": {
+  "PIECE": 67108864,
+  "PROBE_MS": 2000,
+  "STALL_MS": 30000,
+  "RESUME_MS_BOUNDS": [
+   250,
+   500,
+   1000,
+   2000,
+   5000,
+   10000,
+   30000,
+   60000
+  ],
+  "KINDS": [
+   "first_install",
+   "context",
+   "reference",
+   "update",
+   "accelerator"
+  ],
+  "RESTART_WHY": [
+   "validator",
+   "too_long",
+   "hash",
+   "map",
+   "other"
+  ],
+  "CONTINUED": [
+   "start",
+   "call",
+   "system"
+  ]
+ },
+ "relaunch": [
+  {
+   "name": "part_same_host",
+   "about": "The weights 20 MB in, cut by a kill; P is the host that gave the validator: one request from byte 20,000,000 with If-Range, at the Client's start",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        }
+       },
+       {
+        "path": "io.json.qle",
+        "size": 4096,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=20000000-",
+     "\"sha256-9f2c\""
+    ],
+    [
+     "request",
+     "io.json.qle",
+     "cdn4.quranlab.ai",
+     null,
+     null
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "part_other_host",
+   "about": "P moved to another host since: the Range goes alone there (16.2), the size and SHA-256 decide; the kept bytes are not fetched again",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn2.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn2.quranlab.ai",
+     "bytes=20000000-",
+     null
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "token_stale",
+   "about": "The stored token has expired: the attest comes first, then the same request",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "stale",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "attest"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=20000000-",
+     "\"sha256-9f2c\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "no_network",
+   "about": "No network at the start: the resume waits for one (any kind, 33.1), then goes as above",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "none",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "wait_network"
+    ],
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=20000000-",
+     "\"sha256-9f2c\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "stop_held",
+   "about": "A refusal is held (15.3): the model files and the owed record go; nothing is requested",
+   "state": {
+    "platform": "android",
+    "stop": true,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "remove_models"
+    ],
+    [
+     "drop_owed",
+     "all"
+    ]
+   ]
+  },
+  {
+   "name": "nothing_owed",
+   "about": "Partial files with no owed record and nothing an earlier SDK left as a download: nothing at the start (13.4: a first download waits for the app's call)",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": []
+   },
+   "actions": []
+  },
+  {
+   "name": "left_by_404",
+   "about": "SDK 4.0.4 left a download folder of the CPU set (no owed record): read as an owed first install, resumed the same way",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "left_by_404",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          33554432
+         ]
+        ],
+        "validator": {
+         "etag": "\"e2\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 33554432
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=33554432-",
+     "\"e2\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     33554
+    ]
+   ]
+  },
+  {
+   "name": "full_unchecked",
+   "about": "A file at its full size whose SHA-256 was not checked yet: hashed, nothing requested",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          54765312
+         ]
+        ],
+        "validator": {
+         "etag": "\"e3\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 54765312
+        }
+       },
+       {
+        "path": "io.json.qle",
+        "size": 4096,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "hash",
+     "model.qle"
+    ],
+    [
+     "request",
+     "io.json.qle",
+     "cdn4.quranlab.ai",
+     null,
+     null
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     54765
+    ]
+   ]
+  },
+  {
+   "name": "full_bad_hash",
+   "about": "A full-size file whose SHA-256 was found wrong: it starts over (16.1), counted",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          54765312
+         ]
+        ],
+        "validator": {
+         "etag": "\"e3\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 54765312
+        },
+        "full": "bad"
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "hash",
+     "model.qle"
+    ],
+    [
+     "restart",
+     "model.qle",
+     "hash"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     null,
+     null
+    ],
+    [
+     "count",
+     "restarted.hash",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "part_too_long",
+   "about": "A partial file longer than the manifest's size cannot be a prefix of the file: it starts over (16.1)",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          54765322
+         ]
+        ],
+        "validator": {
+         "etag": "\"e3\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 54765322
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "restart",
+     "model.qle",
+     "too_long"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     null,
+     null
+    ],
+    [
+     "count",
+     "restarted.too_long",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "map_unreadable",
+   "about": "Android: the stored ranges' map cannot be read: the file starts over (16.6, the one removal beyond 16.1)",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          8388608
+         ]
+        ],
+        "validator": null,
+        "map_ok": false
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "restart",
+     "model.qle",
+     "map"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     null,
+     null
+    ],
+    [
+     "count",
+     "restarted.map",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "ranges_401",
+   "about": "Android 4.0.1 left 8 MiB ranges with a map (two missing): each missing range is asked once, bounded, the Range alone, in order (16.7 item 3)",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          16777216
+         ],
+         [
+          25165824,
+          41943040
+         ],
+         [
+          50331648,
+          54765312
+         ]
+        ],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=16777216-25165823",
+     null
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=41943040-50331647",
+     null
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     37988
+    ]
+   ]
+  },
+  {
+   "name": "split_ranges_35",
+   "about": "Section 35 left two ranges of one file partial (A from 0, B from the split point): each missing stretch is resumed through 16.2, P first (35.8)",
+   "state": {
+    "platform": "apple",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          12000000
+         ],
+         [
+          27394048,
+          31000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"e4\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 12000000
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=12000000-27394047",
+     null
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=31000000-",
+     null
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     15605
+    ]
+   ]
+  },
+  {
+   "name": "beside_after_validator_change",
+   "about": "A whole file was arriving beside the partial file because the validator changed (a 200 to If-Range) when the process ended: the old bytes go, the arriving ones are kept with their own validator and go on",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          30000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"old\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 30000000
+        },
+        "beside": {
+         "bytes": 10000000,
+         "etag": "\"new\"",
+         "host": "cdn4.quranlab.ai"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "take_beside",
+     "model.qle"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=10000000-",
+     "\"new\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     10000
+    ],
+    [
+     "count",
+     "restarted.validator",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "ios_task_done_while_dead",
+   "about": "iOS: a background task finished while the app was not running; its file is exactly its range: written at its offset; the rest is asked; then the hash",
+   "state": {
+    "platform": "apple",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "tasks": [
+         {
+          "lo": 20000000,
+          "hi": 40000000,
+          "state": "done",
+          "exact": true
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "adopt",
+     "model.qle",
+     20000000,
+     40000000
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=40000000-",
+     null
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     40000
+    ]
+   ]
+  },
+  {
+   "name": "ios_task_running_delivers",
+   "about": "iOS: a task the system kept running brings bytes within 2 s of the start: it is kept, and only what no task covers is asked",
+   "state": {
+    "platform": "apple",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "tasks": [
+         {
+          "lo": 20000000,
+          "hi": 54765312,
+          "state": "running",
+          "delivered": true
+         }
+        ]
+       },
+       {
+        "path": "io.json.qle",
+        "size": 4096,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "keep_task",
+     "model.qle",
+     20000000,
+     54765312
+    ],
+    [
+     "request",
+     "io.json.qle",
+     "cdn4.quranlab.ai",
+     null,
+     null
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "ios_task_running_silent",
+   "about": "iOS: a kept task brings nothing within 2 s (a task made in the background, held by the system): cancelled, and its stretch asked in the foreground from the kept bytes",
+   "state": {
+    "platform": "apple",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "tasks": [
+         {
+          "lo": 20000000,
+          "hi": 54765312,
+          "state": "running",
+          "delivered": false
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "cancel_task",
+     "model.qle",
+     20000000,
+     54765312
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=20000000-",
+     "\"sha256-9f2c\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "ios_force_quit",
+   "about": "iOS: the learner swiped the app away; the system cancelled its tasks: their stretches are asked in the foreground, the kept bytes stay",
+   "state": {
+    "platform": "apple",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "tasks": [
+         {
+          "lo": 20000000,
+          "hi": 54765312,
+          "state": "cancelled"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=20000000-",
+     "\"sha256-9f2c\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "task_done_not_exact",
+   "about": "iOS: a finished task whose file is not exactly its range is not written; its stretch is asked again",
+   "state": {
+    "platform": "apple",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "tasks": [
+         {
+          "lo": 20000000,
+          "hi": 40000000,
+          "state": "done",
+          "exact": false
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=20000000-",
+     "\"sha256-9f2c\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "order_app_first",
+   "about": "Three owed downloads: the app's context comes first, then the SDK's update, then the accelerator's build (no backoff: a cut download is not a failure of the pipeline)",
+   "state": {
+    "platform": "apple",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956",
+      "c24_l256": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "accelerator",
+      "by": "sdk",
+      "source": "record",
+      "files": [
+       {
+        "path": "coreml/model.qle",
+        "size": 131072000,
+        "have": [
+         [
+          0,
+          64000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"c1\"",
+         "host": "cdn.quranlab.ai",
+         "end": 64000000
+        }
+       }
+      ]
+     },
+     {
+      "build": "d4644956",
+      "context": "c24_l256",
+      "kind": "context",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "ctx/c24_l256.qle",
+        "size": 1400000,
+        "have": [
+         [
+          0,
+          700000
+         ]
+        ],
+        "validator": {
+         "etag": "\"x1\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 700000
+        }
+       }
+      ]
+     },
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "update",
+      "by": "sdk",
+      "source": "record",
+      "files": [
+       {
+        "path": "calibration.json",
+        "size": 9000,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "request",
+     "ctx/c24_l256.qle",
+     "cdn4.quranlab.ai",
+     "bytes=700000-",
+     "\"x1\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     700
+    ],
+    [
+     "request",
+     "calibration.json",
+     "cdn4.quranlab.ai",
+     null,
+     null
+    ],
+    [
+     "request",
+     "coreml/model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=64000000-",
+     null
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     64000
+    ]
+   ]
+  },
+  {
+   "name": "superseded_by_app",
+   "about": "The config in force names another build for the context the app was installing: the owed download of the old build ends, and the app's download moves to the new build (its manifest first)",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "e7710a02"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "drop_owed",
+     "d4644956",
+     "superseded"
+    ],
+    [
+     "owe",
+     "e7710a02",
+     "first_install"
+    ],
+    [
+     "manifest",
+     "e7710a02"
+    ]
+   ]
+  },
+  {
+   "name": "lease_asked_beside",
+   "about": "No lease in force (it lapsed): the lease is asked beside the resume, never before its first request; the bytes it brings are used once an answer names the folder (38.6)",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "d4644956"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "first_install",
+      "by": "app",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        }
+       }
+      ]
+     }
+    ],
+    "lease": "none"
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "lease",
+     "beside"
+    ],
+    [
+     "request",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=20000000-",
+     "\"sha256-9f2c\""
+    ],
+    [
+     "count",
+     "continued.start",
+     1
+    ],
+    [
+     "count",
+     "resumed_kb",
+     20000
+    ]
+   ]
+  },
+  {
+   "name": "superseded_update",
+   "about": "The SDK's own update of a build that a newer one replaced: dropped; the update rules fetch the newer build later",
+   "state": {
+    "platform": "android",
+    "stop": false,
+    "token": "valid",
+    "network": "up",
+    "config": {
+     "builds": {
+      "c16_l64": "e7710a02"
+     },
+     "p": "cdn4.quranlab.ai"
+    },
+    "owed": [
+     {
+      "build": "d4644956",
+      "context": "c16_l64",
+      "kind": "update",
+      "by": "sdk",
+      "source": "record",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "token",
+     "stored"
+    ],
+    [
+     "drop_owed",
+     "d4644956",
+     "superseded"
+    ]
+   ]
+  }
+ ],
+ "leave": [
+  {
+   "name": "apple",
+   "about": "iOS, the app in the background during the CPU set: the app's request has ended at its byte (kept), and every missing stretch is carried by background tasks; no task covers a kept byte",
+   "state": {
+    "platform": "apple",
+    "p": "cdn4.quranlab.ai",
+    "downloads": [
+     {
+      "kind": "first_install",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "running": {
+         "host": "cdn4.quranlab.ai",
+         "at": 20000000
+        }
+       },
+       {
+        "path": "io.json.qle",
+        "size": 4096,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "cancel_request",
+     "model.qle",
+     20000000
+    ],
+    [
+     "task",
+     "model.qle",
+     "cdn4.quranlab.ai",
+     "bytes=20000000-",
+     "\"sha256-9f2c\""
+    ],
+    [
+     "task",
+     "io.json.qle",
+     "cdn4.quranlab.ai",
+     null,
+     null
+    ],
+    [
+     "count",
+     "handed",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "apple_pieces",
+   "about": "iOS, a Core ML build of 131 MB: pieces of at most 64 MiB, so a task cut in the background costs one piece at most (16.7 item 3); bounded pieces send the Range alone",
+   "state": {
+    "platform": "apple",
+    "p": "cdn.quranlab.ai",
+    "downloads": [
+     {
+      "kind": "accelerator",
+      "files": [
+       {
+        "path": "coreml/model.qle",
+        "size": 131072000,
+        "have": [
+         [
+          0,
+          1000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"c1\"",
+         "host": "cdn.quranlab.ai",
+         "end": 1000000
+        },
+        "running": {
+         "host": "cdn.quranlab.ai",
+         "at": 1000000
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "cancel_request",
+     "coreml/model.qle",
+     1000000
+    ],
+    [
+     "task",
+     "coreml/model.qle",
+     "cdn.quranlab.ai",
+     "bytes=1000000-68108863",
+     null
+    ],
+    [
+     "task",
+     "coreml/model.qle",
+     "cdn.quranlab.ai",
+     "bytes=68108864-",
+     null
+    ],
+    [
+     "count",
+     "handed",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "android_31",
+   "about": "Android 12 or later: the download work is kept (never replaced while it runs), expedited, any network, no notification",
+   "state": {
+    "platform": "android",
+    "api_level": 34,
+    "p": "cdn4.quranlab.ai",
+    "downloads": [
+     {
+      "kind": "first_install",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "running": {
+         "host": "cdn4.quranlab.ai",
+         "at": 20000000
+        }
+       },
+       {
+        "path": "io.json.qle",
+        "size": 4096,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "work",
+     "keep",
+     true,
+     "connected"
+    ],
+    [
+     "count",
+     "handed",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "android_26",
+   "about": "Android 8 to 11: the same work, not expedited (expedited work there runs as a foreground service with a notification)",
+   "state": {
+    "platform": "android",
+    "api_level": 26,
+    "p": "cdn4.quranlab.ai",
+    "downloads": [
+     {
+      "kind": "first_install",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "running": {
+         "host": "cdn4.quranlab.ai",
+         "at": 20000000
+        }
+       },
+       {
+        "path": "io.json.qle",
+        "size": 4096,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "work",
+     "keep",
+     false,
+     "connected"
+    ],
+    [
+     "count",
+     "handed",
+     1
+    ]
+   ]
+  },
+  {
+   "name": "web",
+   "about": "Web, the page is hidden: the bytes of each unfinished block are written now, so a page closed later loses only what arrived after",
+   "state": {
+    "platform": "web",
+    "p": "cdn4.quranlab.ai",
+    "downloads": [
+     {
+      "kind": "first_install",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "running": {
+         "host": "cdn4.quranlab.ai",
+         "at": 20000000
+        }
+       },
+       {
+        "path": "io.json.qle",
+        "size": 4096,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": [
+    [
+     "flush",
+     "model.qle",
+     20000000
+    ]
+   ]
+  },
+  {
+   "name": "c",
+   "about": "C: no event; the kept bytes stay when the process ends",
+   "state": {
+    "platform": "c",
+    "p": "cdn4.quranlab.ai",
+    "downloads": [
+     {
+      "kind": "first_install",
+      "files": [
+       {
+        "path": "model.qle",
+        "size": 54765312,
+        "have": [
+         [
+          0,
+          20000000
+         ]
+        ],
+        "validator": {
+         "etag": "\"sha256-9f2c\"",
+         "host": "cdn4.quranlab.ai",
+         "end": 20000000
+        },
+        "running": {
+         "host": "cdn4.quranlab.ai",
+         "at": 20000000
+        }
+       },
+       {
+        "path": "io.json.qle",
+        "size": 4096,
+        "have": [],
+        "validator": null
+       }
+      ]
+     }
+    ]
+   },
+   "actions": []
+  }
+ ],
+ "answer": [
+  {
+   "name": "206_right",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": true,
+    "single": true
+   },
+   "answer": {
+    "status": 206,
+    "start": 20000000,
+    "end": 54765311,
+    "total": 54765312,
+    "length": 34765312
+   },
+   "action": [
+    "go_on"
+   ],
+   "restarted": null
+  },
+  {
+   "name": "206_other_start",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": true,
+    "single": true
+   },
+   "answer": {
+    "status": 206,
+    "start": 0,
+    "end": 54765311,
+    "total": 54765312,
+    "length": 54765312
+   },
+   "action": [
+    "failed_attempt"
+   ],
+   "restarted": null
+  },
+  {
+   "name": "206_other_total",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": false,
+    "single": true
+   },
+   "answer": {
+    "status": 206,
+    "start": 20000000,
+    "end": 54765312,
+    "total": 54765313,
+    "length": 34765313
+   },
+   "action": [
+    "failed_attempt"
+   ],
+   "restarted": null
+  },
+  {
+   "name": "200_to_if_range",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": true,
+    "single": true
+   },
+   "answer": {
+    "status": 200,
+    "length": 54765312
+   },
+   "action": [
+    "beside"
+   ],
+   "restarted": "validator"
+  },
+  {
+   "name": "200_to_range_alone",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": false,
+    "single": true
+   },
+   "answer": {
+    "status": 200,
+    "length": 54765312
+   },
+   "action": [
+    "beside"
+   ],
+   "restarted": "other"
+  },
+  {
+   "name": "200_wrong_length",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": true,
+    "single": true
+   },
+   "answer": {
+    "status": 200,
+    "length": 1000
+   },
+   "action": [
+    "failed_attempt"
+   ],
+   "restarted": null
+  },
+  {
+   "name": "416_single",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": true,
+    "single": true
+   },
+   "answer": {
+    "status": 416
+   },
+   "action": [
+    "restart"
+   ],
+   "restarted": "too_long"
+  },
+  {
+   "name": "416_ranges",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": false,
+    "single": false
+   },
+   "answer": {
+    "status": 416
+   },
+   "action": [
+    "failed_attempt"
+   ],
+   "restarted": null
+  },
+  {
+   "name": "503",
+   "file": {
+    "size": 54765312,
+    "from": 20000000,
+    "if_range": true,
+    "single": true
+   },
+   "answer": {
+    "status": 503
+   },
+   "action": [
+    "failed_attempt"
+   ],
+   "restarted": null
+  }
+ ],
+ "lease": [
+  {
+   "confirmed": false,
+   "answer": "same_folder",
+   "actions": [
+    "confirm"
+   ]
+  },
+  {
+   "confirmed": false,
+   "answer": "other_folder",
+   "actions": [
+    "drop_unconfirmed",
+    "refetch_from_answer"
+   ]
+  },
+  {
+   "confirmed": false,
+   "answer": "no_folder",
+   "actions": [
+    "drop_unconfirmed"
+   ]
+  },
+  {
+   "confirmed": false,
+   "answer": "refused",
+   "actions": [
+    "drop_unconfirmed"
+   ]
+  },
+  {
+   "confirmed": false,
+   "answer": "stop",
+   "actions": [
+    "remove_models"
+   ]
+  },
+  {
+   "confirmed": false,
+   "answer": "unreachable",
+   "actions": [
+    "keep"
+   ]
+  },
+  {
+   "confirmed": true,
+   "answer": "same_folder",
+   "actions": [
+    "confirm"
+   ]
+  },
+  {
+   "confirmed": true,
+   "answer": "other_folder",
+   "actions": [
+    "keep"
+   ]
+  },
+  {
+   "confirmed": true,
+   "answer": "no_folder",
+   "actions": [
+    "keep"
+   ]
+  },
+  {
+   "confirmed": true,
+   "answer": "refused",
+   "actions": [
+    "keep"
+   ]
+  },
+  {
+   "confirmed": true,
+   "answer": "stop",
+   "actions": [
+    "remove_models"
+   ]
+  },
+  {
+   "confirmed": true,
+   "answer": "unreachable",
+   "actions": [
+    "keep"
+   ]
+  }
+ ],
+ "record": [
+  {
+   "stopped_by": "ready",
+   "owed_record": "remove"
+  },
+  {
+   "stopped_by": "remove_models",
+   "owed_record": "remove"
+  },
+  {
+   "stopped_by": "stop",
+   "owed_record": "remove"
+  },
+  {
+   "stopped_by": "cancelled",
+   "owed_record": "keep"
+  },
+  {
+   "stopped_by": "close",
+   "owed_record": "keep"
+  },
+  {
+   "stopped_by": "failed",
+   "owed_record": "keep"
+  },
+  {
+   "stopped_by": "killed",
+   "owed_record": "keep"
+  },
+  {
+   "stopped_by": "left",
+   "owed_record": "keep"
+  },
+  {
+   "stopped_by": "no_network",
+   "owed_record": "keep"
+  }
+ ],
+ "telemetry": [
+  {
+   "entry": {
+    "resumed_kb": 20000,
+    "resume_ms": [
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "continued": {
+     "start": 1
+    },
+    "handed": 1
+   },
+   "refused": null
+  },
+  {
+   "entry": {
+    "continued": {
+     "system": 1
+    },
+    "resumed_kb": 54765
+   },
+   "refused": null
+  },
+  {
+   "entry": {
+    "restarted": {
+     "validator": 1
+    }
+   },
+   "refused": null
+  },
+  {
+   "entry": {},
+   "refused": null
+  },
+  {
+   "entry": {
+    "resumed_kb": -1
+   },
+   "refused": "resumed_kb"
+  },
+  {
+   "entry": {
+    "resume_ms": [
+     0,
+     1
+    ]
+   },
+   "refused": "resume_ms"
+  },
+  {
+   "entry": {
+    "resume_ms": [
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "refused": "resume_ms"
+  },
+  {
+   "entry": {
+    "continued": {
+     "later": 1
+    }
+   },
+   "refused": "continued.later"
+  },
+  {
+   "entry": {
+    "restarted": {
+     "cut": 1
+    }
+   },
+   "refused": "restarted.cut"
+  },
+  {
+   "entry": {
+    "resumed_kb": 10,
+    "continued": {}
+   },
+   "refused": "resumed_kb"
+  },
+  {
+   "entry": {
+    "handed": true
+   },
+   "refused": "handed"
+  }
+ ],
+ "resume_ms_buckets": [
+  {
+   "ms": 0,
+   "bucket": 0
+  },
+  {
+   "ms": 249,
+   "bucket": 0
+  },
+  {
+   "ms": 250,
+   "bucket": 1
+  },
+  {
+   "ms": 499,
+   "bucket": 1
+  },
+  {
+   "ms": 900,
+   "bucket": 2
+  },
+  {
+   "ms": 1999,
+   "bucket": 3
+  },
+  {
+   "ms": 4000,
+   "bucket": 4
+  },
+  {
+   "ms": 9999,
+   "bucket": 5
+  },
+  {
+   "ms": 29999,
+   "bucket": 6
+  },
+  {
+   "ms": 59999,
+   "bucket": 7
+  },
+  {
+   "ms": 60000,
+   "bucket": 8
+  },
+  {
+   "ms": 3600000,
+   "bucket": 8
+  }
+ ]
+}

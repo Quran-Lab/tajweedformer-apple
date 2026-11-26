@@ -42,12 +42,14 @@ enum CoreRelease {
                              framework: "b89329ff45932b44139f9b299315c7d7bcd0258e78d379e7b873cfdafc3aaac2"),
     ]
 
-    /// Every function of the pinned qlcore.h (63; the grace's `qlc_lease_attempt` and `qlc_lease_grace` among them).
+    /// Every function of qlcore.h the SDK knows (65): the pinned c3 header's 63 (the grace's `qlc_lease_attempt` and
+    /// `qlc_lease_grace` among them) and the two of spec fix 17 (`clockAnchorFunctions`).
     static let functions = [
-        "qlc_accel_allowed", "qlc_accel_prepare", "qlc_accel_release", "qlc_attest_sig", "qlc_calibration", "qlc_create",
+        "qlc_accel_allowed", "qlc_accel_prepare", "qlc_accel_release", "qlc_attest_sig", "qlc_calibration",
+        "qlc_clock_ask", "qlc_create",
         "qlc_days_judged", "qlc_days_mark", "qlc_days_read", "qlc_days_seal", "qlc_days_trend_sent", "qlc_destroy",
         "qlc_detail", "qlc_install", "qlc_lease_accept", "qlc_lease_ask", "qlc_lease_attempt", "qlc_lease_eph",
-        "qlc_lease_grace", "qlc_lease_piece", "qlc_model_chunk_ms", "qlc_model_close", "qlc_model_open",
+        "qlc_lease_grace", "qlc_lease_piece", "qlc_lease_time", "qlc_model_chunk_ms", "qlc_model_close", "qlc_model_open",
         "qlc_model_token_count", "qlc_model_token_name", "qlc_notice", "qlc_open_default_options", "qlc_recited_begin",
         "qlc_recited_done", "qlc_recited_feed", "qlc_recited_feed_stream", "qlc_recited_finish", "qlc_recited_index",
         "qlc_recited_open", "qlc_recited_reported", "qlc_recited_totals", "qlc_reference_ayah_count",
@@ -58,4 +60,10 @@ enum CoreRelease {
         "qlc_stream_set_callback", "qlc_stream_set_heads", "qlc_stream_topk", "qlc_tick", "qlc_topk", "qlc_usage",
         "qlc_version",
     ]
+
+    /// The exports of spec fix 17 (quranlab-core clock-anchor, `QLC_CLOCK_ANCHOR`): the lease answer's signed time and
+    /// the clock record for a route other than the lease's. Not in the pinned release 4.0.0-c3, whose binaries are
+    /// built: the SDK finds `qlc_lease_time` by name at run time (`CoreOptional.leaseTime`) and calls nothing with c3.
+    /// A Core release that carries spec fix 17 exports both.
+    static let clockAnchorFunctions = ["qlc_clock_ask", "qlc_lease_time"]
 }

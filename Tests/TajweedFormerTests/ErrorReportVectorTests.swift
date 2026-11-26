@@ -15,8 +15,10 @@ final class ErrorReportVectorTests: XCTestCase {
     func testCodes() throws {
         let cases = try XCTUnwrap(try Self.vectors()["codes"] as? [[String: Any]])
         // 49 at 98e98f4, the 12 of rules 3 and 3a at f209443 (3 attest, 9 lease), 3 of the grace at ca3f9a5, 2 of 503
-        // lease_unavailable at 1c971ab, 3 of section 28's silent failover at de2a2da and 4 of the Core's open at 7f097b9
-        XCTAssertEqual(cases.count, 73)
+        // lease_unavailable at 1c971ab, 3 of section 28's silent failover at de2a2da, 4 of the Core's open at 7f097b9 and
+        // 2 of section 31's install_blocked at 0a4a46d (the copy of 3ca913b); 6 of 40.5 and 40.6 at 062689b (invalid_answer
+        // for attest and lease, the fixture's SOURCE.txt)
+        XCTAssertEqual(cases.count, 81)
         for c in cases {
             let stage = try XCTUnwrap(c["stage"] as? String), reason = try XCTUnwrap(c["reason"] as? String)
             let onDevice = try XCTUnwrap(ErrorRules.OnDevice(rawValue: try XCTUnwrap(c["on_device"] as? String)))
@@ -131,7 +133,8 @@ final class ErrorReportVectorTests: XCTestCase {
     /// files is on the device. No Client is configured here, so no report is made: the cause does not depend on reports.
     func testCauses() throws {
         let cases = try XCTUnwrap(try Self.vectors()["causes"] as? [[String: Any]])
-        XCTAssertEqual(cases.count, 15)
+        // 17 at 3ca913b: 24.14's two lease refusals for attestation appended; 19 at 062689b (40.5 and 40.6's two)
+        XCTAssertEqual(cases.count, 19)
         XCTAssertNil(QuranLab.cloud, "no Client: no report is made, the cause is there all the same")
         for c in cases {
             let label = c["label"] as? String ?? "?"
@@ -154,6 +157,28 @@ final class ErrorReportVectorTests: XCTestCase {
             XCTAssertEqual(error.code, code, label)
             XCTAssertEqual(Self.dict(error.cause), want, label)
         }
+    }
+
+    /// SDK 4.0.5 (24.14): `words`, the message and fix of the error the app gets for a code, the answer's error and a
+    /// platform, from the embedded catalogue; and Apple's own platform names its fix (`ios` or `macos`).
+    func testWords() throws {
+        let cases = try XCTUnwrap(try Self.vectors()["words"] as? [[String: Any]])
+        XCTAssertEqual(cases.count, 8, "every case of words is read")
+        for c in cases {
+            let label = c["label"] as? String ?? "?"
+            let code = try XCTUnwrap(c["code"] as? String), error = c["error"] as? String, platform = try XCTUnwrap(c["platform"] as? String)
+            XCTAssertEqual(TajweedError.knownReason(error), c["reason"] as? String, label)
+            let t = try XCTUnwrap(ErrorCatalogue.shared.texts(code, reason: TajweedError.knownReason(error), platform: platform), label)
+            XCTAssertEqual(t.message, c["message"] as? String, label)
+            XCTAssertEqual(t.fix, c["fix"] as? String, label)
+        }
+        // the app's error: server_rejected with the reason's words and the fix of the platform the SDK runs on
+        let e = TajweedError(from: .serverRejected(status: 403, code: "lease_attestation_required", message: "no"))
+        XCTAssertEqual(e.code, "server_rejected")
+        XCTAssertTrue(e.message.hasSuffix("(lease_attestation_required)."), e.message)
+        let mine = try XCTUnwrap(cases.first { ($0["platform"] as? String) == ErrorCatalogue.platform && ($0["error"] as? String) == "lease_attestation_required" })
+        XCTAssertEqual(e.fix, mine["fix"] as? String)
+        XCTAssertTrue(["ios", "macos"].contains(ErrorCatalogue.platform))
     }
 
     /// The codes that only say the app used the API wrongly carry no cause (24.13 item 1), made either way; every other

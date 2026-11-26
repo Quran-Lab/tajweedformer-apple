@@ -88,6 +88,15 @@ struct RemoteConfig: Codable, Sendable, Equatable {
         /// SDK 4.0 (as Android): the speedup (CPU median chunk time / accelerator median) a Neural Engine build needs to
         /// be promoted after its golden test; nil or below 1.0 is 1.0 (`PromotionPolicy.minSpeedup`).
         var accel_min_speedup: Double?
+        /// SDK 4.0.5: the switch of two hosts for one model file. Absent or malformed: share
+        /// 0 (every trigger is counted, nothing acts) and no host named.
+        var download_split: DownloadSplit = DownloadSplit()
+        /// SDK 4.0.5: live promotion, as it came. Only a literal false turns it off (`livePromotion`);
+        /// the server sends it only as false, and leaves it out otherwise.
+        var live_promotion: JSONValue?
+
+        /// Whether a take on the CPU engine may move to the accelerator during the take.
+        var livePromotion: Bool { LivePromotion.configOn(live_promotion) }
 
         /// 3.1.5 (SPEC 16.4): whether a background transfer of a model file sends `x-qlab-key` beside the app
         /// token. True when absent or not a boolean. Requests the app makes itself always send both.
@@ -122,6 +131,10 @@ struct RemoteConfig: Codable, Sendable, Equatable {
             metrics = (try? c.decodeIfPresent([String: Bool].self, forKey: .metrics)) ?? nil
             share_flac = ((try? c.decodeIfPresent(Bool.self, forKey: .share_flac)) ?? nil) ?? false
             accel_min_speedup = (try? c.decodeIfPresent(Double.self, forKey: .accel_min_speedup)) ?? nil
+            // any JSON is read, never failing the config (35.2: a malformed switch is share 0)
+            download_split = DownloadSplit(((try? c.decodeIfPresent(JSONValue.self, forKey: .download_split)) ?? nil) ?? .null)
+            // any JSON value is kept (a string "false" or a 0 is on), never failing the config
+            live_promotion = (try? c.decodeIfPresent(JSONValue.self, forKey: .live_promotion)) ?? nil
             let key: Bool? = try? c.decodeIfPresent(Bool.self, forKey: .model_requests_key_in_background)
             model_requests_key_in_background = key ?? true
         }
@@ -149,6 +162,13 @@ struct RemoteConfig: Codable, Sendable, Equatable {
     /// SDK 4.0.1 (section 28.2): the hosts of the `api` and `models` roles while this config is in force, as it came
     /// (`Endpoints.roleList` reads it; nothing in it can fail the config). Absent: the built-in hosts.
     var endpoints: JSONValue? = nil
+    /// SDK 4.0.5: "required" where this install's lease needs attestation (a strict
+    /// app, or the platform's attested trust); absent elsewhere. As it came: anything but that string is absent, never a
+    /// failed config.
+    var attest: JSONValue? = nil
+
+    /// 40.2 item 1: the install attests before it leases (else it leases at once and attests in the background).
+    var attestRequired: Bool { attest?.string == "required" }
 
     /// The context the config names, when it names one.
     var inferenceContext: String? { inference?.object?["context"]?.string }
@@ -384,6 +404,15 @@ final class ConfigStore: Sendable {
         guard current != nil, let n = file.read().takingUnreadableAsMissing.flatMap({ SDKLatest.parse($0.body) }),
               ModelVersion.isVersion(n.version) else { return nil }
         return n.version
+    }
+
+    /// SDK 4.0.5 (SPLIT_40 35.8): the identity of the config in force, which a stored P is kept with: its ETag, or the
+    /// SHA-256 of its signed body when it came without one; nil when none is in force.
+    var identity: String? {
+        // unreadable is taken as not there here: a P stored with it is then not read back, and P starts at the first host
+        guard current != nil, let s = file.read().takingUnreadableAsMissing else { return nil }
+        if let e = s.etag, !e.isEmpty { return e }
+        return SHA256.hash(data: s.body).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The staged-rollout bucket: one number 0 to 99, drawn once and kept on the device. One of

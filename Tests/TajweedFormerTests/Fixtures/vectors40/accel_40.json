@@ -1,0 +1,1335 @@
+{
+ "format": "quranlab.accel-40-vectors/1",
+ "about": "SDK 4.0: the accelerator (ACCEL_40.md, section 21; tools/accel40.py). reasons: the promotions entry's reasons in the order of the server's p3 doubles (the first before_4 are every earlier SDK's; an earlier SDK's body naming another is refused). promotions.accepted and .refused: one promotions entry of a 4.0 body; a refused entry names the first field refused, as a path inside the entry (the server answers 400 with body.promotions[<i>].<field>). speed: 21.1 (configured: flags.accel_min_speedup as the config carried it, null when absent). config: the CONFIG KV value of flags.accel_min_speedup (\"absent\": no such key), what a 4.0 config's flags carry (null: left out) and the speedup the SDK then requires; no earlier config ever carries it. sdk_reads: a value as an SDK may find it in a config and what it uses (\"inf\" stands for a number that is not finite). crash.accepted and .refused: detail.crash of a 4.0 promotion_failed report; a refused one names its field. incidents: what the server opens for a production promotion_failed report (rule null: stored, never an incident; severity null: it takes 5 reports of one device, OS and revision). not_now: 21.7, its keys in the order of the server's p2 doubles (p2_doubles, counted from 1), taken from SDK `from` on; a run runs a cut stage again at most again_max times. Each case is one promotions entry in a body of SDK `sdk`: field null when the server takes it, with p2 the two doubles it writes; else the first field refused, as in promotions.refused (a 4.0 body before `from` answers 400 body.promotions[<i>].not_now: from SDK 4.0.5).",
+ "reasons": {
+  "order": [
+   "network",
+   "storage",
+   "verify",
+   "compile_error",
+   "compile_timeout",
+   "load_error",
+   "crash",
+   "hang",
+   "non_finite",
+   "golden_mismatch",
+   "cpu_mismatch",
+   "failover",
+   "denylist",
+   "other",
+   "slower_than_cpu",
+   "firmware",
+   "dispatch",
+   "interrupted",
+   "not_attested"
+  ],
+  "before_4": 14
+ },
+ "promotions": {
+  "accepted": [
+   {
+    "name": "android: slower than the CPU engine (the Pixel 10 at a device lab, 11-16: 61 ms a chunk against 6.1)",
+    "entry": {
+     "backend": "npu:tensor_g5",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "reasons": {
+      "slower_than_cpu": 1
+     },
+     "compile_ms": {
+      "le_5000": 1
+     },
+     "speedup": {
+      "lt_0_5": 1
+     },
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      }
+     ]
+    }
+   },
+   {
+    "name": "android: the Core refused the launch firmware (detail 7), the vendor dispatch did not answer (detail 8)",
+    "entry": {
+     "backend": "npu:tensor_g5",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 3,
+     "failed_at": {
+      "compile": 3
+     },
+     "reasons": {
+      "firmware": 1,
+      "dispatch": 2
+     }
+    }
+   },
+   {
+    "name": "apple: two quits during a stage, two attempts slower than the CPU engine",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 4,
+     "reasons": {
+      "interrupted": 2,
+      "slower_than_cpu": 2
+     },
+     "speedup": {
+      "lt_1": 2
+     },
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 35.0,
+       "cpu_ms": 8.0
+      },
+      {
+       "accelerator_ms": 9.4,
+       "cpu_ms": 9.3
+      }
+     ]
+    }
+   },
+   {
+    "name": "apple 4.0.5: a lease that does not allow accelerator programs (an install not attested): no attempt, the reason once",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 0,
+     "reasons": {
+      "not_attested": 1
+     }
+    }
+   },
+   {
+    "name": "every reason at once, and the list at its bounds (8 items, 0.1 and 60000 ms)",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 19,
+     "reasons": {
+      "network": 1,
+      "storage": 1,
+      "verify": 1,
+      "compile_error": 1,
+      "compile_timeout": 1,
+      "load_error": 1,
+      "crash": 1,
+      "hang": 1,
+      "non_finite": 1,
+      "golden_mismatch": 1,
+      "cpu_mismatch": 1,
+      "failover": 1,
+      "denylist": 1,
+      "other": 1,
+      "slower_than_cpu": 1,
+      "firmware": 1,
+      "dispatch": 1,
+      "interrupted": 1,
+      "not_attested": 1
+     },
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 60000,
+       "cpu_ms": 0.1
+      },
+      {
+       "accelerator_ms": 2.5,
+       "cpu_ms": 1.0
+      },
+      {
+       "accelerator_ms": 2.5,
+       "cpu_ms": 1.0
+      },
+      {
+       "accelerator_ms": 2.5,
+       "cpu_ms": 1.0
+      },
+      {
+       "accelerator_ms": 2.5,
+       "cpu_ms": 1.0
+      },
+      {
+       "accelerator_ms": 2.5,
+       "cpu_ms": 1.0
+      },
+      {
+       "accelerator_ms": 2.5,
+       "cpu_ms": 1.0
+      },
+      {
+       "accelerator_ms": 2.5,
+       "cpu_ms": 1.0
+      }
+     ]
+    }
+   },
+   {
+    "name": "an empty list (an SDK leaves it out; accepted all the same)",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "reasons": {
+      "other": 1
+     },
+     "slower_than_cpu": []
+    }
+   }
+  ],
+  "refused": [
+   {
+    "name": "a median of 0",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 0,
+       "cpu_ms": 6.1
+      }
+     ]
+    },
+    "field": "slower_than_cpu[0].accelerator_ms"
+   },
+   {
+    "name": "a negative median",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": -1
+      }
+     ]
+    },
+    "field": "slower_than_cpu[0].cpu_ms"
+   },
+   {
+    "name": "a median over a minute",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 60000.1,
+       "cpu_ms": 6.1
+      }
+     ]
+    },
+    "field": "slower_than_cpu[0].accelerator_ms"
+   },
+   {
+    "name": "9 items",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      },
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      },
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      },
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      },
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      },
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      },
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      },
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      },
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1
+      }
+     ]
+    },
+    "field": "slower_than_cpu"
+   },
+   {
+    "name": "an item with another field",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 61.0,
+       "cpu_ms": 6.1,
+       "speedup": 0.1
+      }
+     ]
+    },
+    "field": "slower_than_cpu[0].speedup"
+   },
+   {
+    "name": "an item without cpu_ms",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": 61.0
+      }
+     ]
+    },
+    "field": "slower_than_cpu[0].cpu_ms"
+   },
+   {
+    "name": "a median as a string",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "slower_than_cpu": [
+      {
+       "accelerator_ms": "61.0",
+       "cpu_ms": 6.1
+      }
+     ]
+    },
+    "field": "slower_than_cpu[0].accelerator_ms"
+   },
+   {
+    "name": "a reason no SDK sends",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "reasons": {
+      "thermal": 1
+     }
+    },
+    "field": "reasons.thermal"
+   },
+   {
+    "name": "a negative count",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "reasons": {
+      "firmware": -1
+     }
+    },
+    "field": "reasons.firmware"
+   }
+  ]
+ },
+ "speed": [
+  {
+   "cpu_ms": 6.1,
+   "accelerator_ms": 61.0,
+   "configured": null,
+   "promoted": false
+  },
+  {
+   "cpu_ms": 8.0,
+   "accelerator_ms": 8.0,
+   "configured": null,
+   "promoted": true
+  },
+  {
+   "cpu_ms": 8.0,
+   "accelerator_ms": 7.9,
+   "configured": null,
+   "promoted": true
+  },
+  {
+   "cpu_ms": 8.0,
+   "accelerator_ms": 35.0,
+   "configured": 0.5,
+   "promoted": false
+  },
+  {
+   "cpu_ms": 12.0,
+   "accelerator_ms": 8.0,
+   "configured": 1.5,
+   "promoted": true
+  },
+  {
+   "cpu_ms": 11.9,
+   "accelerator_ms": 8.0,
+   "configured": 1.5,
+   "promoted": false
+  },
+  {
+   "cpu_ms": 12.0,
+   "accelerator_ms": 8.0,
+   "configured": "x",
+   "promoted": true
+  },
+  {
+   "cpu_ms": 8.0,
+   "accelerator_ms": 9.0,
+   "configured": true,
+   "promoted": false
+  }
+ ],
+ "config": [
+  {
+   "kv": "absent",
+   "config": null,
+   "uses": 1.0
+  },
+  {
+   "kv": 1,
+   "config": 1,
+   "uses": 1.0
+  },
+  {
+   "kv": 1.0,
+   "config": 1.0,
+   "uses": 1.0
+  },
+  {
+   "kv": 1.5,
+   "config": 1.5,
+   "uses": 1.5
+  },
+  {
+   "kv": 3,
+   "config": 3,
+   "uses": 3.0
+  },
+  {
+   "kv": 0.5,
+   "config": null,
+   "uses": 1.0
+  },
+  {
+   "kv": 0,
+   "config": null,
+   "uses": 1.0
+  },
+  {
+   "kv": -1,
+   "config": null,
+   "uses": 1.0
+  },
+  {
+   "kv": "2",
+   "config": null,
+   "uses": 1.0
+  },
+  {
+   "kv": null,
+   "config": null,
+   "uses": 1.0
+  },
+  {
+   "kv": true,
+   "config": null,
+   "uses": 1.0
+  },
+  {
+   "kv": {
+    "min": 2
+   },
+   "config": null,
+   "uses": 1.0
+  }
+ ],
+ "sdk_reads": [
+  {
+   "config": null,
+   "uses": 1.0
+  },
+  {
+   "config": 0.5,
+   "uses": 1.0
+  },
+  {
+   "config": 1,
+   "uses": 1.0
+  },
+  {
+   "config": 1.5,
+   "uses": 1.5
+  },
+  {
+   "config": "1.5",
+   "uses": 1.0
+  },
+  {
+   "config": true,
+   "uses": 1.0
+  },
+  {
+   "config": "inf",
+   "uses": 1.0
+  }
+ ],
+ "crash": {
+  "accepted": [
+   {
+    "name": "a SIGSEGV matched by pid, with frames and images",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ]
+    }
+   },
+   {
+    "name": "a quit during the stage (the report's cause is interrupted)",
+    "crash": {
+     "exit": "quit",
+     "os_build": "23C71",
+     "footprint_mb": 410,
+     "stage_s": 12.5
+    }
+   },
+   {
+    "name": "no diagnostic, the app in the background",
+    "crash": {
+     "exit": "background",
+     "os_build": "23C71",
+     "headroom_mb": 120,
+     "stage_s": 3.0
+    }
+   },
+   {
+    "name": "no diagnostic",
+    "crash": {
+     "exit": "unknown"
+    }
+   },
+   {
+    "name": "a binary without a name, a symbol cut at 120 characters, an EXC_GUARD code past 2^53, matched by window",
+    "crash": {
+     "exit": "crash",
+     "match": "window",
+     "exception_type": 12,
+     "exception_code": 9223372036854775807,
+     "signal": 9,
+     "objc_exception": "NSInvalidArgumentException",
+     "images": [
+      "?:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C"
+     ],
+     "frames": [
+      "?+0x1a2b",
+      "AppleNeuralEngine!_ZN3ANExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "app+0xffffffffffff"
+     ]
+    }
+   }
+  ],
+  "refused": [
+   {
+    "name": "an exit no SDK sends",
+    "crash": {
+     "exit": "exploded",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ]
+    },
+    "field": "exit"
+   },
+   {
+    "name": "no exit",
+    "crash": {
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ]
+    },
+    "field": "exit"
+   },
+   {
+    "name": "a signal past 64",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 65,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ]
+    },
+    "field": "signal"
+   },
+   {
+    "name": "an exception type that is not an integer",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1.5,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ]
+    },
+    "field": "exception_type"
+   },
+   {
+    "name": "13 frames",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1",
+      "app+0x1"
+     ]
+    },
+    "field": "frames"
+   },
+   {
+    "name": "a frame of neither shape",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso"
+     ]
+    },
+    "field": "frames[0]"
+   },
+   {
+    "name": "a frame with a character outside printable ASCII",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!caf\u00e9+1"
+     ]
+    },
+    "field": "frames[0]"
+   },
+   {
+    "name": "a frame over 120 characters",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx+1"
+     ]
+    },
+    "field": "frames[0]"
+   },
+   {
+    "name": "an image whose UUID is lower case",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0f3a5c7e9b1d4f6a8c2e4a6b8d0f1a3c"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ]
+    },
+    "field": "images[0]"
+   },
+   {
+    "name": "a termination reason over 120 characters",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ]
+    },
+    "field": "termination"
+   },
+   {
+    "name": "an Objective-C exception name with a space",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ],
+     "objc_exception": "NS Exception"
+    },
+    "field": "objc_exception"
+   },
+   {
+    "name": "a stage longer than a day",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 86400.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ]
+    },
+    "field": "stage_s"
+   },
+   {
+    "name": "a field the server does not know",
+    "crash": {
+     "exit": "crash",
+     "match": "pid",
+     "exception_type": 1,
+     "exception_code": 1,
+     "signal": 11,
+     "termination": "Namespace SIGNAL, Code 11 Segmentation fault: 11",
+     "os_build": "23C71",
+     "footprint_mb": 1840,
+     "headroom_mb": 96,
+     "stage_s": 41.5,
+     "images": [
+      "Espresso:0F3A5C7E9B1D4F6A8C2E4A6B8D0F1A3C",
+      "AppleNeuralEngine:1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D"
+     ],
+     "frames": [
+      "Espresso!_ZN8Espresso15ANERuntimeEngine7computeEv+412",
+      "AppleNeuralEngine+0x3f1a8",
+      "TajweedFormer!$s13TajweedFormer15CoreAcceleratorC7prepareyyKF+96",
+      "app+0x10c2f0",
+      "libdispatch.dylib+0x3a1c"
+     ],
+     "path": "/private/var/x"
+    },
+    "field": "path"
+   }
+  ]
+ },
+ "incidents": [
+  {
+   "name": "a crash diagnostic, in the foreground",
+   "report": {
+    "cause": "crash_on_last_run",
+    "foreground": true,
+    "crash_exit": "crash"
+   },
+   "rule": "accel_crash_in_promotion_proven",
+   "severity": "high"
+  },
+  {
+   "name": "a crash diagnostic, the app in the background",
+   "report": {
+    "cause": "crash_on_last_run",
+    "foreground": false,
+    "crash_exit": "crash"
+   },
+   "rule": "accel_crash_in_promotion_proven",
+   "severity": "high"
+  },
+  {
+   "name": "exit background, foreground false",
+   "report": {
+    "cause": "crash_on_last_run",
+    "foreground": false,
+    "crash_exit": "background"
+   },
+   "rule": null,
+   "severity": null
+  },
+  {
+   "name": "exit background, foreground not sent",
+   "report": {
+    "cause": "crash_on_last_run",
+    "crash_exit": "background"
+   },
+   "rule": null,
+   "severity": null
+  },
+  {
+   "name": "a quit",
+   "report": {
+    "cause": "interrupted",
+    "foreground": true,
+    "crash_exit": "quit"
+   },
+   "rule": null,
+   "severity": null
+  },
+  {
+   "name": "a quit sent as a stop (no SDK does; still no incident)",
+   "report": {
+    "cause": "crash_on_last_run",
+    "foreground": true,
+    "crash_exit": "quit"
+   },
+   "rule": null,
+   "severity": null
+  },
+  {
+   "name": "exit unknown, foreground true",
+   "report": {
+    "cause": "crash_on_last_run",
+    "foreground": true,
+    "crash_exit": "unknown"
+   },
+   "rule": "accel_crash_in_promotion",
+   "severity": "medium"
+  },
+  {
+   "name": "exit unknown, foreground false",
+   "report": {
+    "cause": "crash_on_last_run",
+    "foreground": false,
+    "crash_exit": "unknown"
+   },
+   "rule": null,
+   "severity": null
+  },
+  {
+   "name": "an SDK before 4.0, in the foreground",
+   "report": {
+    "cause": "crash_on_last_run",
+    "foreground": true
+   },
+   "rule": "accel_crash_in_promotion",
+   "severity": "medium"
+  },
+  {
+   "name": "an SDK before 4.0, foreground not known",
+   "report": {
+    "cause": "crash_on_last_run"
+   },
+   "rule": "accel_crash_in_promotion",
+   "severity": "medium"
+  },
+  {
+   "name": "interrupted without detail.crash",
+   "report": {
+    "cause": "interrupted"
+   },
+   "rule": null,
+   "severity": null
+  },
+  {
+   "name": "a compile error",
+   "report": {
+    "cause": "compile_error"
+   },
+   "rule": "accel_promotion_failures",
+   "severity": null
+  }
+ ],
+ "not_now": {
+  "keys": [
+   "locked",
+   "background"
+  ],
+  "from": "4.0.5",
+  "again_max": 3,
+  "p2_doubles": [
+   15,
+   16
+  ],
+  "cases": [
+   {
+    "name": "the lock cut a compile twice and the app's leaving cut its load once; the same attempt then promoted",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "promoted": 1,
+     "compile_ms": {
+      "le_15000": 1
+     },
+     "speedup": {
+      "le_3": 1
+     },
+     "not_now": {
+      "locked": 2,
+      "background": 1
+     }
+    },
+    "field": null,
+    "p2": [
+     2,
+     1
+    ]
+   },
+   {
+    "name": "a run whose compile the lock cut 4 times: run again 3 times, the 4th cut ends the run; no attempt ended",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 0,
+     "not_now": {
+      "locked": 4
+     }
+    },
+    "field": null,
+    "p2": [
+     4,
+     0
+    ]
+   },
+   {
+    "name": "the load of a promoted key at a start, cut by the app's leaving: the key stays promoted",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 0,
+     "not_now": {
+      "background": 1
+     }
+    },
+    "field": null,
+    "p2": [
+     0,
+     1
+    ]
+   },
+   {
+    "name": "an empty object (an SDK leaves it out; taken all the same)",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {}
+    },
+    "field": null,
+    "p2": [
+     0,
+     0
+    ]
+   },
+   {
+    "name": "both counts at the bound",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "locked": 10000000,
+      "background": 10000000
+     }
+    },
+    "field": null,
+    "p2": [
+     10000000,
+     10000000
+    ]
+   },
+   {
+    "name": "a later SDK",
+    "sdk": "4.1.0",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "locked": 1
+     }
+    },
+    "field": null,
+    "p2": [
+     1,
+     0
+    ]
+   },
+   {
+    "name": "SDK 4.0.4: from 4.0.5 only",
+    "sdk": "4.0.4",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "locked": 1
+     }
+    },
+    "field": "not_now",
+    "p2": null
+   },
+   {
+    "name": "SDK 4.0.0: from 4.0.5 only",
+    "sdk": "4.0.0",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "background": 1
+     }
+    },
+    "field": "not_now",
+    "p2": null
+   },
+   {
+    "name": "SDK 3.1.5: not in its closed schema",
+    "sdk": "3.1.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "locked": 1
+     }
+    },
+    "field": "not_now",
+    "p2": null
+   },
+   {
+    "name": "a key outside the two",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "locked": 1,
+      "thermal": 1
+     }
+    },
+    "field": "not_now.thermal",
+    "p2": null
+   },
+   {
+    "name": "a count that is not an integer",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "locked": 1.5
+     }
+    },
+    "field": "not_now.locked",
+    "p2": null
+   },
+   {
+    "name": "a negative count",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "background": -1
+     }
+    },
+    "field": "not_now.background",
+    "p2": null
+   },
+   {
+    "name": "a count past 10,000,000",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "locked": 10000001
+     }
+    },
+    "field": "not_now.locked",
+    "p2": null
+   },
+   {
+    "name": "a count as a boolean",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": {
+      "locked": true
+     }
+    },
+    "field": "not_now.locked",
+    "p2": null
+   },
+   {
+    "name": "a list, not an object",
+    "sdk": "4.0.5",
+    "entry": {
+     "backend": "ane",
+     "revision": "4.0.0",
+     "build": "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b",
+     "context": "c16_l64",
+     "attempts": 1,
+     "not_now": [
+      2,
+      1
+     ]
+    },
+    "field": "not_now",
+    "p2": null
+   }
+  ]
+ }
+}

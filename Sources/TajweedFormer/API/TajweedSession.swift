@@ -125,22 +125,29 @@ public final class TajweedSession: Sendable {
     /// later push throws `session_closed`.
     public func push(_ samples: [Float]) throws(TajweedError) {
         guard pushed else { throw .argument("push is for a Session made with model.session(); listen() feeds this one") }
-        guard admit(samples, rate: rate) else { throw TajweedError(.sessionClosed) }
+        // SDK 4.0.5: audio pushed ahead of real time is read as fast as possible (never late)
+        let now = Self.nowMs()
+        let ahead = shared.pushedAhead(samples.count, rate: rate, nowMs: now)
+        guard admit(samples, rate: rate, takenAtMs: ahead ? nil : now) else { throw TajweedError(.sessionClosed) }
     }
 
     /// Audio into the take, as far as the take still holds it; at its limit the take ends. False when the take has
-    /// ended or is full.
-    private func admit(_ samples: [Float], rate: Double) -> Bool {
+    /// ended or is full. `takenAtMs`: when it was taken from its source (nil: read as fast as possible).
+    private func admit(_ samples: [Float], rate: Double, takenAtMs: Int?) -> Bool {
         guard let a = shared.admit(samples.count, rate: rate) else { return false }
-        if a.count > 0 { input.yield(.audio(a.count == samples.count ? samples : Array(samples[0..<a.count]), rate)) }
+        if a.count > 0 { input.yield(.audio(a.count == samples.count ? samples : Array(samples[0..<a.count]), rate, takenAtMs)) }
         if a.full { end(.limit) }
         return true
     }
+
+    /// The clock of a piece's arrival, ms (the take runner's `liveClock`).
+    static func nowMs() -> Int { Int(DispatchTime.now().uptimeNanoseconds / 1_000_000) }
 
     /// Ends the take and returns its Heads. On a `listen` Session it also stops the microphone. After a take that
     /// ended by itself (an `ended` event) it returns that take's Heads; after `cancel()` it throws `cancelled`.
     @discardableResult
     public func finish() async throws(TajweedError) -> TajweedHeads {
+        shared.requestFinish()
         shared.stopSource()
         input.yield(.finish)
         input.finish()
@@ -196,9 +203,11 @@ public final class TajweedSession: Sendable {
 
     // MARK: internal feeds (listen)
 
-    /// Audio from the SDK's own source (the microphone or a clip), with the rate it has now.
-    func feed(_ samples: [Float], rate: Double) {
-        _ = admit(samples, rate: rate)
+    /// Audio from the SDK's own source (the microphone or a clip), with the rate it has now. `fast`: a clip read as fast
+    /// as possible.
+    func feed(_ samples: [Float], rate: Double, fast: Bool = false) {
+        if fast { shared.setFast() }
+        _ = admit(samples, rate: rate, takenAtMs: fast ? nil : Self.nowMs())
     }
 
     /// An event of the source (an interruption, its end).
@@ -206,9 +215,14 @@ public final class TajweedSession: Sendable {
 
     /// The source ended the take (the clip ran out, the app left the foreground, an interruption that cannot resume).
     func end(_ reason: TajweedEvent.EndReason) {
+        shared.requestFinish()
         shared.stopSource()
         input.yield(.end(reason))
     }
+
+    /// The length of the source of a `listen(from:)` take, seconds: no live promotion starts within 10 s of its end
+    ///.
+    func noteSource(seconds: Double) { shared.setSourceSeconds(seconds) }
 
     /// What the microphone reports during a `listen` take, as the take's events.
     func notice(_ n: CaptureNotice) {
@@ -304,6 +318,37 @@ final class SessionShared: @unchecked Sendable {
 
     func setMeasured(_ r: CoreRecited?) { lock.lock(); _measured = r; lock.unlock() }
 
+    /// For the live promotion's start rule: the app asked the take to finish (or the
+    /// take is ending by itself), and the length of a `listen(from:)` source, seconds.
+    private var _finishing = false
+    private var _sourceSeconds: Double?
+
+    private var _fast = false
+    /// Audio pushed by the app: its first push's time and the seconds pushed since.
+    private var _pushStartMs: Int?
+    private var _pushedSeconds = 0.0
+
+    func requestFinish() { lock.lock(); _finishing = true; lock.unlock() }
+    func setSourceSeconds(_ s: Double) { lock.lock(); _sourceSeconds = s; lock.unlock() }
+    func setFast() { lock.lock(); _fast = true; lock.unlock() }
+
+    /// Whether audio the app pushes runs ahead of real time (more than a second of it beyond the wall clock since its
+    /// first push): such a source is read as fast as possible, and its chunks are never late.
+    func pushedAhead(_ count: Int, rate: Double, nowMs: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let start = _pushStartMs ?? nowMs
+        _pushStartMs = start
+        _pushedSeconds += Double(count) / max(1, rate)
+        return _pushedSeconds - Double(nowMs - start) / 1000 > 1
+    }
+
+    var liveInputs: TajweedRecognizer.LiveInputs {
+        lock.lock()
+        defer { lock.unlock() }
+        return TajweedRecognizer.LiveInputs(finishing: _finishing, sourceSeconds: _sourceSeconds, fast: _fast)
+    }
+
     init(backend: TajweedBackend, takeSeconds: Double = TakeBounds.standard.takeSeconds) {
         _backend = backend
         self.takeSeconds = takeSeconds
@@ -381,7 +426,8 @@ final class SessionShared: @unchecked Sendable {
 }
 
 enum SessionInput: Sendable {
-    case audio([Float], Double)
+    /// Samples, their rate, and when they were taken from their source (nil: read as fast as possible).
+    case audio([Float], Double, Int?)
     case event(TajweedEvent)
     case end(TajweedEvent.EndReason)
     case finish
@@ -437,18 +483,24 @@ actor SessionCore {
 
     func handle(_ input: SessionInput) async {
         switch input {
-        case .audio(let samples, let rate): await audio(samples, rate)
-        case .event(let e): if isOpen { eventOut.yield(e) }
+        case .audio(let samples, let rate, let takenAtMs): await audio(samples, rate, takenAtMs)
+        case .event(let e):
+            // 30.1: an interruption is a stall for a live promotion while it lasts
+            if case .interrupted = e { await recognizer.liveInterrupted() }
+            if case .resumed = e { await recognizer.liveResumed() }
+            if isOpen { eventOut.yield(e) }
         case .end(let reason): await close(reason)
         case .finish: await close(nil)
         }
     }
 
-    private func audio(_ samples: [Float], _ rate: Double) async {
+    private func audio(_ samples: [Float], _ rate: Double, _ takenAtMs: Int?) async {
         guard isOpen, !samples.isEmpty else { return }
         let step: TajweedRecognizer.Step
         do throws(RecognizerError) {
-            step = try await recognizer.step(samples, sampleRate: rate, topK: topK)
+            var live = shared.liveInputs
+            live.takenAtMs = takenAtMs
+            step = try await recognizer.step(samples, sampleRate: rate, topK: topK, live: live)
         } catch {
             await fail(TajweedError(from: error, stage: "session"))
             return
@@ -463,7 +515,20 @@ actor SessionCore {
     private func emit(_ step: TajweedRecognizer.Step, final: Bool) -> Int? {
         guard !step.chunks.isEmpty, step.decoded.count == step.chunks.count else { return nil }
         let now = step.backend ?? backend
-        if let replaced = step.chunks.first(where: { $0.replaces })?.index {
+        // a live swap: the chunks before `liveFrom` ran on the CPU engine and are labelled so, the
+        // event comes between them and the first accelerator chunk (after the step when that chunk is still to come;
+        // never when the take ends on silence before it), and nothing is replaced
+        let before = backend
+        var swapAt = step.liveFrom
+        func swapped(_ from: Int) {
+            eventOut.yield(.backendChanged(backend: now, fromChunk: from))
+            backend = now
+            shared.setBackend(now)
+            swapAt = nil
+        }
+        if swapAt != nil {
+            // the Backend changes at the event
+        } else if let replaced = step.chunks.first(where: { $0.replaces })?.index {
             // a failover replaced the chunks from here on: they come again, and the speech state is rebuilt from the
             // chunks that stay
             if replaced < frameCounts.count { frameCounts.removeLast(frameCounts.count - replaced) }
@@ -478,9 +543,13 @@ actor SessionCore {
         } else if now.kind != backend.kind {
             eventOut.yield(.backendChanged(backend: now, fromChunk: step.chunks[0].index))
         }
-        backend = now
-        shared.setBackend(now)
+        if swapAt == nil {
+            backend = now
+            shared.setBackend(now)
+        }
         for (n, raw) in step.chunks.enumerated() {
+            if let f = swapAt, raw.index >= f { swapped(f) }
+            let ranOn = swapAt != nil ? before : now
             if raw.index < frameCounts.count { frameCounts.removeLast(frameCounts.count - raw.index) }
             if raw.index < activity.count { activity.removeLast(activity.count - raw.index) }
             let first = frameCounts.reduce(0, +)
@@ -508,13 +577,14 @@ actor SessionCore {
             }
             let isLast = silence || (final && n == step.chunks.count - 1)
             let chunk = TajweedChunk(index: raw.index, startMs: raw.startMs, endMs: raw.startMs + frames * SpeechTracker.frameMs,
-                                     firstFrame: first, backend: now, speech: heard.speech,
+                                     firstFrame: first, backend: ranOn, speech: heard.speech,
                                      heads: TajweedHeads(raw.heads, vocabulary: vocabulary, selection: selection),
                                      decoded: TajweedDecoded(layer, isFinal: isLast, topK: topK))
             // the app reads late: the oldest waiting chunk made room for this one
             if case .dropped = chunkOut.yield(chunk) { TakeBounds.droppedChunks.withLock { $0 += 1 } }
             if silence { return raw.index }
         }
+        if let f = swapAt { swapped(f) }
         return nil
     }
 
@@ -632,17 +702,24 @@ extension TajweedRecognizer {
         let decoded: [DecodedTake]
         let backend: TajweedBackend?
         let take: HeadsBuffer
+        /// A live swap in this step: the first chunk the accelerator ran; the chunks before it ran on
+        /// the CPU engine.
+        var liveFrom: Int? = nil
     }
 
-    func step(_ samples: [Float], sampleRate: Double, topK: Int) throws(RecognizerError) -> Step {
+    /// `live`: what the Session knows for the live promotion's start rule.
+    func step(_ samples: [Float], sampleRate: Double, topK: Int, live: LiveInputs = LiveInputs()) throws(RecognizerError) -> Step {
+        noteLiveInputs(live)
         let chunks = try append(samples, sampleRate: sampleRate)
+        let liveFrom = takeLiveSwapNoted()
         if chunks.isEmpty { return Step(chunks: [], decoded: [], backend: nil, take: HeadsBuffer()) }
-        return Step(chunks: chunks, decoded: try layers(chunks, topK), backend: backendNow, take: HeadsBuffer())
+        return Step(chunks: chunks, decoded: try layers(chunks, topK), backend: backendNow, take: HeadsBuffer(), liveFrom: liveFrom)
     }
 
     func finishStep(topK: Int) async throws(RecognizerError) -> Step {
         let take = try await finish()
-        return Step(chunks: lastFlush, decoded: try layers(lastFlush, topK), backend: backendNow, take: take)
+        // the resampler's tail is a piece like any other: a live swap may come with it
+        return Step(chunks: lastFlush, decoded: try layers(lastFlush, topK), backend: backendNow, take: take, liveFrom: takeLiveSwapNoted())
     }
 
     /// The decoded layer of the take up to each of `chunks`: the whole take so far for the newest, the take cut after
@@ -663,8 +740,10 @@ extension TajweedRecognizer {
         return out
     }
 
-    /// The Backend the next take will run on: the Neural Engine's build once it is promoted and warm.
+    /// The Backend the next take will run on: the Neural Engine's build once it is promoted and warm. SDK 4.0.5: a `.cpu`
+    /// engine's takes always run on the CPU engine (it promotes the default build for other Sessions).
     var backendNext: TajweedBackend {
+        if isCPUOnlyEngine { return .cpu }
         let now = backendNow
         guard now.stage == .promoted else { return TajweedBackend(kind: .cpu, name: "cpu", stage: now.stage, reason: now.reason) }
         return TajweedBackend(kind: .accelerator, name: acceleratorBuildName, stage: .promoted, reason: nil)
@@ -682,25 +761,27 @@ extension TajweedRecognizer {
     /// The Backend in force and where the Neural Engine's promotion stands.
     var backendNow: TajweedBackend {
         let onAccelerator = activeBackend == .neuralEngine
-        let controller = acceleratorController
-        var stage = TajweedBackend.Stage.cpu
-        var reason: String?
-        switch acceleratorState {
-        case .cpu: stage = .cpu
-        case .preparing:
-            switch controller?.record?.completed {
-            case nil: stage = .downloading
-            case .download?: stage = .compiling
-            default: stage = .testing
-            }
-        case .ready: stage = .promoted
-        case .disabled:
-            if let controller {
-                stage = .demoted
-                reason = controller.record?.lastReason?.rawValue ?? "other"
-            }
-        }
+        let (stage, reason) = Self.stage(acceleratorState, acceleratorController)
         return TajweedBackend(kind: onAccelerator ? .accelerator : .cpu, name: onAccelerator ? acceleratorBuildName : "cpu",
                               stage: stage, reason: reason)
+    }
+
+    /// The stage (and reason) of the Neural Engine's promotion for a state and its controller.
+    nonisolated static func stage(_ state: AcceleratorState, _ controller: AcceleratorController?) -> (TajweedBackend.Stage, String?) {
+        switch state {
+        case .cpu: return (.cpu, nil)
+        case .preparing:
+            // SDK 4.0.5: a build promoted earlier that is being loaded again reads `loading` (to 4.0.4 it read `testing`)
+            if controller?.record?.status == .ready { return (.loading, nil) }
+            switch controller?.record?.completed {
+            case nil: return (.downloading, nil)
+            case .download?: return (.compiling, nil)
+            default: return (.testing, nil)
+            }
+        case .ready: return (.promoted, nil)
+        case .disabled:
+            guard let controller else { return (.cpu, nil) }
+            return (.demoted, controller.backendReason ?? "other")
+        }
     }
 }

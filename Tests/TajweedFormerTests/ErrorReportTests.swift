@@ -136,7 +136,7 @@ final class ErrorReportTests: XCTestCase {
         let error = try XCTUnwrap(body["error"] as? [String: Any])
         XCTAssertTrue(Set(error.keys).isSubset(of: ["stage", "reason", "http_status", "error_name", "error_code", "count", "retries",
                                                     "first_launch", "first_report", "build", "device_model", "ram_tier",
-                                                    "storage_free", "abi", "host_role", "fallback"]), "\(error.keys)")
+                                                    "storage_free", "abi", "host_role", "fallback", "chain"]), "\(error.keys)")
         XCTAssertEqual(error["stage"] as? String, "config")
         XCTAssertEqual(error["reason"] as? String, "http")
         XCTAssertEqual(error["http_status"] as? Int, 503)

@@ -56,7 +56,8 @@ final class ModelStoreOtherIDsTests: XCTestCase {
                     vocabulary: Vocabulary(symbols: (0..<38).map { "t\($0)" }, blank: 0), verifiedFiles: [], coreMLProblem: nil)
     }
 
-    func names(_ dir: URL) -> [String] { ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).sorted() }
+    /// The names in `dir`, without the owed downloads' records (SDK 4.0.5, `.owed`: no model id).
+    func names(_ dir: URL) -> [String] { ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0 != ".owed" }.sorted() }
 
     /// Every regular file under `dir` with its size (to see that a folder is whole).
     func snapshot(_ dir: URL) -> [String] {

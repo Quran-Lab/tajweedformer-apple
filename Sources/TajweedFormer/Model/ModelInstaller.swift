@@ -14,6 +14,8 @@ struct StreamedRange: Sendable {
     let whole: Bool
     /// The bytes the request wrote to the partial file.
     let written: Int64
+    /// SDK 4.0.5 (35.6): the request ended at its stop, a cut of section 35.
+    var cut = false
 }
 
 /// A source that writes a range to the partial file as its bytes arrive (the CDN), so a connection that ends
@@ -22,10 +24,13 @@ struct StreamedRange: Sendable {
 /// `size` is the whole file's size in the signed manifest: an answer is held to it (SPEC 16.1). `hash` is told every
 /// piece as it is written to the partial file (and, for a whole file sent for a range, takes that file's hash once it
 /// has taken the partial file's place), so the file's SHA-256 is ready when its last byte is (4.0.1).
+/// SDK 4.0.5 (sections 34.4 and 35): `control` holds the request while it runs (its stop, the host its answer was taken
+/// on); the source may hedge it (34.4).
 protocol StreamingModelFileSource: ModelFileSource {
     func stream(_ path: String, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL, hash: PartHasher?,
-                started: @Sendable (_ validator: String?, _ whole: Bool) -> Void,
-                received: @Sendable (Int64) -> Void) async throws(RecognizerError) -> StreamedRange
+                control: StreamControl?,
+                started: @escaping @Sendable (_ validator: String?, _ whole: Bool) -> Void,
+                received: @escaping @Sendable (Int64) -> Void) async throws(RecognizerError) -> StreamedRange
     /// SDK 4.0.1 (28.4): a background round of `path` ended without its next byte, a failed attempt that was no
     /// answer: the source's next attempt of the file goes to its next host.
     func resumeElsewhere(_ path: String)
@@ -33,6 +38,14 @@ protocol StreamingModelFileSource: ModelFileSource {
 
 extension StreamingModelFileSource {
     func resumeElsewhere(_ path: String) {}
+
+    /// The request without a control (no split, no lane).
+    func stream(_ path: String, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL, hash: PartHasher?,
+                started: @escaping @Sendable (_ validator: String?, _ whole: Bool) -> Void,
+                received: @escaping @Sendable (Int64) -> Void) async throws(RecognizerError) -> StreamedRange {
+        try await stream(path, lower: lower, upper: upper, size: size, validator: validator, into: part, hash: hash, control: nil,
+                         started: started, received: received)
+    }
 }
 
 /// What an install did, for analytics (`downloads`) and the host.
@@ -52,6 +65,29 @@ struct InstallReport: Sendable, Hashable {
     var programFromDelta = false
     /// Why the delta was not used (the full program was downloaded instead), when it was not.
     var programDeltaFallback: String?
+    /// SDK 4.0.5: bytes kept from an earlier call or process that this download used and did not fetch
+    /// again (a range a background task brought included).
+    var keptBytes: Int64 = 0
+    /// A range a background task brought was joined (the system's carrier went on with the download).
+    var joinedBackground = false
+    /// Bytes the app's own requests fetched in this call (not a background task's).
+    var fetchedBytes: Int64 = 0
+    /// The download was handed to the background session when the app left (38.4).
+    var handed = false
+    /// Files that started over, by the reasons of 38.6 (`validator`, `too_long`, `hash`, `other`).
+    var restarted: [String: Int] = [:]
+
+    /// A file's own report (one of several fetched together, or the accelerator's files) added to the call's: its bytes,
+    /// whether it resumed, and what it continued from (38.8).
+    mutating func merge(_ r: InstallReport) {
+        downloadedBytes += r.downloadedBytes
+        resumed = resumed || r.resumed
+        keptBytes += r.keptBytes
+        joinedBackground = joinedBackground || r.joinedBackground
+        fetchedBytes += r.fetchedBytes
+        handed = handed || r.handed
+        restarted.merge(r.restarted, uniquingKeysWith: +)
+    }
 }
 
 /// Counts the bytes of an install for `client.prefetch`'s progress: the stored bytes done (files already on disk, the
@@ -94,58 +130,119 @@ final class ProgressMeter: @unchecked Sendable {
 
 /// The SHA-256 of a partial file, made as its bytes are written (4.0.1): the transport hands it every piece it writes,
 /// in order, so the file's hash is ready when its last byte is, and the file is not read again after it. A resume
-/// hashes the bytes already on disk first (`resuming`). A whole file that the server sends for a range is hashed by a
+/// hashes the bytes already on disk (`resuming`). A whole file that the server sends for a range is hashed by a
 /// hasher of its own, which this one takes over when that file takes the partial file's place (`take`). A partial file
 /// that is emptied starts the hash again (`restart`). Should a write ever not follow the bytes hashed so far (bytes
 /// that arrived in another way), the hash is not trusted, and the file is read from disk once at the end, as before
 /// 4.0.1: the bytes on disk are what is checked, in every case.
+///
+/// SDK 4.0.5: the bytes kept on disk are hashed beside the transfer, on a thread of the hasher's
+/// own, never before the first request. Pieces written meanwhile are only noted (they follow on disk), and that thread
+/// reads them too until it has caught up; from then on each piece is hashed as it is written. `digest` waits for it.
+/// Until 4.0.5 `resuming` read the kept bytes whole before the file's first request.
 final class PartHasher: @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = NSCondition()
     private var sha = SHA256()
     private var count: Int64 = 0
     private var broken = false
+    /// The end of the bytes on disk the hash covers once it has caught up (while a thread reads the kept ones).
+    private var written: Int64 = 0
+    private var catchingUp = false
+    /// Changed by `take` and `restart`: a catch-up of an earlier state stops.
+    private var generation = 0
 
     /// For tests: files whose SHA-256 was read from disk at the end (the hash made as they arrived was not usable), and
     /// bytes of partial files read to resume a hash.
     static let readAgain = Locked(0)
     static let resumedBytes = Locked<Int64>(0)
+    /// For tests: run on the catch-up's thread before it reads a byte (a test holds it there).
+    static let beforeCatchUp = Locked<(@Sendable () -> Void)?>(nil)
 
     init() {}
 
-    /// The hasher of the partial file `part`, whose first `have` bytes are on disk: those are read and hashed now.
+    /// The hasher of the partial file `part`, whose first `have` bytes are on disk: those are hashed on a thread of the
+    /// hasher's own, beside the transfer.
     static func resuming(_ part: URL, have: Int64) -> PartHasher {
         let h = PartHasher()
         guard have > 0 else { return h }
-        guard let fh = try? FileHandle(forReadingFrom: part) else {
-            h.broken = true
-            return h
-        }
-        defer { try? fh.close() }
-        var left = have
-        while left > 0 {
-            guard let piece = try? fh.read(upToCount: Int(min(left, 4 << 20))), !piece.isEmpty else {
-                h.broken = true
-                return h
-            }
-            h.sha.update(data: piece)
-            h.count += Int64(piece.count)
-            left -= Int64(piece.count)
-        }
-        resumedBytes.withLock { $0 += have }
+        h.written = have
+        h.catchingUp = true
+        let thread = Thread { h.catchUp(part, kept: have, generation: 0) }
+        thread.name = "part-hash"
+        thread.qualityOfService = .utility
+        thread.start()
         return h
     }
 
-    /// Bytes written at `offset` of the file: hashed when they follow the bytes hashed so far.
+    /// Reads and hashes the file from the bytes hashed so far up to `written`, until it has caught up.
+    private func catchUp(_ part: URL, kept: Int64, generation gen: Int) {
+        Self.beforeCatchUp.withLock { $0 }?()
+        let fh = try? FileHandle(forReadingFrom: part)
+        defer { try? fh?.close() }
+        var read: Int64 = 0
+        while true {
+            lock.lock()
+            guard generation == gen, catchingUp else {
+                lock.unlock()
+                return
+            }
+            let from = count, target = written
+            if from >= target {
+                // counted before `digest` can go on
+                Self.resumedBytes.withLock { $0 += min(read, kept) }
+                catchingUp = false
+                lock.broadcast()
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+            var piece: Data?
+            if let fh {
+                try? fh.seek(toOffset: UInt64(from))
+                piece = try? fh.read(upToCount: Int(min(target - from, 4 << 20)))
+            }
+            lock.lock()
+            guard generation == gen else {
+                lock.unlock()
+                return
+            }
+            guard let piece, !piece.isEmpty else {
+                broken = true
+                catchingUp = false
+                lock.broadcast()
+                lock.unlock()
+                return
+            }
+            sha.update(data: piece)
+            count += Int64(piece.count)
+            read += Int64(piece.count)
+            lock.unlock()
+        }
+    }
+
+    /// Bytes written at `offset` of the file: hashed when they follow the bytes hashed so far (noted, while the kept
+    /// bytes are read, when they follow the bytes on disk).
     func append(_ bytes: UnsafeRawBufferPointer, at offset: Int64) {
         lock.lock()
         defer { lock.unlock() }
         guard !broken else { return }
+        if catchingUp {
+            guard offset == written else {
+                broken = true
+                catchingUp = false
+                lock.broadcast()
+                return
+            }
+            written += Int64(bytes.count)
+            return
+        }
         guard offset == count else {
             broken = true
             return
         }
         sha.update(bufferPointer: bytes)
         count += Int64(bytes.count)
+        written = count
     }
 
     func append(_ data: Data, at offset: Int64) {
@@ -155,24 +252,32 @@ final class PartHasher: @unchecked Sendable {
     /// The file is now the one `other` hashed (a whole file in the partial file's place).
     func take(_ other: PartHasher) {
         other.lock.lock()
+        while other.catchingUp { other.lock.wait() }
         let (s, n, b) = (other.sha, other.count, other.broken)
         other.lock.unlock()
         lock.lock()
-        (sha, count, broken) = (s, n, b)
+        generation += 1
+        catchingUp = false
+        (sha, count, broken, written) = (s, n, b, n)
+        lock.broadcast()
         lock.unlock()
     }
 
     /// The partial file was emptied: its hash starts again.
     func restart() {
         lock.lock()
-        (sha, count, broken) = (SHA256(), 0, false)
+        generation += 1
+        catchingUp = false
+        (sha, count, broken, written) = (SHA256(), 0, false, 0)
+        lock.broadcast()
         lock.unlock()
     }
 
     /// The size and lowercase hex SHA-256 of `part`: from the bytes hashed as they were written, when they are every
-    /// byte the file holds; else read from the file.
+    /// byte the file holds; else read from the file. Waits for the kept bytes' thread to catch up.
     func digest(of part: URL) throws(RecognizerError) -> (Int64, String) {
         lock.lock()
+        while catchingUp { lock.wait() }
         let usable = !broken && count == ModelInstaller.sizeOnDisk(part)
         let (s, n) = (sha, count)
         lock.unlock()
@@ -247,6 +352,37 @@ struct ModelInstaller: Sendable {
     /// SDK 4.0: the Core's install of one encrypted file whose CDN form is on disk and verified (CDN form to device
     /// form, `qlc_install`). Without it an encrypted file cannot be installed.
     var install: EncryptedInstall?
+    /// SDK 4.0.5 (section 35): the switch and its share for the CPU set's download, read at its start; nil: no split and
+    /// no count (the accelerator files, one more file, a source without hosts).
+    var split: SplitPlan?
+    /// The CPU set's download of this install, while it runs (`install`).
+    private(set) var download: SplitDownload?
+    /// SDK 4.0.5 (STEERING_40 34.9.1): told the host (its name) that brought the last byte of a file whose SHA-256 is
+    /// wrong at its end (`bad_body`, once per such file). A file of two hosts in the switch's share is section 35.7's.
+    var badBody: (@Sendable (_ host: String) -> Void)?
+    /// SDK 4.0.5: the partial files' sizes when the download began (by path), so `resumed` and the kept
+    /// bytes count what an earlier call or process left, never a file this call began and took up again after the app
+    /// came back. Nil: every partial file on disk counts (as to 4.0.4).
+    var keptAtStart: [String: Int64]?
+    /// SDK 4.0.5 (38.8): told when a request of this install brings its first byte (`resume_ms` of the start's resume).
+    var firstByte: (@Sendable () -> Void)?
+    /// SDK 4.0.5 (38.5 item 2): awaited before the Core installs a file: the lease asked beside the transfer (the Core
+    /// installs nothing without the build's key). It throws the lease's failure.
+    var beforeInstall: InstallGate?
+
+    /// The partial files in `folder` and their sizes (for `keptAtStart`); a whole file on its way beside one counts for it
+    /// (`takeBeside`).
+    static func partials(in folder: URL) -> [String: Int64] {
+        let all = (FileManager.default.enumerator(atPath: folder.path)?.allObjects as? [String]) ?? []
+        var out: [String: Int64] = [:]
+        for name in all where name.hasSuffix(".part") {
+            let part = folder.appendingPathComponent(name)
+            let whole = HTTPClient.wholeFile(beside: part)
+            let n = FileManager.default.fileExists(atPath: whole.path) ? sizeOnDisk(whole) : sizeOnDisk(part)
+            if n > 0 { out[String(name.dropLast(5))] = n }
+        }
+        return out
+    }
 
     /// The rule of every TajweedFormer SDK (3.1.5): at most five retries per file in one call, after 1, 2, 4, 8 and
     /// 16 seconds.
@@ -264,10 +400,16 @@ struct ModelInstaller: Sendable {
     /// limit of its own: the app is suspended, and the round ends with the tasks or with the app's return).
     static let roundLimit = Locked<TimeInterval>(15 * 60)
 
+    /// SDK 4.0.5: the most bytes one background task asks for (`PIECE`, 64 MiB; tests set less).
+    static let pieceBytes = Locked<Int64>(Int64(ContinuityRules.piece))
+
     /// Starts a task for every stretch of `file` from `first` on that is neither kept beside its partial file nor on
-    /// its way already (`pending`: the names of the tasks that have not ended): one task for the rest of the file,
-    /// cut only where a range a 4.0.1 task kept, or a task still on its way, begins (SPEC 16.7). How many, or nil when
-    /// no request can be made now (no token).
+    /// its way already (`pending`: the names of the tasks that have not ended): the rest of the file, cut where a range
+    /// a 4.0.1 task kept, or a task still on its way, begins (SPEC 16.7), and (SDK 4.0.5, contract 38.4) in pieces of at
+    /// most 64 MiB, so a task the system cuts in the background costs one piece at most. `validator` is sent as
+    /// If-Range only with the open-ended resume of the partial file (from `first` to the end, 16.2); every other piece
+    /// sends its Range alone (the size and the SHA-256 decide). How many, or nil when no request can be made now (no
+    /// token).
     private func hand(_ plan: BackgroundPlan, _ file: ModelManifest.File, _ filePart: URL, from first: Int64, validator: String?,
                       pending: Set<String>) async -> Int? {
         let held = BackgroundRange.kept(beside: filePart)
@@ -285,8 +427,9 @@ struct ModelInstaller: Sendable {
             }
             let nextKept = held.first(where: { $0.lower > lower })?.lower ?? file.size
             let nextTask = onTheirWay.filter { $0.lower > lower }.map { $0.lower }.min() ?? file.size
-            let upper = min(nextKept, nextTask) - 1
-            guard let request = await plan.request(file.path, lower, upper, file.size, validator) else { return nil }
+            let upper = min(min(nextKept, nextTask), lower + Self.pieceBytes.withLock { $0 }) - 1
+            let ifRange = lower == first && upper == file.size - 1 ? validator : nil
+            guard let request = await plan.request(file.path, lower, upper, file.size, ifRange) else { return nil }
             plan.transport.start(request, key: BackgroundRange(folder: plan.folder, path: file.path, lower: lower, upper: upper, size: file.size).key)
             started += 1
             lower = upper + 1
@@ -294,9 +437,10 @@ struct ModelInstaller: Sendable {
         return started
     }
 
-    /// Hands what is left of an install to the background transport: the rest of `f` from `first` on, and the files that
-    /// come after it and have not begun (one that has begun is left to its turn), each file as one task. How many
-    /// tasks were started.
+    /// Hands what is left of an install to the background transport: the rest of `f` from `first` on, and the rest of
+    /// every file that comes after it, in pieces (`hand`). SDK 4.0.5: a file that has begun is handed
+    /// from its partial file's end with its validator too (to 4.0.4 it was left to its turn, so the app's next return
+    /// found it where it stood). How many tasks were started.
     private func handOver(_ plan: BackgroundPlan, _ f: ModelManifest.File, part: URL, from first: Int64, in folder: URL) async -> Int {
         let pending = await plan.transport.pending(prefix: BackgroundRange.prefix(folder: plan.folder))
         // unreadable is taken as not there here, because a range without a validator is asked for with the range
@@ -305,11 +449,13 @@ struct ModelInstaller: Sendable {
         guard var started = await hand(plan, f, part, from: first, validator: validator, pending: pending) else { return 0 }
         for other in plan.later.withLock({ $0 }) where !Self.present(other, in: folder) {
             let otherPart = BackgroundRange.part(folder, other.path)
-            guard Self.sizeOnDisk(otherPart) == 0 else { continue }
             // 4.0.1: a file that came whole beside the one in hand (`ensureAll`) waits for the Core as its verified CDN
             // form: nothing of it is asked for again
             guard Self.sizeOnDisk(folder.appendingPathComponent(other.path)) != other.size else { continue }
-            guard let more = await hand(plan, other, otherPart, from: 0, validator: nil, pending: pending) else { break }
+            let have = Self.sizeOnDisk(otherPart)
+            guard have < other.size else { continue }
+            let otherValidator = have > 0 ? (try? String(contentsOf: Self.validatorFile(otherPart), encoding: .utf8)) : nil
+            guard let more = await hand(plan, other, otherPart, from: have, validator: otherValidator, pending: pending) else { break }
             started += more
         }
         return started
@@ -417,8 +563,12 @@ struct ModelInstaller: Sendable {
     }
 
     /// The longest a task the app waits for (`adopt`) may go without a byte before it is cancelled and the app fetches its
-    /// bytes itself, in seconds.
-    static let stallLimit = Locked<TimeInterval>(60)
+    /// bytes itself, in seconds: SDK 4.0.5, 16.2's 30 s (to 4.0.4, 60 s).
+    static let stallLimit = Locked<TimeInterval>(Double(ContinuityRules.stallMs) / 1000)
+    /// SDK 4.0.5: a task the app finds out when it is active again (or at the Client's start) must
+    /// bring a byte within this, seconds, or it is cancelled and its stretch fetched in the foreground at once (a task
+    /// made in the background may be held by the system). To 4.0.4 the app waited up to 60 s for it.
+    static let probeLimit = Locked<TimeInterval>(Double(ContinuityRules.probeMs) / 1000)
 
     /// SDK 4.0.2 (SPEC 16.7): the app waits for the background task `task`, which begins at the partial file's next
     /// byte, and the loop joins what it brings. The wait ends when its range is kept, when it has ended without it
@@ -428,7 +578,10 @@ struct ModelInstaller: Sendable {
     private func adopt(_ plan: BackgroundPlan, _ task: BackgroundRange, part: URL) async throws(RecognizerError) {
         var seen: Int64 = -1
         var since = Date()
-        let limit = Self.stallLimit.withLock { $0 }
+        let stall = Self.stallLimit.withLock { $0 }
+        let probe = Self.probeLimit.withLock { $0 }
+        // the probe first: no byte yet in this wait (the count the task had when the wait began is not one)
+        var moved = false
         SDKLatest.debugOnly("model download: waiting for the background task of \(task.path) from byte \(task.lower)")
         while true {
             if Task.isCancelled { throw .cancelled }
@@ -444,13 +597,15 @@ struct ModelInstaller: Sendable {
                 return
             }
             let now = await plan.transport.received(prefix: task.key)
+            let limit = moved ? stall : probe
             if now != seen {
+                if seen >= 0 { moved = true }
                 seen = now
                 since = Date()
             } else if Date().timeIntervalSince(since) > limit {
                 let left = await plan.transport.cancel(prefix: task.key)
                 if !left.isEmpty { plan.abandoned(left.count) }
-                SDKLatest.debugOnly("model download: the background task of \(task.path) brought no byte for \(Int(limit)) s and was given up")
+                SDKLatest.debugOnly("model download: the background task of \(task.path) brought no byte for \(limit) s and was given up")
                 return
             }
             try? await Task.sleep(nanoseconds: 50_000_000)
@@ -510,8 +665,36 @@ struct ModelInstaller: Sendable {
         return length
     }
 
+    /// The partial file and everything kept beside it: its validator, its ranges (`.r<byte>`), its refetches (`.v<byte>`),
+    /// a whole file on its way.
+    static func removeWorkingFiles(of part: URL) {
+        let fm = FileManager.default
+        let dir = part.deletingLastPathComponent()
+        let stem = part.lastPathComponent
+        try? fm.removeItem(at: part)
+        for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where name.hasPrefix(stem + ".") {
+            try? fm.removeItem(at: dir.appendingPathComponent(name))
+        }
+    }
+
     /// The validator of a partial file, kept beside it: the strong ETag of the answer that started it.
     static func validatorFile(_ part: URL) -> URL { URL(fileURLWithPath: part.path + ".etag") }
+
+    /// SDK 4.0.5 (38.6, vector `beside_after_validator_change`): a whole file that was arriving beside the partial file
+    /// when an earlier process ended (a 200 to the resume: the file changed on its host) takes the partial file's place.
+    /// The partial file's bytes were of the file before it changed and go; the ones that arrived go on under the whole
+    /// file's validator, which was kept when it began. True when it did (the file started over, `restarted.validator`).
+    static func takeBeside(_ part: URL) -> Bool {
+        let fm = FileManager.default
+        let whole = HTTPClient.wholeFile(beside: part)
+        guard fm.fileExists(atPath: whole.path) else { return false }
+        try? fm.removeItem(at: part)
+        if (try? fm.moveItem(at: whole, to: part)) == nil {
+            try? fm.removeItem(at: whole)
+            fm.createFile(atPath: part.path, contents: nil)
+        }
+        return true
+    }
 
     /// The size of a file on disk now (not a value the URL remembers); 0 when it is not there.
     static func sizeOnDisk(_ file: URL) -> Int64 {
@@ -577,14 +760,22 @@ struct ModelInstaller: Sendable {
     /// beside others (`ensureAll`, policy `whenLeaving`) does not hand itself over when the app leaves: it ends where
     /// it stands (false), and the install goes on one file at a time, which hands what is left over as before. True:
     /// all of the file is on disk.
+    ///
+    /// SDK 4.0.5 (section 35): `split`, the split file's session. Its request to the end of the file is the decide's; when
+    /// the decide cuts it, it ends at its byte (no failure, no pause), and the loop waits for the decide's ranges before it
+    /// goes on. A range is kept in its own file beside the partial file and joined when the partial file reaches its first
+    /// byte, with or without a background plan. A remainder the decide asks to resume is 16.2's resume (its pause and its
+    /// count); a remainder the decide gave to another range is not.
     private func stream(_ streaming: any StreamingModelFileSource, _ f: ModelManifest.File, part: URL, from start: Int64,
-                        hash: PartHasher, yieldWhenAway: Bool = false,
+                        hash: PartHasher, yieldWhenAway: Bool = false, split: SplitSession? = nil,
                         report: inout InstallReport, meter: ProgressMeter?) async throws(RecognizerError) -> Bool {
         let fm = FileManager.default
         let kept = Self.validatorFile(part)
         let folder = URL(fileURLWithPath: String(part.path.dropLast((f.path + ".part").count)), isDirectory: true)
         var have = start
         var retries = 0
+        // SDK 4.0.5: the requests of this file whose remainder the decide carried itself (bounded, so nothing loops)
+        var carried = 0
         // `fromFirstByte`: its one round for this file was made
         var handed = false
         // `whenResigning`: the first byte of this file that is the background's while its tasks are out
@@ -602,11 +793,23 @@ struct ModelInstaller: Sendable {
         while have < f.size {
             // a refusal that stops the model has arrived (a background task may have met it): no further request
             if let stop = background?.stopped() { throw stop }
+            // SDK 4.0.5 (35.3 item 3): a refusal a range of section 35 got is the call's answer
+            if let refusal = split?.refusal { throw refusal.recognizerError }
             if yieldWhenAway, let plan = background, plan.handOver.isAway { return false }
-            if background != nil, let joined = try join(part, at: have, size: f.size, hash: hash) {
+            // SDK 4.0.5: a range kept beside the partial file is joined with or without a background plan (a range of
+            // section 35 is kept so); the progress was told its bytes as they arrived, so only the rest is told now
+            let keptRange = BackgroundRange.file(part: part, lower: have)
+            if let joined = try join(part, at: have, size: f.size, hash: hash) {
+                let metered = min(joined, download?.takeMetered(keptRange) ?? 0)
+                // SDK 4.0.5 (38.8): a range this call's split did not fetch was brought by a background task, or left by
+                // an earlier call or process: kept bytes, carried by the system
+                if metered == 0 {
+                    report.joinedBackground = true
+                    report.keptBytes += joined
+                }
                 have += joined
                 report.downloadedBytes += joined
-                meter?.add(joined)
+                meter?.add(joined - metered)
                 continue
             }
             if let plan = background, plan.policy == .whenResigning {
@@ -638,6 +841,7 @@ struct ModelInstaller: Sendable {
                 let away = plan.handOver.isAway
                 if plan.policy == .whenLeaving ? away : !handed {
                     handed = true
+                    if away { report.handed = true }
                     await backgroundRound(plan, f, part: part, from: have, in: folder)
                     // the round brought the next byte, or the app is back and waits for the tasks or fetches the rest
                     // itself: go on
@@ -665,7 +869,7 @@ struct ModelInstaller: Sendable {
             let before = have
             // not past the first byte of a range that is kept already or of a task on its way, nor past the first byte
             // that is the background's
-            let nextKept = background == nil ? f.size : (BackgroundRange.kept(beside: part).first(where: { $0.lower > before })?.lower ?? f.size)
+            let nextKept = BackgroundRange.kept(beside: part).first(where: { $0.lower > before })?.lower ?? f.size
             let next = min(nextKept, nextPending, theirs ?? f.size)
             // SDK 4.0.2 (SPEC 16.7): the rest of the file in one request; it stops short only where a kept range begins
             let upper = next - 1
@@ -677,6 +881,9 @@ struct ModelInstaller: Sendable {
             let restarted = Locked(false)
             let path = f.path
             let size = f.size
+            // SDK 4.0.5: the request's control. The split file's request to the end of the file is the decide's (35.6
+            // `main`, `req`); another file's request of a split download tells its host's bytes (`lane`)
+            let control = split != nil ? split?.fileRequest(lower: before, end: next) : download?.laneControl(lower: before, end: next)
             // told when the request has ended, and (for `whenResigning`) when the app's state changes
             let (events, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(8))
             let ended = Locked(false)
@@ -687,6 +894,7 @@ struct ModelInstaller: Sendable {
                 }
                 do throws(RecognizerError) {
                     _ = try await streaming.stream(path, lower: before, upper: upper, size: size, validator: validator, into: part, hash: hash,
+                                                   control: control,
                                                    started: { (answered: String?, whole: Bool) in
                                                        // the answer that starts the partial file, or starts it again
                                                        guard before == 0 || whole else { return }
@@ -697,7 +905,10 @@ struct ModelInstaller: Sendable {
                                                            try? FileManager.default.removeItem(at: kept)
                                                        }
                                                    },
-                                                   received: { (n: Int64) in meter?.add(n) })
+                                                   received: { (n: Int64) in
+                                                       meter?.add(n)
+                                                       if n > 0 { firstByte?() }
+                                                   })
                     return nil
                 } catch {
                     return error
@@ -724,25 +935,58 @@ struct ModelInstaller: Sendable {
                 failure = await request.value
             } else {
                 // the app leaves the foreground: the request ends where it stands
+                // SDK 4.0.5: the ranges of section 35 end with it (they keep what they wrote, in their own files)
                 var leaving: UUID?
-                if let plan = background, plan.policy == .whenLeaving { leaving = plan.handOver.onAway { request.cancel() } }
+                if let plan = background, plan.policy == .whenLeaving {
+                    leaving = plan.handOver.onAway {
+                        request.cancel()
+                        split?.cancelAll()
+                    }
+                }
                 failure = await withTaskCancellationHandler {
                     await request.value
                 } onCancel: {
                     request.cancel()
+                    split?.cancelAll()
                 }
                 if let leaving { background?.handOver.remove(leaving) }
+            }
+            // SDK 4.0.5 (35.6): the decide is told the request's end, and its ranges end before the loop goes on; a
+            // refusal one of them got is the call's answer
+            var resumeAsked = false
+            if let split {
+                let away = background?.policy == .whenLeaving && (background?.handOver.isAway ?? false)
+                if let control { split.fileRequestEnded(control, failed: failure != nil, cancelled: Task.isCancelled || away) }
+                await split.idle()
+                if let refusal = split.refusal { throw refusal.recognizerError }
+                resumeAsked = split.takeResume() != nil
             }
             // what is on disk now is what counts, however the request ended
             let onDisk = Self.sizeOnDisk(part)
             report.downloadedBytes += restarted.withLock { $0 } ? onDisk : max(0, onDisk - before)
+            report.fetchedBytes += restarted.withLock { $0 } ? onDisk : max(0, onDisk - before)
+            // SDK 4.0.5 (38.6): the file started over, the whole file in the partial file's place
+            if restarted.withLock({ $0 }) { report.restarted[validator != nil ? "validator" : "other", default: 0] += 1 }
             have = onDisk
             if failure == nil {
-                if onDisk > before || restarted.withLock({ $0 }) { continue }
+                if onDisk > before || restarted.withLock({ $0 }) || control?.reached == true {
+                    // SDK 4.0.5 (35.5 item 9): a remainder the decide asks to resume, with no range of it running, is 16.2's
+                    // resume: its pause and its count, before the next request
+                    if resumeAsked, !Task.isCancelled {
+                        try await afterFailedAttempt(.offline("a range of \(f.path) on a second host ended before its end"), &retries)
+                    }
+                    continue
+                }
                 // an answer that brought no new byte is a failed attempt, whatever it said
                 failure = .updateDeferred("the download server's answer brought no new byte of \(f.path)")
             }
             guard let failure else { continue }
+            // SDK 4.0.5 (35.5 items 7 to 9): the decide gave what this request left to a range of another host (no
+            // remainder to resume): that is no failed attempt of 16.2, no pause and no count
+            if let split, control?.taken == true, !Task.isCancelled, split.alive, carried < 8, !resumeAsked {
+                carried += 1
+                continue
+            }
             // ended because the app left, not by the network: the hand-over follows, and no try is counted
             if let plan = background, plan.policy == .whenLeaving, plan.handOver.isAway, !Task.isCancelled { continue }
             // `whenResigning`: the app's own range failed while the app is in the background, where the app cannot
@@ -755,6 +999,7 @@ struct ModelInstaller: Sendable {
             if case .serverRejected(status: 416, _, _, _) = failure {
                 // the stored bytes run past the server's file: they go, with their validator, and the file starts
                 // again as one of its tries
+                report.restarted["too_long", default: 0] += 1
                 try? fm.removeItem(at: part)
                 try? fm.removeItem(at: kept)
                 guard fm.createFile(atPath: part.path, contents: nil) else { throw .storageFailed("cannot create \(f.path).part") }
@@ -791,19 +1036,35 @@ struct ModelInstaller: Sendable {
         let cpu = profile.cpuFiles(manifest)
         meter?.start(total: DownloadProfile.bytes(cpu))
         try checkSpace(cpu, in: folder)
-        try await ensureAll(cpu, in: folder, report: &report, counted: true)
+        // SDK 4.0.5 (35.1): the CPU set's largest file may take a second host for its tail; the accelerator's files never.
+        // Not with the measurement's background policies, which keep one file at a time and hand whole files over.
+        var me = self
+        if let split, background == nil || background?.policy == .whenLeaving { me.download = SplitDownload(plan: split, files: cpu) }
+        try await me.ensureAll(cpu, in: folder, report: &report, counted: true)
         try manifest.write(to: folder)
+        // SDK 4.0.5: the self-test set, the model's sample clips, right after the CPU set; best effort: a failure, the
+        // network's included, leaves the model as it is (its sample clips are then the SDK's bundled ones)
+        let samples = profile.sampleFiles(manifest).filter { s in !cpu.contains { $0.localPath == s.localPath } }
+        var sampled: [ModelManifest.File] = []
+        if !samples.isEmpty {
+            do throws(RecognizerError) {
+                try await ensureAll(samples, in: folder, report: &report, counted: false)
+                sampled = samples
+            } catch {}
+        }
         if !profile.appleFiles(manifest).isEmpty {
             do throws(RecognizerError) {
                 let a = try await installAccelerator(manifest, profile: profile, into: folder)
-                report.downloadedBytes += a.downloadedBytes
-                report.resumed = report.resumed || a.resumed
+                report.merge(a)
             } catch {
                 if case .offline = error { throw error }
                 report.appleUnavailable = "\(error)"
             }
         }
-        let kept = cpu + (report.appleUnavailable == nil ? profile.appleFiles(manifest) : [])
+        var kept = cpu + sampled
+        for f in (report.appleUnavailable == nil ? profile.appleFiles(manifest) : []) where !kept.contains(where: { $0.localPath == f.localPath }) {
+            kept.append(f)
+        }
         report.profileBytes = DownloadProfile.bytes(kept)
         report.diskBytes = kept.reduce(0) { $0 + ($1.isEncrypted ? $1.deviceFormSize : $1.localSize) }
         return report
@@ -917,7 +1178,8 @@ struct ModelInstaller: Sendable {
                             yieldWhenAway: Bool) async -> (Int, Result<(Obtained, InstallReport), RecognizerError>) {
         var r = InstallReport()
         do throws(RecognizerError) {
-            let obtained = try await obtain(f, in: folder, report: &r, meter: meter, yieldWhenAway: yieldWhenAway)
+            // the files' ends are told by `fetchTogether`, which knows which failure was the call's
+            let obtained = try await obtain(f, in: folder, report: &r, meter: meter, yieldWhenAway: yieldWhenAway, traced: false)
             return (i, .success((obtained, r)))
         } catch {
             return (i, .failure(error))
@@ -952,15 +1214,22 @@ struct ModelInstaller: Sendable {
             for await (i, result) in group {
                 switch result {
                 case .failure(let error):
-                    // the first failure is the call's; the transfers still on their way stop and keep what they wrote
+                    // the first failure is the call's; the transfers still on their way stop and keep what they wrote.
+                    // SDK 4.0.5 (34.9.7): the call's failure ends its file; the files a sibling's failure stopped are
+                    // in no outcome; a cancelled call ends every file in flight as cancelled
                     if failure == nil {
                         failure = error
                         group.cancelAll()
+                        traceEnd(files[i], error)
+                    } else if Task.isCancelled {
+                        traceEnd(files[i], error)
                     }
                 case .success(let (obtained, r)):
-                    report.downloadedBytes += r.downloadedBytes
-                    report.resumed = report.resumed || r.resumed
-                    if case .leftHalfway = obtained { halfway = true } else { ready[i] = obtained }
+                    report.merge(r)
+                    if case .leftHalfway = obtained { halfway = true } else {
+                        ready[i] = obtained
+                        traceEnd(files[i], nil)
+                    }
                 }
                 // the Core's installs, in order, as far as the files are here
                 while failure == nil, !halfway, let obtained = ready.removeValue(forKey: next) {
@@ -1003,8 +1272,29 @@ struct ModelInstaller: Sendable {
 
     /// `ensure` up to the Core's install: the file kept when it is on disk and matching, a CDN form an earlier call left
     /// handed on, else the file downloaded (`download`).
+    /// SDK 4.0.5 (STEERING_40 34.9.7): a file's download ended, with its failure or none (counted on its hosts).
+    private func traceEnd(_ f: ModelManifest.File, _ error: RecognizerError?) {
+        guard let cdn = source as? CDNFileSource else { return }
+        guard let error else { return cdn.fileEnded(f.path, .done) }
+        cdn.fileEnded(f.path, DownloadTrace.end(of: error, cancelled: Task.isCancelled))
+    }
+
+    /// `traced`: tells the file's end (34.9.7); `fetchTogether` tells it itself.
     private func obtain(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport, meter: ProgressMeter?,
-                        yieldWhenAway: Bool) async throws(RecognizerError) -> Obtained {
+                        yieldWhenAway: Bool, traced: Bool = true) async throws(RecognizerError) -> Obtained {
+        guard traced else { return try await obtainOnce(f, in: folder, report: &report, meter: meter, yieldWhenAway: yieldWhenAway) }
+        do throws(RecognizerError) {
+            let o = try await obtainOnce(f, in: folder, report: &report, meter: meter, yieldWhenAway: yieldWhenAway)
+            if case .leftHalfway = o {} else { traceEnd(f, nil) }
+            return o
+        } catch {
+            traceEnd(f, error)
+            throw error
+        }
+    }
+
+    private func obtainOnce(_ f: ModelManifest.File, in folder: URL, report: inout InstallReport, meter: ProgressMeter?,
+                            yieldWhenAway: Bool) async throws(RecognizerError) -> Obtained {
         let dst = folder.appendingPathComponent(f.localPath)
         if f.isEncrypted {
             if Self.present(f, in: folder) {
@@ -1050,6 +1340,8 @@ struct ModelInstaller: Sendable {
     /// one file at a time or several.
     private func coreInstall(_ f: ModelManifest.File, cdn: URL, downloads: Int, in folder: URL, report: inout InstallReport,
                              meter: ProgressMeter?) async throws(RecognizerError) {
+        // SDK 4.0.5 (38.5 item 2): a lease asked beside the transfer is answered before the Core installs a file
+        if let beforeInstall { try await beforeInstall.run() }
         var cdn = cdn, downloads = downloads
         while true {
             do throws(RecognizerError) {
@@ -1084,22 +1376,37 @@ struct ModelInstaller: Sendable {
         let part = folder.appendingPathComponent(f.path + ".part")
         let dst = folder.appendingPathComponent(f.localPath)
         try? fm.createDirectory(at: part.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // SDK 4.0.5 (38.6): a whole file an earlier process left on its way beside the partial file takes its place
+        if Self.takeBeside(part) { report.restarted["validator", default: 0] += 1 }
         // the size on disk now: a URL's cached resource value made a resumed download start at 0 (3.1.5 e0ce1b5)
         var have = fm.fileExists(atPath: part.path) ? Self.sizeOnDisk(part) : -1
-        if have > f.size { try? fm.removeItem(at: part); try? fm.removeItem(at: Self.validatorFile(part)); have = -1 }
+        if have > f.size {
+            try? fm.removeItem(at: part)
+            try? fm.removeItem(at: Self.validatorFile(part))
+            have = -1
+            report.restarted["too_long", default: 0] += 1
+        }
         if have < 0 {
             guard fm.createFile(atPath: part.path, contents: nil) else { throw .storageFailed("cannot create \(f.path).part") }
             have = 0
         } else if have > 0 {
-            report.resumed = true
+            // SDK 4.0.5 (38.8): `resumed` and the kept bytes are what an earlier call or process left
+            let left = keptAtStart.map { min(have, $0[f.path] ?? 0) } ?? have
+            if left > 0 {
+                report.resumed = true
+                report.keptBytes += left
+            }
             kept = have
             meter?.add(have)
         }
         // 4.0.1: the SHA-256 as the bytes are written (the bytes kept from an earlier call hashed first), so the file
         // is not read again once its last byte is in. Before 4.0.1 it was read whole after the last byte.
         let hash = PartHasher.resuming(part, have: have)
+        // SDK 4.0.5 (section 35): the split file of the CPU set's download has its session while it is fetched
+        let session = download?.session(for: f, part: part, source: source, meter: meter)
+        defer { session?.finish() }
         if let streaming = source as? any StreamingModelFileSource {
-            guard try await stream(streaming, f, part: part, from: have, hash: hash, yieldWhenAway: yieldWhenAway,
+            guard try await stream(streaming, f, part: part, from: have, hash: hash, yieldWhenAway: yieldWhenAway, split: session,
                                    report: &report, meter: meter) else { return .halfway }
             have = f.size
         }
@@ -1126,9 +1433,31 @@ struct ModelInstaller: Sendable {
             try? h.close()
             throw .storageFailed("cannot write \(f.path).part: \(error.localizedDescription)")
         }
-        let (size, sha) = try hash.digest(of: part)
+        var (size, sha) = try hash.digest(of: part)
+        // SDK 4.0.5 (35.7 item 3): in the share, the check goes to the decide. A mismatch with two hosts fetches every
+        // range the others brought again from the host that brought the most, written over them, and the file is checked
+        // again; a second mismatch, or one host only, starts the file again from 0 without the hosts found bad. The
+        // refetch is not one of the file's two downloads (16.1) and the progress does not move for it.
+        if let session, session.verifies {
+            var ok = size == f.size && sha == f.sha256
+            check: while true {
+                switch await session.hashed(ok) {
+                case .passed:
+                    break check
+                case .refetched:
+                    (size, sha) = try ModelManifest.digest(part)
+                    ok = size == f.size && sha == f.sha256
+                case .restart:
+                    Self.removeWorkingFiles(of: part)
+                    (source as? CDNFileSource)?.hosts?.restart(f.path, avoiding: session.badHosts)
+                    throw .checksumMismatch(file: f.path)
+                }
+            }
+        }
         guard size == f.size, sha == f.sha256 else {
+            if let h = (source as? CDNFileSource)?.lastHost(f.path) { badBody?(h) }
             try? fm.removeItem(at: part)
+            report.restarted["hash", default: 0] += 1
             throw .checksumMismatch(file: f.path)
         }
         if f.isEncrypted {
@@ -1161,6 +1490,12 @@ struct ModelInstaller: Sendable {
         }
         return .placed
     }
+}
+
+/// SDK 4.0.5: what an install awaits before the Core installs a file (`ModelInstaller.beforeInstall`; a struct for the
+/// reason `EncryptedInstall` is one).
+struct InstallGate: Sendable {
+    let run: @Sendable () async throws(RecognizerError) -> Void
 }
 
 /// The Core's install of one encrypted file (a struct, so the typed-throws function is never a generic argument: that

@@ -220,6 +220,8 @@ final class ModelGate: Sendable {
             if Self.refusesRemoval.withLock({ $0 })?() ?? false { return false }
             guard (try? fm.removeItem(at: models)) != nil else { return false }
         }
+        // SDK 4.0.5: a refusal that stops the model removes the owed downloads' records too
+        try? fm.removeItem(at: OwedDownloads.directory(models))
         owed.withLock { $0 = false }
         try? fm.removeItem(at: owedMark)
         return true

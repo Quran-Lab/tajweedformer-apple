@@ -329,7 +329,7 @@ final class NamesVectorTests: XCTestCase {
         XCTAssertEqual(backend["stage"] as? [String], [TajweedBackend.Stage.cpu, .downloading, .compiling, .testing, .promoted, .demoted].map(\.rawValue))
         // the 14 of 3.x first, in their order; SDK 4.0 appends slower_than_cpu and interrupted (accel_40.json's order)
         XCTAssertEqual(backend["reason"] as? [String], PromotionReason.allCases.prefix(14).map(\.rawValue))
-        XCTAssertEqual(PromotionReason.allCases.dropFirst(14).map(\.rawValue), ["slower_than_cpu", "interrupted"])
+        XCTAssertEqual(PromotionReason.allCases.dropFirst(14).map(\.rawValue), ["slower_than_cpu", "interrupted", "not_attested"])
         let pattern = try XCTUnwrap(backend["name_pattern"] as? String)
         for name in ["cpu", "coreml", "coreml-compact"] { XCTAssertNotNil(name.range(of: pattern, options: .regularExpression), name) }
         let options = try XCTUnwrap(v["session_options"] as? [String: Any])

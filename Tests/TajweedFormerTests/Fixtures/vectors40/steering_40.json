@@ -86,6 +86,30 @@
       "p2",
       "p1"
      ]
+    },
+    "LY": {
+     "models": [
+      "p1",
+      "p2",
+      "p3",
+      "p4"
+     ]
+    },
+    "LY-TB": {
+     "models": [
+      "p4",
+      "p1",
+      "p2",
+      "p3"
+     ]
+    },
+    "AE-DU": {
+     "models": [
+      "p1",
+      "p3",
+      "p2",
+      "p4"
+     ]
     }
    }
   },
@@ -335,6 +359,180 @@
     }
    },
    {
+    "name": "a region row beats its country",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "LY",
+     "asn": 37284,
+     "region": "TB"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn-b.tajweedformer.com",
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "another region of the country: the country row",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "LY",
+     "asn": 37284,
+     "region": "BA"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "no region: the country row",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "LY",
+     "asn": 37284
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a network row beats a region row",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE",
+     "asn": 5384,
+     "region": "DU"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn-b.tajweedformer.com",
+      "cdn-g.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a region row beats its country on a network without a row",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE",
+     "asn": 8966,
+     "region": "DU"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "an SDK before 4.0.1 in a region with a row: nothing",
+    "request": {
+     "sdk": "4.0.0",
+     "country": "LY",
+     "region": "TB"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": null
+   },
+   {
     "name": "a guarded provider at 80%: behind the first unguarded one",
     "request": {
      "sdk": "4.0.1",
@@ -378,6 +576,65 @@
       "cdn-a.tajweedformer.com",
       "cdn3.quranlab.ai",
       "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "only the plan-guarded provider over: the first host takes its place, the per-byte one never moves up",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE",
+     "asn": 8966
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": true
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a moved provider already behind the first host stays where it is",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "EG"
+    },
+    "guard": {
+     "plan": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": true
+     },
+     "per_byte": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
       "cdn-b.tajweedformer.com"
      ]
     }
@@ -493,6 +750,535 @@
       "cdn-a.tajweedformer.com",
       "cdn3.quranlab.ai",
       "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   }
+  ]
+ },
+ "server_groups": {
+  "table": {
+   "v": 1,
+   "providers": {
+    "cloudflare": {
+     "models": [
+      "cdn.quranlab.ai"
+     ],
+     "api": [
+      "api.quranlab.ai"
+     ]
+    },
+    "cf2": {
+     "models": [
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com"
+     ],
+     "guard": "cloudfront",
+     "distribution": "cdn2"
+    },
+    "cfa": {
+     "models": [
+      "cdn-a.tajweedformer.com"
+     ],
+     "guard": "cloudfront",
+     "distribution": "cdn-a"
+    },
+    "cf6": {
+     "models": [
+      "cdn6.quranlab.ai"
+     ],
+     "guard": "cloudfront",
+     "distribution": "cdn6"
+    },
+    "cf8": {
+     "models": [
+      "cdn8.quranlab.ai"
+     ],
+     "guard": "cloudfront",
+     "distribution": "cdn8"
+    },
+    "google": {
+     "models": [
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com"
+     ],
+     "guard": "google"
+    },
+    "netcup": {
+     "models": [
+      "cdn-b.tajweedformer.com"
+     ]
+    },
+    "node4": {
+     "models": [
+      "cdn4.quranlab.ai"
+     ],
+     "guard": "node",
+     "node": "cdn4"
+    }
+   },
+   "groups": {
+    "gulf": [
+     "cf2",
+     "cf8",
+     "cfa"
+    ],
+    "levant": [
+     "cf6",
+     "cf8",
+     "cf2",
+     "cfa"
+    ]
+   },
+   "rows": {
+    "AE": {
+     "models": [
+      "@gulf",
+      "google",
+      "cloudflare",
+      "netcup"
+     ]
+    },
+    "TR": {
+     "models": [
+      "@levant",
+      "cloudflare",
+      "google",
+      "netcup"
+     ]
+    },
+    "SA": {
+     "models": [
+      "node4",
+      "cloudflare",
+      "google",
+      "@gulf",
+      "netcup"
+     ]
+    },
+    "DK": {
+     "models": [
+      "cf6",
+      "cloudflare"
+     ]
+    }
+   }
+  },
+  "now": 1795350000,
+  "month": "2026-11",
+  "cases": [
+   {
+    "name": "a group whose first distribution is on Free: the first on Pro with room",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "TR"
+    },
+    "guard": {
+     "google": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "cloudfront:cdn2": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn-a": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn6": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "cloudfront:cdn8": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "node:cdn4": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "the group's own distribution on Pro: it takes the group",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "TR"
+    },
+    "guard": {
+     "google": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "cloudfront:cdn2": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn-a": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn6": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn8": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "node:cdn4": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn6.quranlab.ai",
+      "cdn.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com",
+      "cdn-a.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "at 80%: the next on Pro with room",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE"
+    },
+    "guard": {
+     "google": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "cloudfront:cdn2": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": true
+     },
+     "cloudfront:cdn-a": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn6": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "cloudfront:cdn8": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "node:cdn4": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn.quranlab.ai",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "every one on Pro at 80%: the first on Pro, behind the first host",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE"
+    },
+    "guard": {
+     "google": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "cloudfront:cdn2": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": true
+     },
+     "cloudfront:cdn-a": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": true
+     },
+     "cloudfront:cdn6": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "cloudfront:cdn8": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "node:cdn4": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a stale reading is over",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "AE"
+    },
+    "guard": {
+     "google": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "cloudfront:cdn2": {
+      "month": "2026-11",
+      "at": 1795220399,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn-a": {
+      "month": "2026-11",
+      "at": 1795220399,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn6": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "cloudfront:cdn8": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "node:cdn4": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a distribution on Free named in a row: left out (here the built-in list remains: nothing sent)",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "DK"
+    },
+    "guard": {
+     "google": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "cloudfront:cdn2": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn-a": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn6": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "cloudfront:cdn8": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "node:cdn4": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": null
+   },
+   {
+    "name": "a node first, Google over: Google behind the first host, the node stays first",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "SA"
+    },
+    "guard": {
+     "google": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": true
+     },
+     "cloudfront:cdn2": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn-a": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn6": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "cloudfront:cdn8": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "node:cdn4": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn4.quranlab.ai",
+      "cdn.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
+      "cdn-b.tajweedformer.com"
+     ]
+    }
+   },
+   {
+    "name": "a node over its budget: behind the first host",
+    "request": {
+     "sdk": "4.0.1",
+     "country": "SA"
+    },
+    "guard": {
+     "google": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": false
+     },
+     "cloudfront:cdn2": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn-a": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "pro",
+      "over": false
+     },
+     "cloudfront:cdn6": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "cloudfront:cdn8": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "plan": "free",
+      "over": true
+     },
+     "node:cdn4": {
+      "month": "2026-11",
+      "at": 1795349400,
+      "over": true
+     }
+    },
+    "endpoints": {
+     "models": [
+      "cdn.quranlab.ai",
+      "cdn4.quranlab.ai",
+      "cdn3.quranlab.ai",
+      "cdn-g.tajweedformer.com",
+      "cdn2.quranlab.ai",
+      "cdn-a.tajweedformer.com",
       "cdn-b.tajweedformer.com"
      ]
     }
@@ -1569,6 +2355,4532 @@
      }
     ],
     "accepted": false
+   },
+   {
+    "name": "4.0.4: why requests failed, over which version, and the day's first entry",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "4.0.4: every class and version named, zeros included",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "offline": 0,
+       "dns": 0,
+       "connect": 0,
+       "tls": 0,
+       "timeout": 0,
+       "no_answer": 0,
+       "http_3xx": 0,
+       "http_403": 0,
+       "http_404": 0,
+       "http_429": 0,
+       "http_4xx": 0,
+       "http_503": 0,
+       "http_5xx": 0,
+       "cut": 0,
+       "bad_body": 0
+      },
+      "proto": {
+       "h1": 0,
+       "h2": 0,
+       "h3": 0
+      },
+      "day_first": 0
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "4.0.4: empty objects (nothing failed, no status)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 0,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {},
+      "proto": {},
+      "day_first": 0
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "4.0.4 beside an entry without the fields: each is optional",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1
+     },
+     {
+      "role": "models",
+      "host": "cdn.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ]
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "more failures than requests: taken (a request and its end may be in different sends)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 1,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "timeout": 3
+      },
+      "proto": {
+       "h2": 5
+      },
+      "day_first": 0
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "an unknown failure class",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "http_418": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "an unknown version",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "quic": 1
+      },
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a failure count that is not a whole number",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1.5
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a negative failure count",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": -1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "fail as a list",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "day_first 2",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 2
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "day_first true (a number, not a boolean)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": true
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "4.0.4: moves and outcome (cdn4 to cdn3 on timeout, 2; the files and the downloads that ended)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn4.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn3.quranlab.ai",
+        "why": "timeout",
+        "n": 2
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "slow",
+        "n": 1
+       }
+      ],
+      "outcome": {
+       "failed": {
+        "http_404": 1
+       },
+       "cancelled": 1,
+       "paused": 0,
+       "not_ready": 1
+      }
+     },
+     {
+      "role": "models",
+      "host": "cdn3.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "outcome": {
+       "moved": 2,
+       "ready": 1
+      }
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "4.0.4: empty moves and an empty outcome",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [],
+      "outcome": {}
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "4.0.4: 32 moves in the body (the cap)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "n0.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "offline",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "no_answer",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_3xx",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_403",
+        "n": 1
+       }
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n1.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "offline",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "no_answer",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_3xx",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_403",
+        "n": 1
+       }
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "offline",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "no_answer",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_3xx",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_403",
+        "n": 1
+       }
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n3.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "offline",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "no_answer",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_3xx",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_403",
+        "n": 1
+       }
+      ]
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "a move to the same host",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn2.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       }
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a move to a host off the allow-list",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.example.com",
+        "why": "dns",
+        "n": 1
+       }
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a move for a reason that is not one",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "unreachable",
+        "n": 1
+       }
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a move of 0 (a pair is sent only when it happened)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 0
+       }
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "the same (to, why) twice in an entry",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 2
+       }
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a move with a field more (a path)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1,
+        "path": "/models/x"
+       }
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "33 moves in the body",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "n0.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "offline",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "no_answer",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_3xx",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_403",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_404",
+        "n": 1
+       }
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n1.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "offline",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "no_answer",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_3xx",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_403",
+        "n": 1
+       }
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "offline",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "no_answer",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_3xx",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_403",
+        "n": 1
+       }
+      ]
+     },
+     {
+      "role": "models",
+      "host": "n3.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "moves": [
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "offline",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "no_answer",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_3xx",
+        "n": 1
+       },
+       {
+        "to": "cdn.quranlab.ai",
+        "why": "http_403",
+        "n": 1
+       }
+      ]
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "an outcome key that is not one (first: read from files less moved)",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "outcome": {
+       "first": 3
+      }
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "an outcome failed by a class that is not one",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "outcome": {
+       "failed": {
+        "slow": 1
+       }
+      }
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a negative outcome count",
+    "hosts": [
+     {
+      "role": "models",
+      "host": "cdn2.quranlab.ai",
+      "files": 9,
+      "bytes": 56544952,
+      "requests": 11,
+      "unreachable": 0,
+      "hedged": 1,
+      "slow_switches": 0,
+      "ttfb_ms": [
+       0,
+       3,
+       5,
+       2,
+       1,
+       0,
+       0,
+       0,
+       0
+      ],
+      "kbps": [
+       0,
+       0,
+       0,
+       1,
+       2,
+       3,
+       2,
+       1,
+       0,
+       0
+      ],
+      "fail": {
+       "dns": 1,
+       "http_404": 2,
+       "cut": 1
+      },
+      "proto": {
+       "h2": 9,
+       "h3": 1
+      },
+      "day_first": 1,
+      "outcome": {
+       "cancelled": -1
+      }
+     }
+    ],
+    "accepted": false
+   }
+  ],
+  "fail_keys": [
+   "offline",
+   "dns",
+   "connect",
+   "tls",
+   "timeout",
+   "no_answer",
+   "http_3xx",
+   "http_403",
+   "http_404",
+   "http_429",
+   "http_4xx",
+   "http_503",
+   "http_5xx",
+   "cut",
+   "bad_body"
+  ],
+  "proto_keys": [
+   "h1",
+   "h2",
+   "h3"
+  ],
+  "move_why": [
+   "offline",
+   "dns",
+   "connect",
+   "tls",
+   "timeout",
+   "no_answer",
+   "http_3xx",
+   "http_403",
+   "http_404",
+   "http_429",
+   "http_4xx",
+   "http_503",
+   "http_5xx",
+   "cut",
+   "bad_body",
+   "slow",
+   "hedge"
+  ],
+  "moves_max": 32,
+  "outcome_keys": [
+   "moved",
+   "failed",
+   "cancelled",
+   "paused",
+   "ready",
+   "not_ready"
+  ]
+ },
+ "hosts_send": {
+  "dl_sends": 4,
+  "days": [
+   "2026-11-22",
+   "2026-11-23"
+  ],
+  "wire_body": {
+   "v": 2,
+   "day": "2026-11-22",
+   "product": "native",
+   "platform": "windows",
+   "sdk_version": "4.0.4",
+   "app_version": "1.0",
+   "device": {
+    "class": "x86_64",
+    "soc": "x86_64",
+    "os_major": 10,
+    "ram_tier": "8_16"
+   },
+   "cohorts": [],
+   "report_id": "6f1c0e9a4b2d47e8a1c3f5d7b9e0a2c4",
+   "hosts": [
+    {
+     "role": "models",
+     "host": "cdn.quranlab.ai",
+     "files": 0,
+     "bytes": 0,
+     "requests": 1,
+     "unreachable": 1,
+     "hedged": 0,
+     "slow_switches": 0,
+     "ttfb_ms": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "kbps": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "fail": {
+      "dns": 1
+     },
+     "proto": {},
+     "day_first": 1
+    },
+    {
+     "role": "models",
+     "host": "cdn2.quranlab.ai",
+     "files": 9,
+     "bytes": 54000000,
+     "requests": 9,
+     "unreachable": 0,
+     "hedged": 0,
+     "slow_switches": 0,
+     "ttfb_ms": [
+      0,
+      0,
+      9,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "kbps": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      9,
+      0,
+      0,
+      0,
+      0
+     ],
+     "fail": {},
+     "proto": {
+      "h2": 9
+     },
+     "day_first": 1
+    }
+   ]
+  },
+  "note": "kind is not on the wire: download, the send after a download (34.9.2); delta, an ordinary send point, whose body also carries the day's other counts (not shown). A report id here is r1, r2, ... in seal order; on the wire it is 32 random lower-case hex digits per body. An answer: 202; lost (the server counted it, the SDK got no answer); 503 (not counted, kept); not sent (no network, or the process ended first). A step without answers: 202 for each body sent. In fail and proto a key left out is 0. server_sums, per day and host: what the server counted, entries (counted bodies naming the host) and installs (of them, day_first 1: 34.9.4).",
+  "cases": [
+   {
+    "name": "a download ends: its host counts are sealed alone and sent at once; the next send point carries what came after",
+    "steps": [
+     {
+      "do": "count",
+      "host": "cdn.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "dns": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 9,
+       "files": 9,
+       "bytes": 54000000,
+       "ttfb_ms": [
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 9
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202
+      ]
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "send_point",
+      "answers": [
+       202
+      ]
+     }
+    ],
+    "sealed": [
+     {
+      "id": "r1",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn.quranlab.ai",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "dns": 1
+        },
+        "proto": {},
+        "day_first": 1
+       },
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 9,
+        "bytes": 54000000,
+        "requests": 9,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 9
+        },
+        "day_first": 1
+       }
+      ]
+     },
+     {
+      "id": "r2",
+      "day": "2026-11-22",
+      "kind": "delta",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 0
+       }
+      ]
+     }
+    ],
+    "posts": [
+     {
+      "id": "r1",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r2",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     }
+    ],
+    "waiting": [],
+    "server_sums": {
+     "2026-11-22": {
+      "cdn.quranlab.ai": {
+       "files": 0,
+       "bytes": 0,
+       "requests": 1,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "dns": 1
+       },
+       "proto": {},
+       "entries": 1,
+       "installs": 1
+      },
+      "cdn2.quranlab.ai": {
+       "files": 10,
+       "bytes": 60000000,
+       "requests": 10,
+       "unreachable": 0,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {},
+       "proto": {
+        "h2": 10
+       },
+       "entries": 2,
+       "installs": 1
+      }
+     }
+    }
+   },
+   {
+    "name": "the send fails: the same body and id at the next send point, never added into a later body",
+    "steps": [
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 9,
+       "files": 9,
+       "bytes": 54000000,
+       "ttfb_ms": [
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 9
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       503
+      ]
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "send_point",
+      "answers": [
+       202,
+       202
+      ]
+     }
+    ],
+    "sealed": [
+     {
+      "id": "r1",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 9,
+        "bytes": 54000000,
+        "requests": 9,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 9
+        },
+        "day_first": 1
+       }
+      ]
+     },
+     {
+      "id": "r2",
+      "day": "2026-11-22",
+      "kind": "delta",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 0
+       }
+      ]
+     }
+    ],
+    "posts": [
+     {
+      "id": "r1",
+      "answer": 503,
+      "counted": false
+     },
+     {
+      "id": "r1",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r2",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     }
+    ],
+    "waiting": [],
+    "server_sums": {
+     "2026-11-22": {
+      "cdn2.quranlab.ai": {
+       "files": 10,
+       "bytes": 60000000,
+       "requests": 10,
+       "unreachable": 0,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {},
+       "proto": {
+        "h2": 10
+       },
+       "entries": 2,
+       "installs": 1
+      }
+     }
+    }
+   },
+   {
+    "name": "the answer is lost: the body is sent again with its id, and the server counts it once",
+    "steps": [
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 9,
+       "files": 9,
+       "bytes": 54000000,
+       "ttfb_ms": [
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 9
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       "lost"
+      ]
+     },
+     {
+      "do": "send_point",
+      "answers": [
+       202
+      ]
+     }
+    ],
+    "sealed": [
+     {
+      "id": "r1",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 9,
+        "bytes": 54000000,
+        "requests": 9,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 9
+        },
+        "day_first": 1
+       }
+      ]
+     }
+    ],
+    "posts": [
+     {
+      "id": "r1",
+      "answer": "lost",
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r1",
+      "answer": 202,
+      "counted": false,
+      "duplicate": true
+     }
+    ],
+    "waiting": [],
+    "server_sums": {
+     "2026-11-22": {
+      "cdn2.quranlab.ai": {
+       "files": 9,
+       "bytes": 54000000,
+       "requests": 9,
+       "unreachable": 0,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {},
+       "proto": {
+        "h2": 9
+       },
+       "entries": 1,
+       "installs": 1
+      }
+     }
+    }
+   },
+   {
+    "name": "the fifth download end of a day seals nothing; the next send point carries its counts",
+    "steps": [
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202
+      ]
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202
+      ]
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202
+      ]
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202
+      ]
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202
+      ]
+     },
+     {
+      "do": "send_point",
+      "answers": [
+       202
+      ]
+     }
+    ],
+    "sealed": [
+     {
+      "id": "r1",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 1
+       }
+      ]
+     },
+     {
+      "id": "r2",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 0
+       }
+      ]
+     },
+     {
+      "id": "r3",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 0
+       }
+      ]
+     },
+     {
+      "id": "r4",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 0
+       }
+      ]
+     },
+     {
+      "id": "r5",
+      "day": "2026-11-22",
+      "kind": "delta",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 0
+       }
+      ]
+     }
+    ],
+    "posts": [
+     {
+      "id": "r1",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r2",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r3",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r4",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r5",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     }
+    ],
+    "waiting": [],
+    "server_sums": {
+     "2026-11-22": {
+      "cdn2.quranlab.ai": {
+       "files": 5,
+       "bytes": 30000000,
+       "requests": 5,
+       "unreachable": 0,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {},
+       "proto": {
+        "h2": 5
+       },
+       "entries": 5,
+       "installs": 1
+      }
+     }
+    }
+   },
+   {
+    "name": "midnight closes the day's counts; a download after it seals the new day's only, and both are sent, oldest first",
+    "steps": [
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 3,
+       "files": 3,
+       "bytes": 18000000,
+       "ttfb_ms": [
+        0,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 3
+       }
+      }
+     },
+     {
+      "do": "midnight"
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 2,
+       "files": 2,
+       "bytes": 12000000,
+       "ttfb_ms": [
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 2
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202,
+       202
+      ]
+     }
+    ],
+    "sealed": [
+     {
+      "id": "r1",
+      "day": "2026-11-22",
+      "kind": "delta",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 3,
+        "bytes": 18000000,
+        "requests": 3,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         3,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         3,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 3
+        },
+        "day_first": 1
+       }
+      ]
+     },
+     {
+      "id": "r2",
+      "day": "2026-11-23",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 2,
+        "bytes": 12000000,
+        "requests": 2,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         2,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         2,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 2
+        },
+        "day_first": 1
+       }
+      ]
+     }
+    ],
+    "posts": [
+     {
+      "id": "r1",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r2",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     }
+    ],
+    "waiting": [],
+    "server_sums": {
+     "2026-11-22": {
+      "cdn2.quranlab.ai": {
+       "files": 3,
+       "bytes": 18000000,
+       "requests": 3,
+       "unreachable": 0,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {},
+       "proto": {
+        "h2": 3
+       },
+       "entries": 1,
+       "installs": 1
+      }
+     },
+     "2026-11-23": {
+      "cdn2.quranlab.ai": {
+       "files": 2,
+       "bytes": 12000000,
+       "requests": 2,
+       "unreachable": 0,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {},
+       "proto": {
+        "h2": 2
+       },
+       "entries": 1,
+       "installs": 1
+      }
+     }
+    }
+   },
+   {
+    "name": "a restart between the seal and the send: the body is sent at the launch, and day_first is kept",
+    "steps": [
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 9,
+       "files": 9,
+       "bytes": 54000000,
+       "ttfb_ms": [
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 9
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       "none"
+      ]
+     },
+     {
+      "do": "restart",
+      "answers": [
+       202
+      ]
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202
+      ]
+     }
+    ],
+    "sealed": [
+     {
+      "id": "r1",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 9,
+        "bytes": 54000000,
+        "requests": 9,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 9
+        },
+        "day_first": 1
+       }
+      ]
+     },
+     {
+      "id": "r2",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 0
+       }
+      ]
+     }
+    ],
+    "posts": [
+     {
+      "id": "r1",
+      "answer": "not sent"
+     },
+     {
+      "id": "r1",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r2",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     }
+    ],
+    "waiting": [],
+    "server_sums": {
+     "2026-11-22": {
+      "cdn2.quranlab.ai": {
+       "files": 10,
+       "bytes": 60000000,
+       "requests": 10,
+       "unreachable": 0,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {},
+       "proto": {
+        "h2": 10
+       },
+       "entries": 2,
+       "installs": 1
+      }
+     }
+    }
+   },
+   {
+    "name": "telemetry off in the signed config: nothing counted, nothing sent, the waiting body dropped",
+    "steps": [
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 9,
+       "files": 9,
+       "bytes": 54000000,
+       "ttfb_ms": [
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        9,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 9
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       503
+      ]
+     },
+     {
+      "do": "analytics_off"
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "download_end"
+     },
+     {
+      "do": "send_point"
+     }
+    ],
+    "sealed": [
+     {
+      "id": "r1",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 9,
+        "bytes": 54000000,
+        "requests": 9,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         9,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 9
+        },
+        "day_first": 1
+       }
+      ]
+     }
+    ],
+    "posts": [
+     {
+      "id": "r1",
+      "answer": 503,
+      "counted": false
+     }
+    ],
+    "waiting": [],
+    "server_sums": {}
+   },
+   {
+    "name": "at most 8 hosts a day across all its sends: a ninth is not counted, one of the eight still is",
+    "steps": [
+     {
+      "do": "count",
+      "host": "cdn.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "connect": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "connect": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn3.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "connect": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn4.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "connect": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn5.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "connect": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn-a.tajweedformer.com",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "connect": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn-b.tajweedformer.com",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "connect": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn-g.tajweedformer.com",
+      "add": {
+       "requests": 1,
+       "unreachable": 1,
+       "fail": {
+        "connect": 1
+       }
+      }
+     },
+     {
+      "do": "download_end",
+      "answers": [
+       202
+      ]
+     },
+     {
+      "do": "count",
+      "host": "cdn6.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "count",
+      "host": "cdn2.quranlab.ai",
+      "add": {
+       "requests": 1,
+       "files": 1,
+       "bytes": 6000000,
+       "ttfb_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "kbps": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       }
+      }
+     },
+     {
+      "do": "send_point",
+      "answers": [
+       202
+      ]
+     }
+    ],
+    "sealed": [
+     {
+      "id": "r1",
+      "day": "2026-11-22",
+      "kind": "download",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn.quranlab.ai",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "connect": 1
+        },
+        "proto": {},
+        "day_first": 1
+       },
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "connect": 1
+        },
+        "proto": {},
+        "day_first": 1
+       },
+       {
+        "role": "models",
+        "host": "cdn3.quranlab.ai",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "connect": 1
+        },
+        "proto": {},
+        "day_first": 1
+       },
+       {
+        "role": "models",
+        "host": "cdn4.quranlab.ai",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "connect": 1
+        },
+        "proto": {},
+        "day_first": 1
+       },
+       {
+        "role": "models",
+        "host": "cdn5.quranlab.ai",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "connect": 1
+        },
+        "proto": {},
+        "day_first": 1
+       },
+       {
+        "role": "models",
+        "host": "cdn-a.tajweedformer.com",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "connect": 1
+        },
+        "proto": {},
+        "day_first": 1
+       },
+       {
+        "role": "models",
+        "host": "cdn-b.tajweedformer.com",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "connect": 1
+        },
+        "proto": {},
+        "day_first": 1
+       },
+       {
+        "role": "models",
+        "host": "cdn-g.tajweedformer.com",
+        "files": 0,
+        "bytes": 0,
+        "requests": 1,
+        "unreachable": 1,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {
+         "connect": 1
+        },
+        "proto": {},
+        "day_first": 1
+       }
+      ]
+     },
+     {
+      "id": "r2",
+      "day": "2026-11-22",
+      "kind": "delta",
+      "hosts": [
+       {
+        "role": "models",
+        "host": "cdn2.quranlab.ai",
+        "files": 1,
+        "bytes": 6000000,
+        "requests": 1,
+        "unreachable": 0,
+        "hedged": 0,
+        "slow_switches": 0,
+        "ttfb_ms": [
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+        ],
+        "kbps": [
+         0,
+         0,
+         0,
+         0,
+         0,
+         1,
+         0,
+         0,
+         0,
+         0
+        ],
+        "fail": {},
+        "proto": {
+         "h2": 1
+        },
+        "day_first": 0
+       }
+      ]
+     }
+    ],
+    "posts": [
+     {
+      "id": "r1",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     },
+     {
+      "id": "r2",
+      "answer": 202,
+      "counted": true,
+      "duplicate": false
+     }
+    ],
+    "waiting": [],
+    "server_sums": {
+     "2026-11-22": {
+      "cdn.quranlab.ai": {
+       "files": 0,
+       "bytes": 0,
+       "requests": 1,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "connect": 1
+       },
+       "proto": {},
+       "entries": 1,
+       "installs": 1
+      },
+      "cdn2.quranlab.ai": {
+       "files": 1,
+       "bytes": 6000000,
+       "requests": 2,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "connect": 1
+       },
+       "proto": {
+        "h2": 1
+       },
+       "entries": 2,
+       "installs": 1
+      },
+      "cdn3.quranlab.ai": {
+       "files": 0,
+       "bytes": 0,
+       "requests": 1,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "connect": 1
+       },
+       "proto": {},
+       "entries": 1,
+       "installs": 1
+      },
+      "cdn4.quranlab.ai": {
+       "files": 0,
+       "bytes": 0,
+       "requests": 1,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "connect": 1
+       },
+       "proto": {},
+       "entries": 1,
+       "installs": 1
+      },
+      "cdn5.quranlab.ai": {
+       "files": 0,
+       "bytes": 0,
+       "requests": 1,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "connect": 1
+       },
+       "proto": {},
+       "entries": 1,
+       "installs": 1
+      },
+      "cdn-a.tajweedformer.com": {
+       "files": 0,
+       "bytes": 0,
+       "requests": 1,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "connect": 1
+       },
+       "proto": {},
+       "entries": 1,
+       "installs": 1
+      },
+      "cdn-b.tajweedformer.com": {
+       "files": 0,
+       "bytes": 0,
+       "requests": 1,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "connect": 1
+       },
+       "proto": {},
+       "entries": 1,
+       "installs": 1
+      },
+      "cdn-g.tajweedformer.com": {
+       "files": 0,
+       "bytes": 0,
+       "requests": 1,
+       "unreachable": 1,
+       "hedged": 0,
+       "slow_switches": 0,
+       "fail": {
+        "connect": 1
+       },
+       "proto": {},
+       "entries": 1,
+       "installs": 1
+      }
+     }
+    }
    }
   ]
  }

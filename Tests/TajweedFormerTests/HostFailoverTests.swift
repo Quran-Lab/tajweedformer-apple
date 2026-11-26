@@ -617,4 +617,95 @@ final class HostFailoverTests: XCTestCase {
         XCTAssertEqual(e.lastFailover?.status, 503)
         XCTAssertTrue(d.json.contains("\"endpoints\": {\"api\": \"api-b.test\", \"models\": \"cdn.test\", \"lastFailover\": {\"role\": \"api\""), d.json)
     }
+
+    // MARK: SDK 4.0.5
+
+    /// A captive portal's page with 200 on the first host: not the answer (`not_json`), so the second host is asked;
+    /// `lastFailover` names the check, and the operation's chain has the first host's hop (`first`, never its name).
+    func testAPageWith200FailsOverAndNamesItsCheck() async throws {
+        let clock = Locked(Date(timeIntervalSince1970: 1_800_000_000))
+        let (http, e) = Self.client(clock)
+        Self.serve(["api.test": StubProtocol.Reply(status: 200, headers: ["content-type": "text/html"], body: Data("<html>Wi-Fi login</html>".utf8)),
+                    "api-b.test": Self.ok])
+        // every wait of this test is bounded: a step that does not end fails the test with where it stood (the public
+        // CI, Swift 6.3.3 on macOS 26, hung here for 57 minutes on 2026-11-26 with no line after the test's start)
+        let call = await HostFailoverTests.within(20) { [http] () -> (Result<HTTPClient.Response, CloudError>, [CauseHop]?) in
+            await RequestTrace.scope { () -> (Result<HTTPClient.Response, CloudError>, [CauseHop]?) in
+                let r = await HostFailoverTests.get(http)
+                return (r, CauseChain.current)
+            }
+        }
+        guard let call else {
+            return XCTFail("no answer within 20 s; the stand-in saw \(Self.asked)")
+        }
+        let (answer, hops) = call
+        XCTAssertEqual(try answer.get().status, 200, "the second host's answer")
+        XCTAssertEqual(Self.asked, ["api.test", "api-b.test"])
+        guard let read = HostFailoverTests.bounded(5, { [e] in e.lastFailover }) else { return XCTFail("lastFailover did not answer within 5 s") }
+        let f = try XCTUnwrap(read)
+        XCTAssertEqual(f.reason, "invalid_answer")
+        XCTAssertEqual(f.check, "not_json")
+        XCTAssertEqual(f.status, 200)
+        XCTAssertEqual(hops, [CauseHop(stage: "register", hostRole: "api", host: "standby", httpStatus: 200, reason: "invalid_answer",
+                                       errorName: nil, errorCode: "not_json")],
+                       "the test hosts are not under quranlab.ai: standby")
+        guard let diagnosis = HostFailoverTests.bounded(5, { [e] in e.diagnosis }) else { return XCTFail("diagnosis did not answer within 5 s") }
+        XCTAssertEqual(diagnosis.lastFailover?.check, "not_json")
+    }
+
+    /// `body`'s value, or nil when it has not ended after `seconds` (then it is cancelled and left behind).
+    static func within<T: Sendable>(_ seconds: Double, _ body: @escaping @Sendable () async -> T) async -> T? {
+        let first = Locked(false)
+        let claim: @Sendable () -> Bool = { first.withLock { (f: inout Bool) -> Bool in defer { f = true }; return !f } }
+        return await withCheckedContinuation { (c: CheckedContinuation<T?, Never>) in
+            let work = Task.detached {
+                let v = await body()
+                if claim() { c.resume(returning: v) }
+            }
+            Task.detached {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                if claim() {
+                    work.cancel()
+                    c.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    /// `body`'s value read on a thread of its own, or nil when it has not returned after `seconds` (a lock never let go).
+    static func bounded<T: Sendable>(_ seconds: Double, _ body: @escaping @Sendable () -> T) -> T? {
+        let box = Locked<T?>(nil)
+        let done = DispatchSemaphore(value: 0)
+        Thread {
+            let v = body()
+            box.withLock { $0 = v }
+            done.signal()
+        }.start()
+        return done.wait(timeout: .now() + seconds) == .success ? box.withLock { $0 } : nil
+    }
+
+    /// The token's challenge in another form on the first host: the next host is asked (4.0.2 took any JSON 2xx), and
+    /// the call gets the strict challenge of the second.
+    func testAChallengeInAnotherFormFailsOver() async throws {
+        let clock = Locked(Date(timeIntervalSince1970: 1_800_000_000))
+        let (http, _) = Self.client(clock)
+        let strict = "c1.1790538034.P7cQRSKHbtf5lbPqTWcE6A.3DXJOorkOhcv9Z8sE10upQ"
+        StubProtocol.reset { s in
+            switch (s.url.host ?? "", s.path) {
+            case ("api.test", "/v1/attest/challenge"): return .json(["challenge": "abc"])
+            case (_, "/v1/attest/challenge"): return .json(["challenge": strict, "expires_in": 300])
+            case (_, "/v1/attest"): return CloudFixtures.token
+            default: return StubProtocol.Reply(status: 404)
+            }
+        }
+        var r = URLRequest(url: Self.a.appendingPathComponent("v1/attest/challenge"))
+        r.setValue(CloudFixtures.key, forHTTPHeaderField: "x-qlab-key")
+        let resp = try await http.checked(r, role: .api, accept: { (a: HTTPClient.Response) -> Bool in
+            if let c = AnswerCheck.challenge(a.body).check { AnswerCheck.failed(c); return false }
+            return true
+        })
+        XCTAssertEqual(AnswerCheck.challenge(resp.body).challenge, strict)
+        XCTAssertEqual(Self.asked, ["api.test", "api-b.test"])
+    }
+
 }

@@ -40,6 +40,8 @@ final class FileHosts: @unchecked Sendable {
     private let lock = NSLock()
     private var files: [String: File] = [:]
     let endpoints: EndpointSet
+    /// SDK 4.0.5 (34.9.7): where this build's model requests went, and how its files ended.
+    let trace = DownloadTrace()
     /// The origin of the lease answer's folder.
     let base: URL
 
@@ -64,6 +66,58 @@ final class FileHosts: @unchecked Sendable {
         }
     }
 
+    /// SDK 4.0.5 (section 35): the file's order, as fixed at its first attempt.
+    func order(_ path: String) -> [URL] {
+        lock.withLock {
+            let f = file(path)
+            files[path] = f
+            return f.order
+        }
+    }
+
+    /// SDK 4.0.5 (34.4): the host after the one the next attempt of `path` asks (the hedge's), when the order has another.
+    func next(_ path: String) -> URL? {
+        lock.withLock {
+            let f = file(path)
+            files[path] = f
+            guard f.order.count > 1 else { return nil }
+            return f.order[(f.k + 1) % f.order.count]
+        }
+    }
+
+    /// The host the last attempt of `path` asked.
+    func lastAsked(_ path: String) -> URL? {
+        lock.withLock {
+            guard let f = files[path] else { return nil }
+            return f.order[max(0, f.k - 1) % f.order.count]
+        }
+    }
+
+    /// SDK 4.0.5 (34.4): the second request of a hedge was the file's answer while the first had none: the file's next
+    /// attempts go to that host. Not a failure of the first host (no failover is told: it was not found unreachable).
+    func moved(_ path: String, to host: URL) {
+        lock.withLock {
+            var f = file(path)
+            guard let i = f.order.firstIndex(of: host) else { return }
+            f.asked.insert(f.order[f.k % f.order.count])
+            // the next index at or after k that is that host
+            while f.k % f.order.count != i { f.k += 1 }
+            files[path] = f
+        }
+    }
+
+    /// SDK 4.0.5 (35.6 `restart`, 16.1): the file starts again from byte 0 without the hosts that served bad bytes: its
+    /// order is made again, the order in force less those hosts (at least one host is kept).
+    func restart(_ path: String, avoiding bad: Set<String>) {
+        lock.withLock {
+            let now = endpoints.clock()
+            let (order, probe) = endpoints.order(.models, at: now, first: endpoints.isRoleHost(.models, base) ? nil : base)
+            let all = order.isEmpty ? [base] : order
+            let kept = all.filter { !bad.contains(SplitHosts.key($0)) }
+            files[path] = File(order: kept.isEmpty ? all : kept, probe: probe)
+        }
+    }
+
     /// Whether a file of this build was asked of more than one host (24.2 `fallback`). SDK 4.0.2: a host is counted when
     /// its attempt ended with its answer or as unreachable, never when it was skipped for a `Retry-After` hold without a
     /// request (ERRORS_40: asked of more than one host).
@@ -73,7 +127,9 @@ final class FileHosts: @unchecked Sendable {
     /// host was unreachable and that another host answered tells that failover once (28.7: `lastFailover` with the
     /// host that answered, and the silent `download`, `failover` report). The first host answering a later attempt
     /// itself (a list of one host, or the order come round) is no failover: nothing more is told.
-    func answered(_ path: String, _ cls: AnswerClass) {
+    /// SDK 4.0.5 (35.8): `settle` false for an answer that ended by a cut of section 35: its host answered, but P is the
+    /// decide's to set (its `p`), and a cut answer must not take P back after a verdict made another host P.
+    func answered(_ path: String, _ cls: AnswerClass, settle: Bool = true) {
         let now = endpoints.clock()
         let (host, probe, failover, held) = lock.withLock { () -> (URL, Bool, EndpointSet.Failover?, Bool) in
             var f = file(path)
@@ -88,7 +144,7 @@ final class FileHosts: @unchecked Sendable {
             files[path] = f
             return (h, f.probe, told, f.firstHeld)
         }
-        endpoints.settle(.models, host, at: now, probe: probe)
+        if settle { endpoints.settle(.models, host, at: now, probe: probe) }
         // a first host held and not asked: `lastFailover` as before, and no report (its stage is the report's switch)
         if let failover { endpoints.failedOver(failover, stage: held ? nil : "download") }
     }

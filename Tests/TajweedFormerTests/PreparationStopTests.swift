@@ -175,6 +175,44 @@ final class PreparationStopTests: XCTestCase {
         XCTAssertEqual(h.controller(revision: "m3", launch: "L9").record?.status, .failed, "a stop after another failure stays ended")
     }
 
+    /// SDK 4.0.5: a sentinel an SDK before 4.0 wrote (3.1.4: `{key, stage}`, in the same file), found at the first
+    /// launch after the app's update, is removed with nothing counted and nothing reported. 4.0.0 to 4.0.4 counted it
+    /// against the old key and reported `crash_on_last_run` with the bare evidence `{"exit":"unknown"}` (5 of the 8
+    /// incidents of 2026-11-24 and 11-25, one app's update from 3.1.4 to 4.0.2). Not compiled or run on 11-25 (no Mac).
+    func testASentinelOfAnSDKBefore40IsNotJudged() async throws {
+        let c = h.controller(revision: "old")
+        // the 3.x key (no program digest) and its record in the middle of an attempt, as 3.1.4 left them
+        let oldKey = AcceleratorController.key(revision: "4.0.0", context: "c24_l256", build: "coreml", osBuild: "23G90",
+                                               deviceModel: "iPhone17,1")
+        var r = PromotionRecord(key: oldKey)
+        r.attempts = 3
+        r.failures = 2
+        r.attemptStarted = h.now.withLock { $0 }
+        c.store.save(r)
+        try FileManager.default.createDirectory(at: c.store.dir, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["key": oldKey, "stage": "compile"] as [String: Any]).write(to: c.store.sentinelURL)
+        let next = await launch("old", "L2")
+        XCTAssertNil(next.store.sentinel(), "removed")
+        XCTAssertTrue(h.incidents.withLock { $0 }.isEmpty, "nothing reported")
+        let old = try XCTUnwrap(next.store.record(oldKey))
+        XCTAssertEqual(old.failures, 2, "nothing counted")
+        XCTAssertNil(old.lastReason)
+        await next.run(h.stages())
+        XCTAssertEqual(next.state, .ready, "this SDK's own key goes on and promotes")
+
+        // what tells a 4.0 sentinel: any of its fields (the tests' own sentinels carry `foreground`)
+        XCTAssertTrue(AcceleratorController.writtenBefore40(PromotionStore.Sentinel(key: "k", stage: .compile)))
+        var s = PromotionStore.Sentinel(key: "k", stage: .compile)
+        s.foreground = true
+        XCTAssertFalse(AcceleratorController.writtenBefore40(s))
+        s = PromotionStore.Sentinel(key: "k", stage: .compile)
+        s.pid = 42
+        XCTAssertFalse(AcceleratorController.writtenBefore40(s))
+        s = PromotionStore.Sentinel(key: "k", stage: .compile)
+        s.quit = true
+        XCTAssertFalse(AcceleratorController.writtenBefore40(s))
+    }
+
     // The tests below use what 3.1.5 adds (the decisions taken after the first red run): they were not run on the
     // code of 3.1.4.
 

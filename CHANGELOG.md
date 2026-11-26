@@ -1,11 +1,74 @@
 # Changelog
 
-## Unreleased
+## 4.0.5
 
-- Licence: from the next release, the SDK and the model are under the Quran-Lab No-Profit License 1.3 (NPL-1.3),
-  which replaces NPL-1.2. NPL-1.3 forbids using the model or its outputs to train other models without Quran Lab's
-  written permission, and TajweedFormer V4 and later models are used only through the SDK. The licence's Changes
-  paragraph lists the rest.
+- **`model.sampleClips` is the build's own set.** The model's self-test clips now come with the model, right after its
+  CPU files (about 0.6 MB, and a failure there leaves the model as it is). Up to 4.0.3 they came only with the Neural
+  Engine's build, so on a build without one, and on every iPhone and Mac before it arrived, `model.sampleClips` were the
+  three clips the SDK carries. A feedback engine's live check compares the build's own clips with its engine vectors
+  (https://sdk.quranlab.ai/docs/engine), as on Android, the web and Windows and Linux. A model installed before 4.0.5
+  gets them with its next install.
+- **App Attest survives a flaky network.** A moment without a network, or Apple's App Attest service not answering,
+  no longer leaves an install unattested for hours. The SDK tries again inside the call, in the background, and as
+  soon as the network comes back, with the same App Attest key, and keeps what it still has to do across launches. For
+  an app whose installs must be attested, it never asks for the model without App Attest because of such a moment, so
+  they are no longer refused for it. Every other app's learners get the model at once, as before, and the SDK attests
+  in the background and moves them to the attested class as soon as it can. Only a device or a process that cannot
+  attest at all (no App Attest on the device, an app extension App Attest does not serve, a binary without a team) goes
+  on unattested, and says why.
+- **A first `model()` with no network leaves nothing waiting for the app.** When the network comes back, the SDK
+  attests the install and gets its lease by itself, before the app asks again; the model's files still come with the
+  app's next call.
+- **A model refused for attestation is not given up.** When Quran Lab answers `lease_attestation_required`, the SDK
+  attests in the background and asks again as soon as the install is attested.
+- **Errors name the check Quran Lab's answer failed.** When an answer does not pass the SDK's checks,
+  `error.cause.reason` is `invalid_answer` and `error.cause.errorCode` names the check (for example
+  `expired_on_arrival` or `schema:base`), and the app gets `download_failed` for an answer it received, never
+  `needs_connection`. `diagnose()` adds the install's attestation, the last failure of the model's access with the
+  steps that led to it, and the check in `endpoints.lastFailover`.
+- **Every Quran Lab server is asked when one answers with something that is not the answer,** for the attestation's
+  requests too (the challenge and the token), as for the model's.
+- **The first `model()` after an update from SDK 3.x installs the model.** At the first launch after an app moved
+  from SDK 3.x to 4.0, `client.model()` could fail once with `model_incompatible`, and the next call worked. It now
+  asks Quran Lab for the model this SDK runs and installs it in the same call.
+- **`reference.units()` no longer waits while the Neural Engine's build is prepared.** In 4.0.0 to 4.0.3 a lookup in
+  the reference table waited for the whole preparation (the program's decryption and Core ML's compile, 10 seconds
+  to 10 minutes). Called on the main thread, it froze the app until the system ended it.
+- **A lock or a switch of app during the Neural Engine's preparation is no longer a failure of the build.** A compile
+  started while the device was locked always failed; it now waits until the device is unlocked and the app is in
+  front. A compile under way when the device locks could end the app with a crash. 4.0.5 no longer asks the system to
+  keep the app running for it, so an app the system suspends when the learner leaves it is paused before the build's
+  files lock, and the compile goes on when the learner comes back. An app that keeps running in the background (for
+  audio, for example) can still be ended this way until a later Quran Lab Core writes the build's files so they stay
+  readable while the device is locked. A compile that the learner locking the device, or switching to another app,
+  cuts short is no longer counted against the build: it starts again once the device is unlocked and the app is in
+  front, and the CPU engine serves meanwhile, as always. The daily analytics count each such cut apart, by whether the
+  device locked or the app left the foreground (`not_now`), never as an attempt or a failure.
+- **The time limits of the Neural Engine's preparation count only the time the app runs.** A compile that the system
+  paused with the app in the background no longer counts as too slow when the learner comes back.
+- **What is not a failure of the build is no longer counted against it:** the Core busy with another model or take
+  (4.0.1 and 4.0.2 counted it as a compile error), and a preparation that an SDK before 4.0 had under way when the
+  app was updated (4.0.0 to 4.0.3 reported it as a stop of the app).
+- **A shared recording keeps its last moments on iPhone.** A recording made at 8 to 24 kHz (a Bluetooth headset, or
+  audio an app passes at 16 kHz) lost its last 3 to 50 ms when it was converted to 48 kHz for sharing on iOS (14.6 ms
+  at 16 kHz). It is now as long as the recording itself, on iOS as on macOS.
+- **A second Client no longer breaks a preparation under way.** Making a Client, or starting a second preparation,
+  while the Neural Engine's build was being loaded deleted the files Core ML was reading, and the preparation failed
+  and counted against the build.
+- **A Mac app or tool rebuilt with another signature no longer waits at its start.** Reading the install key that
+  3.1.0 to 4.0.1 kept in the login keychain could still wait on the keychain's access dialog on macOS 26 and earlier,
+  with nobody there to answer it, although 4.0.2 asked for no UI. That read now runs with the keychain's user
+  interaction switched off and gives up after 2 seconds; the key then lives in a file of the SDK's folder, as for any
+  such process, and the login keychain is never asked again.
+- **A lease no longer expires early on iOS 18.** The SDK hands the Core an id of the device's boot, so that a restart
+  is told apart. On iOS 18 that id came from the boot time, which the system moves at every correction of the clock:
+  the Core took each change for a restart and added the whole uptime to its clock, so a lease the app held expired
+  and fresh leases were refused as expired. The SDK now keeps the id from launch to launch while the boot clock has
+  not gone back, so only a real restart counts as one.
+- **Licence:** the SDK and the model are now under the Quran-Lab No-Profit License 1.3 (NPL-1.3), which replaces
+  NPL-1.2. NPL-1.3 forbids using the model or its outputs to train other models without Quran Lab's written
+  permission, and TajweedFormer V4 and later models are used only through the SDK. The licence's Changes paragraph
+  lists the rest.
 
 ## 4.0.3
 

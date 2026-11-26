@@ -2,6 +2,10 @@ import Foundation
 
 /// The hosts of each role for one Client, and the sticky host of each (28.2, 28.3): `P`, at first the role's first
 /// host, and the time it became preferred. In memory for the process; nothing of it is stored.
+/// SDK 4.0.5 (SPLIT_40 35.8, 28.3 item 5): the `models` role's P is kept per connection type (`wifi`, `cellular`, `wired`,
+/// `other`; never a network's name), and stored with the identity of the config in force (`pFile`): a start reads it back
+/// only while that same config is in force, and only for 24 hours. The probe back of 28.3 item 1 (30 minutes) is
+/// unchanged, so a stored P that is not the first host is asked after the first host once its 30 minutes are over.
 final class EndpointSet: @unchecked Sendable {
     /// The last request of this process that found its first host unreachable (28.7 `lastFailover`).
     struct Failover: Sendable, Equatable {
@@ -14,6 +18,8 @@ final class EndpointSet: @unchecked Sendable {
         let status: Int?
         /// Unix seconds.
         let at: Int64
+        /// SDK 4.0.5 (ATTEST_40.md 40.5): the check the first host's 2xx failed, when `reason` is `invalid_answer`.
+        var check: String? = nil
     }
 
     private struct State {
@@ -35,15 +41,29 @@ final class EndpointSet: @unchecked Sendable {
     let onFailover = Locked<(@Sendable (Failover, _ stage: String?) -> Void)?>(nil)
     /// SDK 4.0.2 (28.11 items 2 and 3): the `Retry-After` holds of each route and host, kept across restarts.
     let holds: RetryAfterHolds
+    /// SDK 4.0.5: the connection type now, the `models` P of each type and its time, where they are stored, and the
+    /// identity of the config in force they are stored with.
+    private let connection: @Sendable () -> String
+    private var typed: [String: (p: URL, since: Date?)] = [:]
+    private var typedRead = false
+    private let pFile: URL?
+    private let configIdentity: @Sendable () -> String?
+    /// How long a stored P is read back at a start (the task of 2026-11-23; 35.8 binds it to the config in force).
+    static let pKeptFor: TimeInterval = 24 * 3600
 
     /// `api` and `models` are the roles' hosts as origins (`https://<host>`; a test build's may name another scheme
     /// or a port), in order. `config` gives the `endpoints` of the config in force (`.some(nil)` for a config that
     /// names none), or nil when no config is in force.
     /// `holdsFile`: where the `Retry-After` holds are kept across restarts (nil: in the process only).
     init(api: [URL], models: [URL], config: @escaping @Sendable () -> JSONValue?? = { nil },
-         clock: @escaping @Sendable () -> Date = { Date() }, holdsFile: URL? = nil) {
+         clock: @escaping @Sendable () -> Date = { Date() }, holdsFile: URL? = nil,
+         connection: @escaping @Sendable () -> String = { NetworkType.now }, pFile: URL? = nil,
+         configIdentity: @escaping @Sendable () -> String? = { nil }) {
         self.config = config
         self.clock = clock
+        self.connection = connection
+        self.pFile = pFile
+        self.configIdentity = configIdentity
         holds = RetryAfterHolds(file: holdsFile, now: clock())
         for (role, list) in [(EndpointRole.api, api), (.models, models)] {
             let origins = list.compactMap { Endpoints.origin(of: $0) }
@@ -68,8 +88,63 @@ final class EndpointSet: @unchecked Sendable {
             s.p = list[0]
             s.since = nil
             states[role] = s
+            if role == .models, typedRead {
+                typed = [:]
+                storeTyped()
+            }
+        }
+        // SDK 4.0.5 (35.8): the models P of the connection type now
+        if role == .models {
+            readTyped()
+            if let t = typed[connection()], s.hosts.contains(t.p) {
+                s.p = t.p
+                s.since = t.since
+            } else {
+                s.p = s.hosts[0]
+                s.since = nil
+            }
+            states[role] = s
         }
         return s
+    }
+
+    private struct StoredP: Codable {
+        struct Entry: Codable {
+            let p: String
+            let since: Double?
+            let at: Double
+        }
+        let config: String
+        let types: [String: Entry]
+    }
+
+    /// The stored P of each connection type, once: only those stored with the config in force now, and for 24 hours.
+    /// Under the lock.
+    private func readTyped() {
+        guard !typedRead else { return }
+        typedRead = true
+        guard let pFile, let id = configIdentity(), let d = try? Data(contentsOf: pFile),
+              let stored = try? JSONDecoder().decode(StoredP.self, from: d), stored.config == id else { return }
+        let now = clock().timeIntervalSince1970
+        for (type, e) in stored.types where NetworkType.kinds.contains(type) && now - e.at < Self.pKeptFor && e.at <= now + 60 {
+            guard let u = URL(string: e.p), let o = Endpoints.origin(of: u) else { continue }
+            typed[type] = (o, e.since.map { Date(timeIntervalSince1970: $0) })
+        }
+    }
+
+    /// Stores the P of each type with the identity of the config in force (none in force: nothing is stored). Under the
+    /// lock.
+    private func storeTyped() {
+        guard let pFile else { return }
+        guard let id = configIdentity() else {
+            try? FileManager.default.removeItem(at: pFile)
+            return
+        }
+        let at = clock().timeIntervalSince1970
+        let types = typed.mapValues { StoredP.Entry(p: $0.p.absoluteString, since: $0.since?.timeIntervalSince1970, at: at) }
+        guard let d = try? JSONEncoder().encode(StoredP(config: id, types: types)) else { return }
+        try? FileManager.default.createDirectory(at: pFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? d.write(to: pFile, options: StorageProtection.atomic)
     }
 
     /// The role whose hosts (built in, or in force) include the origin of `url`: a request made on that origin is the
@@ -119,10 +194,15 @@ final class EndpointSet: @unchecked Sendable {
     func settle(_ role: EndpointRole, _ host: URL, at now: Date, probe: Bool) {
         lock.lock()
         defer { lock.unlock() }
-        guard var s = states[role], s.hosts.contains(host), host != s.p || probe else { return }
+        guard var s = refreshed(role), s.hosts.contains(host), host != s.p || probe else { return }
         s.p = host
         s.since = host == s.hosts[0] ? nil : now
         states[role] = s
+        // SDK 4.0.5 (35.8): the models P is the connection type's, and is stored with the config in force
+        if role == .models {
+            typed[connection()] = (s.p, s.since)
+            storeTyped()
+        }
     }
 
     /// The host the role's next request goes to first (28.7), its name only.
@@ -156,7 +236,7 @@ final class EndpointSet: @unchecked Sendable {
         TajweedDiagnosis.Endpoints(api: preferred(.api), models: preferred(.models),
                                    lastFailover: lastFailover.map {
                                        TajweedDiagnosis.Failover(role: $0.role.rawValue, from: $0.from, to: $0.to, reason: $0.reason,
-                                                                 status: $0.status, at: $0.at)
+                                                                 status: $0.status, at: $0.at, check: $0.check)
                                    })
     }
 }

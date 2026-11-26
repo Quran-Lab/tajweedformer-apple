@@ -16,6 +16,9 @@ public struct TajweedBackend: Sendable, Hashable, CustomStringConvertible {
         case downloading
         case compiling
         case testing
+        /// SDK 4.0.5: the build was promoted earlier and is being loaded and warmed again (a new launch, a new engine);
+        /// takes run on the CPU engine until it is warm. To 4.0.4 this read `testing`.
+        case loading
         /// The accelerator's build passed its tests: takes run on it.
         case promoted
         /// The build failed a stage or a take and is set aside; the CPU engine serves.
@@ -209,7 +212,8 @@ public struct TajweedHeads: Sendable, Hashable {
 /// One chunk of a take as it streams.
 public struct TajweedChunk: Sendable, Hashable {
     /// The chunk's number in the take, from 0. After a `backendChanged` event the chunks from its `fromChunk` on
-    /// come again with the same indexes: replace what you kept for them.
+    /// come from the new Backend: replace what you kept for them (after a failover they come again with the same
+    /// indexes; after a live promotion none had been handed out).
     public let index: Int
     public let startMs: Int
     public let endMs: Int
@@ -257,7 +261,9 @@ public enum TajweedEvent: Sendable, Hashable {
     case interrupted(Cause)
     /// An interruption ended and the take goes on.
     case resumed
-    /// The Backend of this take changed; the chunks from `fromChunk` on were replaced and come again.
+    /// The Backend of the take changed; the chunks from `fromChunk` on come from it; replace what you kept for them
+    /// (after a failover they come again; after a live promotion, SDK 4.0.5, none had been handed out: the take moved
+    /// from the CPU engine to the Neural Engine at a pause, and `fromChunk` is the next chunk to come).
     case backendChanged(backend: TajweedBackend, fromChunk: Int)
     /// The take ended without the app's `finish()`: the last chunk has `isFinal`, `chunks` ends, and `finish()`
     /// returns the take's Heads.

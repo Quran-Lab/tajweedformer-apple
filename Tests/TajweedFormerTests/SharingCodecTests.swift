@@ -278,6 +278,9 @@ final class SharingCodecTests: XCTestCase {
         p.arguments = ["-XCTest", "TajweedFormerTests." + test, bundle.path]
         var env = ProcessInfo.processInfo.environment
         env["ZF_MEMORY_CHILD"] = "1"
+        // under `xcodebuild test` the runner's session variables would make the child wait for an IDE session of its
+        // own, which never comes (Mac, 11-26: "Failed to establish connection to the IDE", exit 1 after 600 s)
+        for k in Array(env.keys) where k.hasPrefix("XCTest") || k == "XCInjectBundleInto" { env[k] = nil }
         p.environment = env
         let pipe = Pipe()
         p.standardOutput = pipe

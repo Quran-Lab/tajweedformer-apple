@@ -53,9 +53,10 @@ public struct TajweedClientOptions: Sendable {
 ///     let model = try await client.model()
 ///
 /// One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition
-/// path waits on the network once the model is on the device. Making the Client downloads no model: the model
-/// downloads only when the app calls `model()` or `prefetch()` (a later start checks only for an update of a build
-/// this Client installed on this device).
+/// path waits on the network once the model is on the device. Making the Client starts no download: the model
+/// downloads only when the app calls `model()` or `prefetch()` (a later start checks for an update of a build this
+/// Client installed on this device, and, SDK 4.0.5, goes on at once with a download an earlier process left
+/// unfinished, from the bytes on the device).
 ///
 /// A model comes only from Quran Lab's server, through the Client (3.1.0): the key, the signed config, the SDK's own
 /// download and its verification. No call takes a model folder, and a Client opens only a build it downloaded
@@ -135,6 +136,19 @@ public final class TajweedClient: Sendable {
     /// accepts the key again the model is downloaded again. A Model that was open before the refusal keeps
     /// running until the app closes it.
     public func model(version: String? = nil) async throws(TajweedError) -> TajweedModel {
+        // SDK 4.0.5 (API_40 37.5): the process's first ask for a model, timed to a model ready to take (open and warm)
+        let ask = ReadyClock.begin()
+        do throws(TajweedError) {
+            let m = try await openModel(version: version)
+            ask?.ended(ready: true)
+            return m
+        } catch {
+            ask?.ended(ready: false)
+            throw error
+        }
+    }
+
+    private func openModel(version: String?) async throws(TajweedError) -> TajweedModel {
         try check()
         if let version, !ModelVersion.isVersion(version) { throw .argument("version \(version) is not x.y.z") }
         if let m = held.withLock({ $0 }), version == nil || m.version == version { return m }
@@ -219,9 +233,17 @@ public final class TajweedClient: Sendable {
     /// Resumable: a download that stopped goes on where it stopped. A no-op when the model is on the device.
     /// `onProgress` gets the bytes done and the total of the files to download, as they arrive.
     public func prefetch(onProgress: (@Sendable (_ done: Int64, _ total: Int64) -> Void)? = nil) async throws(TajweedError) {
-        try check()
-        // a download ahead of use goes on to its end also when its caller stops waiting
-        _ = try await install(progress: onProgress, ahead: true)
+        // SDK 4.0.5 (API_40 37.5): when it is the process's first ask, timed to the model on the device and verified
+        let ask = ReadyClock.begin()
+        do throws(TajweedError) {
+            try check()
+            // a download ahead of use goes on to its end also when its caller stops waiting
+            _ = try await install(progress: onProgress, ahead: true)
+            ask?.ended(ready: true)
+        } catch {
+            ask?.ended(ready: false)
+            throw error
+        }
     }
 
     /// The model folder in the SDK's store, when one is there, is this Client's own download (its install record)
@@ -244,6 +266,9 @@ public final class TajweedClient: Sendable {
                          opening: UUID? = nil) async throws(TajweedError) -> ModelFolder {
         let config = QuranLab.configuration
         let cloud = QuranLab.cloud
+        // SDK 4.0.5 (ATTEST_40.md 40.2 item 4): the app wants a model: an attestation this call leaves owed is tried
+        // again in the background, and the lease with it, also before any model is on the device
+        cloud?.protected.modelWanted()
         // a Client the server has refused does not run the model, also not one a real download left (SPEC 15.3)
         // 4.0.1 (28.7): the report names the request that brought the refusal (`refusalCause`)
         if let cloud, let stop = await cloud.modelStop() { throw TajweedError(from: stop, cause: cloud.refusalCause(stop, gateFirst: true)) }
@@ -268,7 +293,17 @@ public final class TajweedClient: Sendable {
         } catch {
             // the device's key store failed: nothing was opened or deleted, and nothing is downloaded now
             if case .storageFailed = error { throw TajweedError(from: error) }
-            local = error
+            // SDK 4.0.5: a model on the device that this SDK does not run (the plain build an SDK before 4.0
+            // downloaded, left in place by an app's update) is no model for this call: the install below decides the
+            // error, as on a first install (needs_connection offline, download_failed with what answered).
+            // Tried before (4.0.0 to 4.0.4): that folder's own error was the call's whenever the install could not
+            // finish now (no network, no config yet, a cut download): model_incompatible, "not an encrypted build",
+            // with stage model_open (Apple 4.0.2 and 4.0.3, 11-24 and 11-25: 9 installs of two apps).
+            if case .modelIncompatible(let why) = error {
+                local = .modelMissing("the model on this device does not run on this SDK (\(why))")
+            } else {
+                local = error
+            }
         }
         guard let cloud else {
             throw TajweedError(from: local ?? .modelMissing("no model on this device"))
@@ -415,7 +450,9 @@ public final class TajweedClient: Sendable {
             }
             return onDisk ? TajweedBackend(kind: .accelerator, name: build, stage: .promoted, reason: nil) : .cpu
         case .failed:
-            return TajweedBackend(kind: .cpu, name: "cpu", stage: .demoted, reason: r.lastReason?.rawValue ?? "other")
+            // SDK 4.0.5 (21.2): a lease without accelerator programs reads `not_attested`
+            return TajweedBackend(kind: .cpu, name: "cpu", stage: .demoted,
+                                  reason: AcceleratorController.isLeaseNoAccel(r) ? AcceleratorController.notAttested : (r.lastReason?.rawValue ?? "other"))
         default:
             return .cpu
         }
@@ -511,6 +548,10 @@ public final class TajweedClient: Sendable {
         d.protected = ProtectedRuntime.current.withLock { $0 }?.diagnosis()
         // 4.0.1 (28.7): the hosts in use, with a key (a Client without one asks no host)
         if let cloud, cloud.key != nil { d.endpoints = cloud.endpoints.diagnosis }
+        // 4.0.5: once a live promotion started in this process
+        d.live = LiveDiagnosis.stats.withLock { $0 }.map {
+            TajweedDiagnosis.Live(attempts: $0.attempts, swaps: $0.swaps, last: $0.last, lastFromChunk: $0.lastFromChunk)
+        }
         return d
     }
 }
@@ -619,6 +660,41 @@ public struct TajweedDiagnosis: Sendable, Hashable {
         public let graceUntil: Int64?
         /// The Core's release and target (`qlc_version`); nil when the Core is not loaded.
         public let core: String?
+        /// SDK 4.0.5: where the install's attestation stands; nil when not
+        /// known. In `json` after `core`, only when known.
+        public var attestation: Attestation? = nil
+        /// SDK 4.0.5: why the last lease attempt of this process brought no lease; nil when none failed. In `json` last,
+        /// only when there is one.
+        public var lastFailure: LeaseFailure? = nil
+    }
+
+    /// SDK 4.0.5 (40.6 item 2): the install's attestation.
+    public struct Attestation: Sendable, Hashable {
+        /// `attested` (the certificate in force names App Attest), `pending` (an attestation is owed and retrying),
+        /// `unattested` (a certificate without attestation, `why` the platform's reason or `judged`), or `none` (no
+        /// certificate yet).
+        public let state: String
+        /// For `unattested`: `unsupported`, `extension`, `no_team`, `apple_unavailable` or `judged`; else nil.
+        public let why: String?
+        /// The transient failures in a row of the attestation owed (0 when none is owed).
+        public let failures: Int
+        /// When the next try in the background comes (unix seconds), nil when none is scheduled.
+        public let nextTry: Int64?
+    }
+
+    /// SDK 4.0.5 (40.6 item 2): the cause of the last lease attempt of the process that brought no lease. Tokens only.
+    public struct LeaseFailure: Sendable, Hashable {
+        public let stage: String
+        public let reason: String
+        public let httpStatus: Int?
+        /// The check an answer failed (`expired_on_arrival`, `schema:base`, ...), the server's `error`, or the system's
+        /// code.
+        public let errorCode: String?
+        public let hostRole: String?
+        public let fallback: Bool?
+        /// The attempt's hops, as the error report carries them (each a JSON object of `stage`, `hostRole`, `host`,
+        /// `httpStatus`, `reason`, `errorName`, `errorCode`; never a host name).
+        public let chain: [String]
     }
 
     /// Nil before the protected model's runtime exists (no key configured).
@@ -652,10 +728,30 @@ public struct TajweedDiagnosis: Sendable, Hashable {
         public let status: Int?
         /// When, in unix seconds.
         public let at: Int64
+        /// SDK 4.0.5: the check the first host's answer failed when `reason` is
+        /// `invalid_answer` (`not_json`, `expired_on_arrival`, ...); else nil.
+        public let check: String?
     }
 
     /// SDK 4.0.1: nil without a key (no request is made to any host).
     public var endpoints: Endpoints? = nil
+
+    /// SDK 4.0.5: the takes of this process that moved, or tried to move, from the CPU engine to the
+    /// Neural Engine during the take. No identifier, no time.
+    public struct Live: Sendable, Hashable {
+        /// Attempts started in this process.
+        public let attempts: Int
+        /// Those that moved the take to the Neural Engine.
+        public let swaps: Int
+        /// The outcome of the most recent attempt (`swapped`, `mismatch`, `mismatch_inexact`, `accel_failed`,
+        /// `stalled`, `aborted`), or `running`.
+        public let last: String
+        /// The first chunk the Neural Engine ran in the most recent swap; nil before one.
+        public let lastFromChunk: Int?
+    }
+
+    /// SDK 4.0.5: nil until an attempt started in this process. In `json` it is the last field of `backend`.
+    public var live: Live? = nil
 
     /// The report as JSON, its eleven fields in the order every SDK writes them, for pasting; then `downloadProtocol`
     /// when one is known, (4.0) `protected`,
@@ -673,8 +769,15 @@ public struct TajweedDiagnosis: Sendable, Hashable {
         lines.append("  \"config\": \(q(config))")
         lines.append("  \"model\": " + (model.map { "{\"version\": \(q($0.version)), \"build\": \(q($0.build)), \"verified\": \(b($0.verified))}" } ?? "null"))
         lines.append("  \"context\": \(q(context))")
+        // 4.0.5 (30.10): `live` last in `backend`, once an attempt started in the process; `lastFromChunk` once one swapped
+        var live = ""
+        if let l = self.live {
+            live = ", \"live\": {\"attempts\": \(max(0, l.attempts)), \"swaps\": \(max(0, l.swaps)), \"last\": \(q(l.last))"
+            if let from = l.lastFromChunk { live += ", \"lastFromChunk\": \(from)" }
+            live += "}"
+        }
         lines.append("  \"backend\": " + (backend.map {
-            "{\"kind\": \(q($0.kind.rawValue)), \"name\": \(q($0.name)), \"stage\": \(q($0.stage.rawValue)), \"reason\": \(q($0.reason))}"
+            "{\"kind\": \(q($0.kind.rawValue)), \"name\": \(q($0.name)), \"stage\": \(q($0.stage.rawValue)), \"reason\": \(q($0.reason))\(live)}"
         } ?? "null"))
         lines.append("  \"microphone\": \(q(microphone))")
         let models = storage.models.map { "{\"version\": \(q($0.version)), \"build\": \(q($0.build)), \"bytes\": \($0.bytes)}" }
@@ -687,16 +790,27 @@ public struct TajweedDiagnosis: Sendable, Hashable {
         // 4.0, after the eleven shared fields and only with a runtime (as the C SDK's JSON adds it)
         if let p = protected {
             func n(_ v: Int64?) -> String { v.map(String.init) ?? "null" }
+            // 4.0.5 (DIAGNOSIS_40 25.4): `attestation` and `lastFailure` after `core`, each only when known
+            var more = ""
+            if let a = p.attestation {
+                more += ", \"attestation\": {\"state\": \(q(a.state)), \"why\": \(q(a.why)), \"failures\": \(max(0, a.failures)), "
+                    + "\"nextTry\": \(n(a.nextTry))}"
+            }
+            if let f = p.lastFailure {
+                more += ", \"lastFailure\": {\"stage\": \(q(f.stage)), \"reason\": \(q(f.reason)), \"httpStatus\": \(f.httpStatus.map(String.init) ?? "null"), "
+                    + "\"errorCode\": \(q(f.errorCode)), \"hostRole\": \(q(f.hostRole)), \"fallback\": \(b(f.fallback)), "
+                    + "\"chain\": [\(f.chain.joined(separator: ", "))]}"
+            }
             lines.append("  \"protected\": {\"keyStore\": \(q(p.keyStore)), \"lease\": \(q(p.lease)), \"leaseExpires\": \(n(p.leaseExpires)), "
                 + "\"leaseClass\": \(q(p.leaseClass)), \"refreshAfter\": \(n(p.refreshAfter)), \"graceUntil\": \(n(p.graceUntil)), "
-                + "\"core\": \(q(p.core))}")
+                + "\"core\": \(q(p.core))\(more)}")
         }
         // 4.0.1, after `protected` (28.7): api, models, then lastFailover with its six fields in that order (no
         // webFrame: the web's alone)
         if let e = endpoints {
             let last = e.lastFailover.map { f in
                 "{\"role\": \(q(f.role)), \"from\": \(q(f.from)), \"to\": \(q(f.to)), \"reason\": \(q(f.reason)), "
-                    + "\"status\": \(f.status.map(String.init) ?? "null"), \"at\": \(f.at)}"
+                    + "\"status\": \(f.status.map(String.init) ?? "null"), \"at\": \(f.at), \"check\": \(q(f.check))}"
             } ?? "null"
             lines.append("  \"endpoints\": {\"api\": \(q(e.api)), \"models\": \(q(e.models)), \"lastFailover\": \(last)}")
         }

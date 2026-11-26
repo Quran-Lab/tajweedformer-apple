@@ -1,0 +1,272 @@
+{
+ "section": "PROTECTED_MODEL.md 18.4.7.3 (spec fix 17)",
+ "note": "Test keys only, made by protected40.py from fixed labels (stream(label, n): SHA-256 of the label and a 32-bit little-endian counter, concatenated). No SDK trusts them.",
+ "signer": {
+  "seed_hex": "50fb0388ef36ffc3f7f695f2c11c468e72f16bbcb66e45a21d0738badf94b5e3",
+  "public_hex": "3a83ab14c7129ea01912f2ec4db55d61570cb4ebd5be3f911f66aeb56b157059",
+  "kid_hex": "bae32b00126ed013"
+ },
+ "install_hash_hex": "c5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c",
+ "text": "'quranlab-time 1\\n' <nonce, 22 base64url> '\\n' <install hash hex> '\\n' <t> '\\n'",
+ "ask_ttl_s": 300,
+ "os_slack_s": 60,
+ "time": {
+  "accept": [
+   {
+    "name": "the server's time for this install and an ask's nonce",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCg.b-IXj9j-70WHt6_jMLhoQ7G5e_1Nyqq4tuGCLITXNQHUYQr4w6YPPGmXeFRcG0dUkO-PYWogoJepv2_muGgPCA",
+    "text": "quranlab-time 1\nRilAInnpuV4C-rBqgbBs2w\nc5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c\n1790000000\n",
+    "nonce_hex": "4629402279e9b95e02fab06a81b06cdb",
+    "nonce_b64u": "RilAInnpuV4C-rBqgbBs2w",
+    "t": 1790000000
+   },
+   {
+    "name": "a time of 1 digit",
+    "time": "cXVyYW5sYWItdGltZSAxCjBjcmJVdHJsNHBUX3JlWWVkdG9qcmcKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwo3Cg.S7r1V-K1J4vZSufy4z03fM7xpswaqGIhVNpQWM68b7gUeOED1YOBtGfZkE2YsJlcNuXlBQxTu9wfCeySdQoJDg",
+    "text": "quranlab-time 1\n0crbUtrl4pT_reYedtojrg\nc5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c\n7\n",
+    "nonce_hex": "d1cadb52dae5e294ffade61e76da23ae",
+    "nonce_b64u": "0crbUtrl4pT_reYedtojrg",
+    "t": 7
+   },
+   {
+    "name": "a time of 12 digits",
+    "time": "cXVyYW5sYWItdGltZSAxCkhOcjhzRUZVVEVCRExFSEFYMElydXcKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwo5OTk5OTk5OTk5OTkK.4h-IFDg79a6S5Jx3hu5xAbq_UHiiJj8XtDF_DmW-JUNxlYS5nXBeA2V9L0dY7m1307gTFfSY-nQ7j6GgeL8sAw",
+    "text": "quranlab-time 1\nHNr8sEFUTEBDLEHAX0Iruw\nc5dc283408f5e65db837f1c9b083454adf41cb8dfc3d9f60f5dc8aace820f71c\n999999999999\n",
+    "nonce_hex": "1cdafcb041544c40432c41c05f422bbb",
+    "nonce_b64u": "HNr8sEFUTEBDLEHAX0Iruw",
+    "t": 999999999999
+   }
+  ],
+  "refuse": [
+   {
+    "name": "no dot",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCgb-IXj9j-70WHt6_jMLhoQ7G5e_1Nyqq4tuGCLITXNQHUYQr4w6YPPGmXeFRcG0dUkO-PYWogoJepv2_muGgPCA",
+    "refuse": "format"
+   },
+   {
+    "name": "two dots",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCg.b-IXj9j-70WHt6_jMLhoQ7G5e_1Nyqq4tuGCLITXNQHUYQr4w6YPPGmXeFRcG0dUkO-PYWogoJepv2_muGgPCA.AAAA",
+    "refuse": "format"
+   },
+   {
+    "name": "padding in the base64url",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCg=.b-IXj9j-70WHt6_jMLhoQ7G5e_1Nyqq4tuGCLITXNQHUYQr4w6YPPGmXeFRcG0dUkO-PYWogoJepv2_muGgPCA",
+    "refuse": "format"
+   },
+   {
+    "name": "a signature of 63 bytes",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCg.b-IXj9j-70WHt6_jMLhoQ7G5e_1Nyqq4tuGCLITXNQHUYQr4w6YPPGmXeFRcG0dUkO-PYWogoJepv2_muGgP",
+    "refuse": "format"
+   },
+   {
+    "name": "signed by a key the Core does not pin",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCg.VszlbQR5vjP9bsZmlI6fGbANZhXC7ClJIM8dZBzRXKQhPeNFmtEHS9iqR0ABS_u5mZu9sjMHQN6TFvpCujirBw",
+    "refuse": "signature"
+   },
+   {
+    "name": "the text changed after it was signed",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAxCg.b-IXj9j-70WHt6_jMLhoQ7G5e_1Nyqq4tuGCLITXNQHUYQr4w6YPPGmXeFRcG0dUkO-PYWogoJepv2_muGgPCA",
+    "refuse": "signature"
+   },
+   {
+    "name": "another head",
+    "time": "cXVyYW5sYWItdGltZSAyClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCg.b7fZDvjFnD9KOHnqpdGNqdSrTzAqIWLkPIJrrP-_PeDN8I5gk2dNPD54B0lFj1S30FKq-R9eX3P5wCzzUh8JAg",
+    "refuse": "format"
+   },
+   {
+    "name": "a nonce of 21 characters",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMgpjNWRjMjgzNDA4ZjVlNjVkYjgzN2YxYzliMDgzNDU0YWRmNDFjYjhkZmMzZDlmNjBmNWRjOGFhY2U4MjBmNzFjCjE3OTAwMDAwMDAK.kYcFzECVHZRNBA5aqHI8ViPQJSK-DwnqJpnz_laTtK7WHlXNU7zk5HVrVlLZnIVpJvNZUaAlK9Q4VksafYJ4CA",
+    "refuse": "format"
+   },
+   {
+    "name": "a nonce of 23 characters",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMndBCmM1ZGMyODM0MDhmNWU2NWRiODM3ZjFjOWIwODM0NTRhZGY0MWNiOGRmYzNkOWY2MGY1ZGM4YWFjZTgyMGY3MWMKMTc5MDAwMDAwMAo.Csludq29YGOiDQ5KoBbq8uxt8HFjzTSVN16_VYLjC4DC41hkW3CTNG-7wuwcE9MPW3RppO_Mc31Dk9ugglGACg",
+    "refuse": "format"
+   },
+   {
+    "name": "a nonce whose last character is not canonical",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMkIKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCg.mpUmLYLSzPX67tw0adcz6CVO0BfT7x7xoNZJVlMwlG8ZzVZYHIK4JbTxLmZ3ZAhH1XdZgvdaenvUW8jYnWE6BQ",
+    "refuse": "format"
+   },
+   {
+    "name": "the install hash in upper case",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKQzVEQzI4MzQwOEY1RTY1REI4MzdGMUM5QjA4MzQ1NEFERjQxQ0I4REZDM0Q5RjYwRjVEQzhBQUNFODIwRjcxQwoxNzkwMDAwMDAwCg.gpuzv7yhD72voJFSbayNbkC_BAMJxNOsQwP3mHeqvz5BGKFXBtUN3bLGp-hpwGkoIYIxCr8BohddETTYrHRMDA",
+    "refuse": "format"
+   },
+   {
+    "name": "a time of 13 digits",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxMDAwMDAwMDAwMDAwCg.QEL-oGIfCrcDeI8D966VXdQ1C8Zh0VVh_8TbKDp_sT8m6gI7FIg2GXHWQ6Lw1tBTkkHCgaTCjVOo2LBU4F4KAw",
+    "refuse": "format"
+   },
+   {
+    "name": "no time",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoK.m7XokIt1tP93DnwgfN6VRH8ufO3bOjz_tdf6B-RN1bPwXzqAlqhRwqL12GFO4pxedY4xcil59852OhOwq1ImAw",
+    "refuse": "format"
+   },
+   {
+    "name": "a negative time",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwotMTc5MDAwMDAwMAo.ui_5JlCUaAjxrdnUWhKVsxyiBELtuk-jS3inSg8nWGvTT_QOTNX-NpuOEYdAU55HF39L4QU2W_fcPPJbHwG0DQ",
+    "refuse": "format"
+   },
+   {
+    "name": "no line end after the time",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAw.ulmjT6GomKjm6uKHCmjN73Z1Whegy9ZAQi3P71A4LLiaJzLMrHNrW0IQ9WrzEYr6xwLnHgxUXr2AHZbkLE1tAQ",
+    "refuse": "format"
+   },
+   {
+    "name": "a line after the time",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKYzVkYzI4MzQwOGY1ZTY1ZGI4MzdmMWM5YjA4MzQ1NGFkZjQxY2I4ZGZjM2Q5ZjYwZjVkYzhhYWNlODIwZjcxYwoxNzkwMDAwMDAwCngK.KVapk5HTShMYH6vsyJ6hCsyNg5Xiv1dUhjm_RXaTgUHqLejac05s8Vb8nM2T-9LQLgtYgrf5wjTJsuu_rvPNCw",
+    "refuse": "format"
+   },
+   {
+    "name": "another install's",
+    "time": "cXVyYW5sYWItdGltZSAxClJpbEFJbm5wdVY0Qy1yQnFnYkJzMncKMmQ3YTUzMjA2N2ViMDRiZjBiZmYxOTQ5MWU5YmQ2Mjc0YTYxMWFmNjM4ZjAxN2RlYjE4MDM4OTEyZDA0MGUxMwoxNzkwMDAwMDAwCg.7Sv_iEOIE_BF5nShV1D2WSquOftVIwOdVOSXbVp2zOD5O0bnmxkDAqqAfdS6dFFZDnCli4XHvvFVZFwxl9AACg",
+    "refuse": "install"
+   }
+  ]
+ },
+ "record": [
+  {
+   "name": "not anchored",
+   "steps": [],
+   "boot": 500,
+   "os": -1,
+   "nonce_hex": "46ed5a70212b31836b982d145f964f27",
+   "record_hex": "0108000046ed5a70212b31836b982d145f964f2700000000000000000000000000000000",
+   "record_b64u": "AQgAAEbtWnAhKzGDa5gtFF-WTycAAAAAAAAAAAAAAAAAAAAA",
+   "fields": {
+    "version": 1,
+    "flags": 8,
+    "boots": 0,
+    "nonce_hex": "46ed5a70212b31836b982d145f964f27",
+    "now": 0,
+    "age": 0
+   }
+  },
+  {
+   "name": "a lease's iat, 2 hours later on one boot, no OS counter (WebAssembly)",
+   "steps": [
+    [
+     "lease",
+     1790000000,
+     1790604800,
+     1000,
+     -1
+    ]
+   ],
+   "boot": 8200,
+   "os": -1,
+   "nonce_hex": "787c6cd70d422156f0dd2df4cf6b42db",
+   "record_hex": "01090000787c6cd70d422156f0dd2df4cf6b42dba057b16a00000000201c000000000000",
+   "record_b64u": "AQkAAHh8bNcNQiFW8N0t9M9rQtugV7FqAAAAACAcAAAAAAAA",
+   "fields": {
+    "version": 1,
+    "flags": 9,
+    "boots": 0,
+    "nonce_hex": "787c6cd70d422156f0dd2df4cf6b42db",
+    "now": 1790007200,
+    "age": 7200
+   }
+  },
+  {
+   "name": "a signed time to the Core's own ask, then a reboot",
+   "steps": [
+    [
+     "time",
+     1790000000,
+     true,
+     777600,
+     777600
+    ]
+   ],
+   "boot": 3600,
+   "os": 3600,
+   "nonce_hex": "bc8a6bdd361d0576449426935da2e5ce",
+   "record_hex": "01030100bc8a6bdd361d0576449426935da2e5ce9049b16a00000000100e000000000000",
+   "record_b64u": "AQMBALyKa902HQV2RJQmk12i5c6QSbFqAAAAABAOAAAAAAAA",
+   "fields": {
+    "version": 1,
+    "flags": 3,
+    "boots": 1,
+    "nonce_hex": "bc8a6bdd361d0576449426935da2e5ce",
+    "now": 1790003600,
+    "age": 3600
+   }
+  },
+  {
+   "name": "another signed time (forward only), the SDK's counter stopped 2 hours",
+   "steps": [
+    [
+     "lease",
+     1790000000,
+     1790604800,
+     1000,
+     5000
+    ],
+    [
+     "time",
+     1790000060,
+     false,
+     1000,
+     5000
+    ]
+   ],
+   "boot": 1000,
+   "os": 12200,
+   "nonce_hex": "ff3316fa38d3f24cb454e906990fb15c",
+   "record_hex": "01050000ff3316fa38d3f24cb454e906990fb15ca057b16a00000000e41b000000000000",
+   "record_b64u": "AQUAAP8zFvo40_JMtFTpBpkPsVygV7FqAAAAAOQbAAAAAAAA",
+   "fields": {
+    "version": 1,
+    "flags": 5,
+    "boots": 0,
+    "nonce_hex": "ff3316fa38d3f24cb454e906990fb15c",
+    "now": 1790007200,
+    "age": 7140
+   }
+  }
+ ],
+ "proof3": {
+  "release": "4.0.0-c1",
+  "k_chal_hex": "dc899abed4e0da295b41688dbee293ceeae8041f31831a0e67e05839afd0b949",
+  "message": "'quranlab-core-proof 3\\n' || challenge || '\\n' || install hash (32) || integrity digest (32) || target || '\\n' || signals (u32 LE) || clock record (36)",
+  "cases": [
+   {
+    "challenge": "c1.1790000400.NKpH50stloA6xTXoh5eFKA.KOHTNq7j6nGkgNRCdXDhFQ",
+    "install_hash_hex": "f29fb08eb3efdd216741c284d7c140125642f6cc835565e32f75d5a5eb55d6c3",
+    "integrity_digest_hex": "02104cf59cdd7af666f26cbffe141bee5884279d1309b2576a58ac0d2c2593aa",
+    "target": "ios-arm64",
+    "signals": 0,
+    "clock_hex": "01090000787c6cd70d422156f0dd2df4cf6b42dba057b16a00000000201c000000000000",
+    "clock_b64u": "AQkAAHh8bNcNQiFW8N0t9M9rQtugV7FqAAAAACAcAAAAAAAA",
+    "message_hex": "717572616e6c61622d636f72652d70726f6f6620330a63312e313739303030303430302e4e4b7048353073746c6f41367854586f683565464b412e4b4f48544e71376a366e476b674e52436458446846510af29fb08eb3efdd216741c284d7c140125642f6cc835565e32f75d5a5eb55d6c302104cf59cdd7af666f26cbffe141bee5884279d1309b2576a58ac0d2c2593aa696f732d61726d36340a0000000001090000787c6cd70d422156f0dd2df4cf6b42dba057b16a00000000201c000000000000",
+    "proof_hex": "cd330fe85249fbb9add0dda52223e1e5",
+    "proof_b64u": "zTMP6FJJ-7mt0N2lIiPh5Q"
+   },
+   {
+    "challenge": "c1.1790000401.QNS1EBDN-AesCLG7FwdSTQ.2hqlBUFYO-iz9h8quBCbHA",
+    "install_hash_hex": "3ead5428e450bf0bf7dc8065716dc74738af960f32de695114d789b5d1de3b3f",
+    "integrity_digest_hex": "6182a3c32eb1fd7169e34541183ab7a42f1df9c2cd89481b1126ee2a79395e02",
+    "target": "android-arm64-v8a",
+    "signals": 64,
+    "clock_hex": "01030100bc8a6bdd361d0576449426935da2e5ce9049b16a00000000100e000000000000",
+    "clock_b64u": "AQMBALyKa902HQV2RJQmk12i5c6QSbFqAAAAABAOAAAAAAAA",
+    "message_hex": "717572616e6c61622d636f72652d70726f6f6620330a63312e313739303030303430312e514e53314542444e2d416573434c47374677645354512e3268716c425546594f2d697a396838717542436248410a3ead5428e450bf0bf7dc8065716dc74738af960f32de695114d789b5d1de3b3f6182a3c32eb1fd7169e34541183ab7a42f1df9c2cd89481b1126ee2a79395e02616e64726f69642d61726d36342d7638610a4000000001030100bc8a6bdd361d0576449426935da2e5ce9049b16a00000000100e000000000000",
+    "proof_hex": "bc27cfbc1d49bce51f82f4ae07ca064f",
+    "proof_b64u": "vCfPvB1JvOUfgvSuB8oGTw"
+   },
+   {
+    "challenge": "c1.1790000402.hr_Lyn6jUivat58toiGZkg.5R-D5PibUL5wbW1WqxnBXw",
+    "install_hash_hex": "aba8e8aa1e0158b21a8bad1e897664fa0b251808775db984c12dc0b6ad49c417",
+    "integrity_digest_hex": "8a719f04d4577fe95940d7d7897d1fcdea2be32845978e0d0463a2dccc8abc74",
+    "target": "wasm32-simd",
+    "signals": 32,
+    "clock_hex": "01050000ff3316fa38d3f24cb454e906990fb15ca057b16a00000000e41b000000000000",
+    "clock_b64u": "AQUAAP8zFvo40_JMtFTpBpkPsVygV7FqAAAAAOQbAAAAAAAA",
+    "message_hex": "717572616e6c61622d636f72652d70726f6f6620330a63312e313739303030303430322e68725f4c796e366a55697661743538746f69475a6b672e35522d4435506962554c35776257315771786e4258770aaba8e8aa1e0158b21a8bad1e897664fa0b251808775db984c12dc0b6ad49c4178a719f04d4577fe95940d7d7897d1fcdea2be32845978e0d0463a2dccc8abc747761736d33322d73696d640a2000000001050000ff3316fa38d3f24cb454e906990fb15ca057b16a00000000e41b000000000000",
+    "proof_hex": "94bab9443804e667135591ddddca00cf",
+    "proof_b64u": "lLq5RDgE5mcTVZHd3coAzw"
+   }
+  ]
+ }
+}

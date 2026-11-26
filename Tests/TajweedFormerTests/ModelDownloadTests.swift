@@ -259,6 +259,59 @@ final class ModelDownloadTests: XCTestCase {
         assertInstalledOnlyAsDeviceForm(dir)
     }
 
+    /// SDK 4.0.5 (38.6, vector `beside_after_validator_change`): the file changed on the server, and the whole file it
+    /// sends in place of the resume is cut on its way beside the partial file. What arrived takes the partial file's
+    /// place under the new validator, the old bytes go, and the download goes on from there (`bytes=100000-` with the new
+    /// ETag); the file started over once (`restarted.validator`). Until 4.0.5 the 100 000 bytes were dropped, the old 150
+    /// kept, and the next request was answered with the whole file again.
+    func testAWholeFileCutOnItsWayTakesThePartialFilesPlace() async throws {
+        let dir = try await interrupted(etag: "\"one\"")
+        try Data(repeating: 0x5a, count: 150).write(to: part(dir))
+        let first = Locked(true)
+        serve { seen in
+            var reply = Self.served(seen, etag: "\"two\"")
+            if first.withLock({ (f: inout Bool) -> Bool in defer { f = false }; return f }) { reply.breakAfter = 100_000 }
+            return reply
+        }
+        var report = InstallReport()
+        var failure: RecognizerError?
+        do throws(RecognizerError) {
+            try await installer(pauses: [0], core: CoreStandIn(), folder: dir).ensure(Self.file, in: dir, report: &report)
+        } catch {
+            failure = error
+        }
+        XCTAssertNil(failure)
+        let asked = Self.weightRequests
+        XCTAssertEqual(asked.map { $0.headers["range"] }, ["bytes=150-", "bytes=100000-"], "the rest from the bytes that arrived")
+        XCTAssertEqual(asked.map { $0.headers["if-range"] }, ["\"one\"", "\"two\""], "under the new validator")
+        XCTAssertEqual(report.restarted, ["validator": 1])
+        assertInstalledOnlyAsDeviceForm(dir)
+    }
+
+    /// SDK 4.0.5 (38.6): a whole file an earlier process left on its way beside the partial file (its validator kept when
+    /// it began) takes the partial file's place at the next call: the old bytes go, the download goes on from the 50 000
+    /// that arrived with the new validator, the file counted as started over once and those bytes as kept.
+    func testAWholeFileAnEarlierProcessLeftBesideTakesThePartialFilesPlace() async throws {
+        let dir = try await interrupted(etag: "\"one\"")
+        try Data(repeating: 0x5a, count: 150).write(to: part(dir))
+        try Data("\"two\"".utf8).write(to: ModelInstaller.validatorFile(part(dir)))
+        try Self.stored.prefix(50_000).write(to: HTTPClient.wholeFile(beside: part(dir)))
+        serve { seen in Self.served(seen, etag: "\"two\"") }
+        var report = InstallReport()
+        var failure: RecognizerError?
+        do throws(RecognizerError) {
+            try await installer(core: CoreStandIn(), folder: dir).ensure(Self.file, in: dir, report: &report)
+        } catch {
+            failure = error
+        }
+        XCTAssertNil(failure)
+        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=50000-"])
+        XCTAssertEqual(Self.weightRequests.first?.headers["if-range"], "\"two\"")
+        XCTAssertEqual(report.restarted, ["validator": 1])
+        XCTAssertEqual(report.keptBytes, 50_000)
+        assertInstalledOnlyAsDeviceForm(dir)
+    }
+
     /// The same file on the server: the kept validator matches, the server sends the rest, and it is appended.
     /// 4.0.1: the 150 bytes on disk are hashed once when the call starts, the rest as it arrives, and the file is not
     /// read again after its last byte.
@@ -273,6 +326,36 @@ final class ModelDownloadTests: XCTestCase {
         XCTAssertEqual(Self.weightRequests.first?.headers["if-range"], "\"one\"")
         XCTAssertEqual(PartHasher.resumedBytes.withLock { $0 } - resumed, 150, "the bytes kept from the earlier call, hashed first")
         XCTAssertEqual(PartHasher.readAgain.withLock { $0 }, readAgain, "no second read of the file after its last byte")
+        assertInstalledOnlyAsDeviceForm(dir)
+    }
+
+    /// SDK 4.0.5 (38.5 item 2): the bytes kept on disk are hashed beside the transfer. The resumed file's request goes out
+    /// while the hash of its kept bytes has not read a byte (its thread held here); once let go, the hash covers the kept
+    /// bytes and those that came meanwhile, the file is not read again at its end, and the Core gets the verified CDN
+    /// form. Until 4.0.5 the kept bytes were read whole before the request.
+    func testTheKeptBytesAreHashedBesideTheTransfer() async throws {
+        let dir = try await interrupted(etag: "\"one\"")
+        let hold = DispatchSemaphore(value: 0)
+        PartHasher.beforeCatchUp.withLock { $0 = { hold.wait() } }
+        defer { PartHasher.beforeCatchUp.withLock { $0 = nil } }
+        let asked = Locked(false)
+        serve { seen in
+            asked.withLock { $0 = true }
+            return Self.served(seen)
+        }
+        let readAgain = PartHasher.readAgain.withLock { $0 }, resumed = PartHasher.resumedBytes.withLock { $0 }
+        let i = installer(core: CoreStandIn(), folder: dir)
+        let call = Task { [i, dir] in await ModelDownloadTests.ensure(i, dir) }
+        let end = Date().addingTimeInterval(10)
+        while !asked.withLock({ $0 }), Date() < end { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertTrue(asked.withLock { $0 }, "the request went out before a kept byte was read")
+        XCTAssertEqual(PartHasher.resumedBytes.withLock { $0 }, resumed, "no kept byte read yet")
+        hold.signal()
+        let error = await call.value
+        XCTAssertNil(error)
+        XCTAssertEqual(Self.weightRequests.map { $0.headers["range"] }, ["bytes=150-"])
+        XCTAssertEqual(PartHasher.resumedBytes.withLock { $0 } - resumed, 150, "the kept bytes, hashed beside")
+        XCTAssertEqual(PartHasher.readAgain.withLock { $0 }, readAgain, "no read of the file after its last byte")
         assertInstalledOnlyAsDeviceForm(dir)
     }
 

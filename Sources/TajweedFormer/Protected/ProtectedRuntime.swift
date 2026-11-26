@@ -42,6 +42,49 @@ struct LeaseServer: Sendable {
     let certify: @Sendable (_ key: any InstallKey) async throws(CloudError) -> String
     /// Quran Lab's signing keys: certificates verify against them.
     let trustedKeys: [Data]
+    /// SDK 4.0.5 (ERRORS_40 24.14): the app's version and build (`AppIdentity`), as one string; empty when not known.
+    var appRelease: String = ""
+    /// SDK 4.0.5 (24.14 item 5): clears the App Attest retry hold (`AttestBackoff`) before an attest again.
+    var clearAttestHold: @Sendable () -> Void = {}
+    /// SDK 4.0.5 (ATTEST_40.md 40.2): an attestation is owed and its next try has come (`TokenProvider.attestationOwedAndDue`);
+    /// with `networkBack` whatever the row's wait (the network came back, 40.2 item 4).
+    var attestationOwedAndDue: @Sendable (_ networkBack: Bool) -> Bool = { _ in false }
+    /// 40.2 item 8: a lease refused for attestation makes the attestation owed now.
+    var oweAttestation: @Sendable () -> Void = {}
+    /// 40.2 item 10: an upgrade whose full lease did not come owes the attestation again, its next try after `seconds`
+    /// (so a restart makes it anew).
+    var oweAttestationAfter: @Sendable (_ seconds: Int) -> Void = { _ in }
+    /// 40.2: an attestation is owed (whether or not its next try has come).
+    var attestationOwed: @Sendable () -> Bool = { false }
+    /// 40.3: why the certificate in force was made without App Attest, the lease request's `unattested`; nil for none.
+    var unattestedWhy: @Sendable () -> String? = { nil }
+    /// 40.6 item 2: `diagnose()`'s attestation, from the certificate in force's `att`.
+    var attestation: @Sendable (_ certificateAtt: String?) -> TajweedDiagnosis.Attestation? = { _ in nil }
+    /// 40.2 item 1: the config in force says the lease needs attestation (`attest: "required"`). Tests' default: required.
+    var attestRequired: @Sendable () -> Bool = { true }
+    /// 40.2 item 1: an attested certificate for `key`, or a failure, never one without attestation (the upgrade of a
+    /// capped install); nil: no upgrade (tests).
+    var upgrade: (@Sendable (_ key: any InstallKey) async throws(CloudError) -> String)? = nil
+}
+
+/// SDK 4.0.5 (ERRORS_40 24.14 item 4): a lease refused for attestation (`lease_attestation_required`), remembered with the
+/// app's release it was refused to (`cloud/lease-attestation-refusal.json`).
+struct AttestationRefusal: Codable, Sendable, Equatable {
+    /// The device's wall clock, seconds.
+    var at: Int64
+    var appRelease: String
+    var status: Int
+    var code: String
+    var message: String
+
+    /// An app call within this many seconds of the refusal gets the same error without a request.
+    static let window: Int64 = 600
+
+    /// Whether an app call at `now` of `release` gets the remembered error (the same app release, within the window).
+    func holds(now: Int64, release: String) -> Bool { release == appRelease && now >= at && now - at < Self.window }
+
+    var error: RecognizerError { .serverRejected(status: status, code: code, message: message) }
+    var cause: ErrorCause { ErrorCause(stage: "lease", reason: "refused", httpStatus: status, errorCode: code) }
 }
 
 /// Where the install keys come from: the Keychain and Secure Enclave (`InstallKeyring`), or a fixed key in tests.
@@ -203,10 +246,46 @@ struct LeaseAttemptEnd: Sendable {
     var fallback: Bool?
 }
 
+/// SDK 4.0.5 (ATTEST_40.md 40.2 item 10): an upgrade's target: the next install key (not the install's yet) and its
+/// attested certificate, kept for the next try. `host` is the Core over that key made for one try's request, never ticked
+/// and its saves held back (`CoreStateGate`) until it accepts the lease; a try that does not switch drops it unsaved.
+final class UpgradeTarget: @unchecked Sendable {
+    let key: any InstallKey
+    let generation: Int
+    let certificate: InstallCertificate
+    let text: String
+    /// The Core of the try in progress (nil between tries): made anew at each try, so it takes the platform's counter
+    /// and the state as they are then (Core c3: a Core made earlier would save below the counter).
+    var host: CoreHost?
+    /// The full lease's failed tries and the next one (unix seconds of the wall clock), by 40.2 item 4's schedule.
+    var failures = 0
+    var nextTry: Int64 = 0
+
+    init(key: any InstallKey, generation: Int, certificate: InstallCertificate, text: String) {
+        self.key = key
+        self.generation = generation
+        self.certificate = certificate
+        self.text = text
+    }
+}
+
 /// The install's certificate, for the key generation it was issued to.
 struct StoredCertificate: Codable, Sendable, Equatable {
     var generation: Int
     var certificate: String
+    /// SDK 4.0.5 (ERRORS_40 24.14 item 5): the app's release it was attested with (nil: a certificate an earlier SDK kept).
+    var appRelease: String? = nil
+    /// SDK 4.0.5 (ATTEST_40.md 40.3): why it was made without App Attest, a named path (the lease request's
+    /// `unattested`); nil when attested or not named.
+    var unattested: String? = nil
+
+    /// 24.14 item 5: an install whose certificate says `att none` with `recheck 0` attests again before its next lease
+    /// ask when the app's release differs from the one it attested with (a certificate an earlier SDK kept says none),
+    /// so a release that adds the App Attest capability reaches its installs at their first launch.
+    static func attestsAgain(_ c: InstallCertificate, attestedWith: String?, release: String) -> Bool {
+        guard c.att == "none", !c.recheck, !release.isEmpty else { return false }
+        return attestedWith != release
+    }
 }
 
 /// The protected model of one Client: the Core over the install's key, the install
@@ -228,10 +307,26 @@ final class ProtectedRuntime: @unchecked Sendable {
     private let hostBox = Locked<CoreHost?>(nil)
     private let certFile: JSONFile<StoredCertificate>
     private let leaseFile: JSONFile<LeaseRecord>
+    /// SDK 4.0.5 (24.14 item 4): the last lease refused for attestation.
+    private let attestRefusalFile: JSONFile<AttestationRefusal>
     /// The row of failed lease attempts and its next attempt (18.4.7.3), kept across restarts in `cloud/lease-retry.json`.
     private let retry: Locked<LeaseRetry>
     private let retryFile: JSONFile<LeaseRetry>
     private let refreshing = Locked<Task<Void, Never>?>(nil)
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 item 5): the next install key an owed attestation was made for in this process, kept
+    /// so Apple's object (which binds its hash) can be sent again while its challenge is fresh.
+    private let pendingNext = Locked<(key: any InstallKey, generation: Int)?>(nil)
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 item 10): the upgrade of a capped install whose attestation succeeded and whose full
+    /// lease has not been accepted yet: the next key and its attested certificate (each try makes its own Core over the
+    /// key). Kept for the next try (in this process); the capped lease, its certificate, its key and its Core stay in
+    /// force meanwhile.
+    private let pendingUpgrade = Locked<UpgradeTarget?>(nil)
+    /// 40.2 item 10: set for the lease attempt of an upgrade (its certificate, key and Core in place of the install's).
+    @TaskLocal static var upgrading: UpgradeTarget?
+    /// 40.2 item 4: the background attestation (and the lease after it), one at a time.
+    private let attesting = Locked<Task<Void, Never>?>(nil)
+    /// 40.2 item 4: when the network last came back and was a try (at most one a minute).
+    private let lastNetworkTry = Locked<Date?>(nil)
     private let flight = LeaseFlight()
     /// The model this runtime opened or shares, and the build folder it came from: its hold on it. SDK 4.0.3: which model
     /// the Core has open is the Core's (`CoreHost.openSlot`), the same for every runtime of the Core.
@@ -242,17 +337,37 @@ final class ProtectedRuntime: @unchecked Sendable {
     static let openWaitSeconds: TimeInterval = 3
     /// `openWaitSeconds`; tests shorten it.
     var openWait: TimeInterval = ProtectedRuntime.openWaitSeconds
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 item 4): set for a renewal the SDK started by itself; an attestation that is owed and
+    /// not due yet is not tried by it (the owed attestation's own schedule, the network coming back and the app's calls
+    /// try it).
+    @TaskLocal static var inBackground = false
     /// SDK 4.0.3: set by `asyncOpen` for the call it runs: the wait was done by suspending, and an open under it never
     /// blocks its thread (it fails at once when the model is still in another Client's take).
     @TaskLocal static var asyncWaited = false
     /// The build folder used last (the timer's refresh uses its manifest).
     private let lastFolder = Locked<ModelFolder?>(nil)
+    /// SDK 4.0.5 (40.2 item 4): the manifest the last lease was asked for (a first install has no folder in use yet),
+    /// for the background attestation and lease when the network comes back.
+    private let lastManifest = Locked<ModelManifest?>(nil)
     /// Told every verified stop (the Client's model gate), every lease outcome (analytics) and every issue to report.
     var onStop: @Sendable (RecognizerError) -> Void = { _ in }
     var onLease: @Sendable (LeaseOutcome) -> Void = { _ in }
     var onIssue: @Sendable (_ kind: String, _ code: String) -> Void = { _, _ in }
     /// Told the cause of a background renewal that failed.
     var onSilent: @Sendable (ErrorCause) -> Void = { _ in }
+    /// SDK 4.0.5: the signed manifest of the build this install would lease (the config's build, its manifest from the
+    /// CDN; no model file), for an owed attestation's background try when no model is on the device yet. Set once by
+    /// the server client.
+    var leaseManifest: (@Sendable () async -> ModelManifest?)?
+    /// SDK 4.0.5: the app asked this process for a model (`model()`, `prefetch()`): only then does an install with no
+    /// model on the device attest and lease in the background.
+    private let wanted = Locked(false)
+    /// The background tries that found no manifest in a row, and when the next may come (40.2 item 4's row: 30 s,
+    /// doubling, at most an hour).
+    private let noManifest = Locked<(failures: Int, until: Date?)>((0, nil))
+
+    /// The app asked for a model (`TajweedClient.model()`, `prefetch()`).
+    func modelWanted() { wanted.withLock { $0 = true } }
     /// The last failure of the lease route with its cause: what the error alone does not
     /// say (a stop the Core verified, a stop it did not act on, a lease the Core refused or found past its end). Nil
     /// once a lease is accepted.
@@ -273,13 +388,16 @@ final class ProtectedRuntime: @unchecked Sendable {
     static let graceReasons: Set<String> = ["network", "timeout", "http", "rate_limited", "redirect", "invalid_answer", "invalid", "lease_unavailable"]
 
     init(storage: URL, server: LeaseServer?, keys: any InstallKeySource, state: (any CoreStateKeeping)? = nil,
-         clocks: any CoreClocks = SystemClocks()) {
+         clocks: (any CoreClocks)? = nil) {
         self.storage = storage
         self.server = server
         self.keys = keys
         self.state = state ?? KeychainCoreState(storage: storage)
+        // SDK 4.0.5 (spec fix 17): the boot id kept across launches (`StickyBootID`)
+        let clocks = clocks ?? SystemClocks(bootIDFile: storage.appendingPathComponent("cloud/boot-id.json"))
         self.clocks = clocks
         certFile = JSONFile(url: storage.appendingPathComponent("cloud/install-cert.json"))
+        attestRefusalFile = JSONFile(url: storage.appendingPathComponent("cloud/lease-attestation-refusal.json"))
         // 28.11 item 3 (SDK 4.0.2): the lease's row of failures, as the last process left it; unreadable is taken as none
         // here, because an attempt may then come sooner, as before 4.0.2
         let rf = JSONFile<LeaseRetry>(url: storage.appendingPathComponent("cloud/lease-retry.json"))
@@ -291,6 +409,9 @@ final class ProtectedRuntime: @unchecked Sendable {
         // goes at the start, before anything else (Stage B, the iPhone: a launch that ended 1 s after it began loading
         // the promoted build left the program there)
         AcceleratorGate.clearDispatch(storage: storage)
+        // SDK 4.0.5 (ATTEST_40.md 40.2 item 4, 40.4 item 1): the network coming back is a try of an owed attestation and
+        // of a renewal that is due
+        NetworkWatch.shared.observe(self) { [weak self] in self?.networkBack() }
     }
 
     /// The Core over the current install key, made at first use. Nil key: the install has never attested, and the
@@ -298,7 +419,8 @@ final class ProtectedRuntime: @unchecked Sendable {
     func host() throws(RecognizerError) -> CoreHost? {
         if let h = hostBox.withLock({ $0 }) { return h }
         guard let key = keys.current() else { return nil }
-        let platform = CorePlatform(storage: CoreStorage(root: storage), key: key, state: state, clocks: clocks)
+        // SDK 4.0.5 (40.2 item 10): its saves through a gate of its own, which an upgrade holds back or ends
+        let platform = CorePlatform(storage: CoreStorage(root: storage), key: key, state: CoreStateGate(state), clocks: clocks)
         do throws(CoreFailure) {
             // SDK 4.0.2: the Core a closed Client of this folder still holds, when there is one (`LiveCores`)
             let h = try LiveCores.take(LiveCores.key(storage: storage, installHash: key.installHash)) { () throws(CoreFailure) -> CoreHost in
@@ -340,10 +462,21 @@ final class ProtectedRuntime: @unchecked Sendable {
         let live = lease != "none" && lease != "stopped"
         // the lease's flags, bit 3 (18.4.6), as the Core reads them (qlc_accel_allowed)
         let cls: String? = live ? host?.accelAllowed().flatMap { $0 == 1 ? "attested" : $0 == 0 ? "standard" : nil } : nil
-        return TajweedDiagnosis.Protected(keyStore: store, lease: lease,
-                                          leaseExpires: lease != "none" && s.expiresAt > 0 ? s.expiresAt : nil,
-                                          leaseClass: cls, refreshAfter: live && s.refreshAfter > 0 ? s.refreshAfter : nil,
-                                          graceUntil: lease == "grace" ? g.until : nil, core: host == nil ? nil : CoreHost.version)
+        var p = TajweedDiagnosis.Protected(keyStore: store, lease: lease,
+                                           leaseExpires: lease != "none" && s.expiresAt > 0 ? s.expiresAt : nil,
+                                           leaseClass: cls, refreshAfter: live && s.refreshAfter > 0 ? s.refreshAfter : nil,
+                                           graceUntil: lease == "grace" ? g.until : nil, core: host == nil ? nil : CoreHost.version)
+        // SDK 4.0.5 (ATTEST_40.md 40.6 item 2, DIAGNOSIS_40 25.4)
+        let att = certFile.read().takingUnreadableAsMissing.flatMap { stored in server.flatMap { InstallCertificate.parse(stored.certificate, trustedKeys: $0.trustedKeys) } }?.att
+        p.attestation = server?.attestation(att)
+        if let f = lastFailure.withLock({ $0 }) {
+            let c = f.cause
+            p.lastFailure = TajweedDiagnosis.LeaseFailure(stage: c.stage, reason: c.reason, httpStatus: c.httpStatus,
+                                                          errorCode: c.errorCode.flatMap { ErrorRules.token($0, ErrorRules.errorCodePattern) },
+                                                          hostRole: c.hostRole, fallback: c.fallback,
+                                                          chain: (c.chain ?? []).suffix(CauseChain.max).map(\.diagnosisJSON))
+        }
+        return p
     }
 
     /// The background refresh's backoff as it stands (18.4.7).
@@ -358,6 +491,18 @@ final class ProtectedRuntime: @unchecked Sendable {
         return s.valid && leaseRecord?.build == build
     }
 
+    /// SDK 4.0.5: the lease in force for the build of `m`, read with no request; nil when the
+    /// Core holds none for it that is valid now (none, expired, another build). A resume with none asks it beside its
+    /// first request.
+    func leaseInForce(_ m: ModelManifest) -> LeaseRecord? {
+        #if DEBUG
+        // tests only (StagingHooks.core): the stand-in's lease in force
+        if let standIn = StagingHooks.core.withLock({ $0 }) { return standIn.inForce(m) }
+        #endif
+        guard hasValidLease(build: m.build), let r = leaseRecord else { return nil }
+        return r
+    }
+
     // MARK: the lease
 
     /// A valid lease for the build of `manifest`: the one the Core holds, else a new one from the server. The
@@ -370,16 +515,24 @@ final class ProtectedRuntime: @unchecked Sendable {
         }
         #endif
         guard m.encryption != nil else { throw .modelIncompatible("\(m.modelID) \(m.version) is not a protected build; SDK 4.0 runs protected builds only") }
+        lastManifest.withLock { $0 = m }
         if let h = try self.host() {
             let s = h.tick()
             if s.valid, let r = leaseRecord, r.build == m.build {
-                if s.refreshDue { refreshInBackground(m, now: s.now) }
+                if s.refreshDue || renewDue(s) { refreshInBackground(m, now: s.now) }
                 return r
             }
             // 18.4.7.1: this build's lease has expired: an attempt first, then the Core's grace decides
             if s.hasLease, !s.stopped, let r = leaseRecord, r.build == m.build {
                 return try await pastExp(m, host: h, record: r)
             }
+        }
+        // SDK 4.0.5 (ERRORS_40 24.14 item 4): an app call within 10 minutes of a refusal for attestation gets the same
+        // error, with the same cause, without a request; an app of another version or build asks at once. The
+        // background attempts keep 18.4.7.3's times (they do not come here)
+        if let r = attestRefusalFile.read().takingUnreadableAsMissing, r.holds(now: clocks.wallMs() / 1000, release: server?.appRelease ?? "") {
+            lastFailure.withLock { $0 = CausedFailure(error: r.error, cause: r.cause) }
+            throw r.error
         }
         return try await flight.run(m.build) { () async throws(RecognizerError) -> LeaseRecord in
             try await self.fetchLease(m)
@@ -466,7 +619,9 @@ final class ProtectedRuntime: @unchecked Sendable {
         lastFolder.withLock { $0 = folder }
         guard let h = try? self.host() else { return }
         let s = h.tick()
-        guard s.hasLease, s.refreshDue, leaseRecord?.build == folder.manifest.build else { return }
+        // SDK 4.0.5 (40.2 item 4): an owed attestation that is due, when no lease can open
+        attestIfOwed(folder.manifest)
+        guard s.hasLease, s.refreshDue || renewDue(s), leaseRecord?.build == folder.manifest.build else { return }
         refreshInBackground(folder.manifest, now: s.now)
     }
 
@@ -475,8 +630,119 @@ final class ProtectedRuntime: @unchecked Sendable {
     func tick() {
         guard let h = try? self.host() else { return }
         let s = h.tick()
-        if s.hasLease, s.refreshDue, let f = lastFolder.withLock({ $0 }), leaseRecord?.build == f.manifest.build {
+        if s.hasLease, s.refreshDue || renewDue(s), let f = lastFolder.withLock({ $0 }), leaseRecord?.build == f.manifest.build {
             refreshInBackground(f.manifest, now: s.now)
+        }
+        attestIfOwed(lastFolder.withLock { $0 }?.manifest ?? lastManifest.withLock { $0 })
+    }
+
+    /// SDK 4.0.5 (ATTEST_40.md 40.4 item 1): the lease's half-life has passed on the Core's clock, before the server's
+    /// `refresh_after` (which the Core's `refreshDue` says): a late `refresh_after` never leaves a lease to its last day.
+    func renewDue(_ s: CoreLeaseStatus) -> Bool {
+        guard s.hasLease, !s.stopped, let r = leaseRecord, r.expiresAt > 0 else { return false }
+        return s.now >= AttestPolicy.renewDue(iat: r.issuedAt, exp: r.expiresAt, refreshAfter: r.refreshAfter)
+    }
+
+    /// 40.2 item 8: the lease the Core holds can still open the model (valid, or in its grace).
+    func leaseCanOpen() -> Bool {
+        guard let h = try? self.host() else { return false }
+        let s = h.tick()
+        return s.hasLease && !s.stopped && (s.valid || h.leaseGrace().inGrace)
+    }
+
+    /// The network came back (`NetworkWatch`): after a draw of 0 to 3 s, at most once a minute, an owed attestation that
+    /// is due and a renewal that is due and whose row allows it (40.2 item 4, 40.4 items 1 and 2).
+    func networkBack() {
+        let now = Date()
+        let go = lastNetworkTry.withLock { (t: inout Date?) -> Bool in
+            if let t0 = t, now.timeIntervalSince(t0) < AttestPolicy.pathMinGap { return false }
+            t = now
+            return true
+        }
+        guard go else { return }
+        let delay = Double.random(in: AttestPolicy.pathDelay) * AttestPolicy.timeScale.withLock { $0 }
+        Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self else { return }
+            self.attestIfOwed(self.lastFolder.withLock({ $0 })?.manifest ?? self.lastManifest.withLock({ $0 }), networkBack: true)
+            guard let f = self.lastFolder.withLock({ $0 }), let h = try? self.host() else { return }
+            let s = h.tick()
+            if s.hasLease, s.refreshDue || self.renewDue(s), self.leaseRecord?.build == f.manifest.build {
+                self.refreshInBackground(f.manifest, now: s.now)
+            }
+        }
+    }
+
+    /// 40.2 items 4 and 8: an owed attestation whose try has come, in the background, when no lease the Core holds can
+    /// still open the model (a lease in use stays in use; a new install key would leave it behind); then the lease.
+    func attestIfOwed(_ m: ModelManifest?, networkBack: Bool = false) {
+        // a capped install whose lease needs no attestation upgrades while its lease can still open (40.2 item 1); one
+        // whose lease needs it keeps a lease that can open until it cannot (item 8)
+        guard let server else { return }
+        guard let m else { return attestWithoutModel(server, networkBack: networkBack) }
+        let upgradeDue = pendingUpgrade.withLock { $0.map { networkBack || clocks.wallMs() / 1000 >= $0.nextTry } } ?? false
+        guard server.attestationOwedAndDue(networkBack) || upgradeDue, !leaseCanOpen() || !server.attestRequired() else { return }
+        attesting.withLock { (t: inout Task<Void, Never>?) in
+            guard t == nil else { return }
+            t = Task.detached(priority: .utility) { [weak self] in
+                guard let self else { return }
+                do throws(RecognizerError) {
+                    // a flight of its own after the one running (the attempt a refusal made it owed in is never joined)
+                    _ = try await self.flight.runAfter(m.build) { () async throws(RecognizerError) -> LeaseRecord in
+                        // 40.2 item 1: a capped install whose lease can open upgrades only on success (a try that does
+                        // not end attested changes nothing); else a new certificate, as the lease needs
+                        if !server.attestRequired(), self.leaseCanOpen() {
+                            // 40.2 item 10: the full lease with the next key; the capped lease in force until it is accepted
+                            return try await self.upgradeLease(m, server)
+                        }
+                        _ = try await self.certificate(renew: true)
+                        return try await self.fetchLease(m)
+                    }
+                } catch {
+                    self.onSilent(ErrorCause.lease(error, runtime: self))
+                }
+                self.attesting.withLock { $0 = nil }
+            }
+        }
+    }
+
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 items 4 and 9): an install with no model on the device (so no manifest in hand) whose
+    /// app asked for one that did not come (no network at its first `model()`), with an attestation owed: the background
+    /// tries it as for a known build, when the network comes back and at the row's time. In 18.4.1's order: the build the
+    /// config names and its signed manifest (`leaseManifest`; no model file, the download waits for the app's call),
+    /// then in the build's flight the certificate (the attestation, 40.2 items 1 to 3) and the lease. The guards are read
+    /// again once the manifest is in, since the app's own call may have leased meanwhile. A try that finds no manifest
+    /// waits 30 s, doubling to an hour, before the next (the network coming back does not wait).
+    private func attestWithoutModel(_ server: LeaseServer, networkBack: Bool) {
+        guard wanted.withLock({ $0 }), let find = leaseManifest else { return }
+        guard server.attestationOwedAndDue(networkBack), !leaseCanOpen() else { return }
+        if !networkBack, let until = noManifest.withLock({ $0.until }), Date() < until { return }
+        attesting.withLock { (t: inout Task<Void, Never>?) in
+            guard t == nil else { return }
+            t = Task.detached(priority: .utility) { [weak self] in
+                guard let self else { return }
+                if let m = await find() {
+                    self.noManifest.withLock { $0 = (0, nil) }
+                    self.lastManifest.withLock { $0 = $0 ?? m }
+                    if server.attestationOwedAndDue(networkBack), !self.leaseCanOpen() {
+                        do throws(RecognizerError) {
+                            _ = try await self.flight.runAfter(m.build) { () async throws(RecognizerError) -> LeaseRecord in
+                                _ = try await self.certificate(renew: true)
+                                return try await self.fetchLease(m)
+                            }
+                        } catch {
+                            self.onSilent(ErrorCause.lease(error, runtime: self))
+                        }
+                    }
+                } else {
+                    self.noManifest.withLock { (s: inout (failures: Int, until: Date?)) in
+                        s.failures += 1
+                        let wait = min(30 << min(16, s.failures - 1), 3600)
+                        s.until = Date().addingTimeInterval(TimeInterval(wait))
+                    }
+                }
+                self.attesting.withLock { $0 = nil }
+            }
         }
     }
 
@@ -488,10 +754,13 @@ final class ProtectedRuntime: @unchecked Sendable {
             if t != nil { return false }
             t = Task.detached(priority: .utility) { [weak self] in
                 guard let self else { return }
-                do throws(RecognizerError) {
-                    _ = try await self.renew(m)
-                } catch {
-                    self.onSilent(ErrorCause.lease(error, runtime: self))
+                // SDK 4.0.5 (40.2 item 4): a renewal of the SDK's own, which keeps an owed attestation's schedule
+                await Self.$inBackground.withValue(true) {
+                    do throws(RecognizerError) {
+                        _ = try await self.renew(m)
+                    } catch {
+                        self.onSilent(ErrorCause.lease(error, runtime: self))
+                    }
                 }
                 self.refreshing.withLock { $0 = nil }
             }
@@ -509,30 +778,170 @@ final class ProtectedRuntime: @unchecked Sendable {
         if !renew, let key = keys.current(), let stored = certFile.read().takingUnreadableAsMissing, stored.generation == keys.generation,
            let c = InstallCertificate.parse(stored.certificate, trustedKeys: server.trustedKeys), c.isFor(installHash: key.installHash),
            c.expiresAt > now + 60 {
-            return c
+            // SDK 4.0.5 (24.14 item 5): an unattested certificate of another app release attests again, its App Attest
+            // retry hold cleared first; (ATTEST_40.md 40.2 items 1 and 8) so does one whose attestation is owed and due.
+            // Either waits while the lease the Core holds can still open the model (a new install key would leave it
+            // behind; Android 159c790's rule); else it is the install's certificate until it ends
+            let again = StoredCertificate.attestsAgain(c, attestedWith: stored.appRelease, release: server.appRelease)
+            let owed = c.att == "none" && server.attestationOwedAndDue(false)
+            // SDK 4.0.5 (40.2 items 1 and 10): where the lease needs no attestation, an owed attestation is the background's
+            // upgrade (`upgradeLease`), which switches only once the full lease is accepted: here the capped certificate
+            // stays the one the lease is asked with
+            if owed, !server.attestRequired() { return c }
+            guard again || owed, !leaseCanOpen() else { return c }
+            if again { server.clearAttestHold() }
         }
-        guard let next = keys.makeNext() else { throw .storageFailed("the install key store made no key") }
+        // 40.2 item 5: the next key an owed attestation was made for in this process, so Apple's object is sent again
+        let kept = pendingNext.withLock { (p: inout (key: any InstallKey, generation: Int)?) -> (key: any InstallKey, generation: Int)? in
+            defer { p = nil }
+            return p?.generation == keys.generation + 1 ? p : nil
+        }
+        // 40.2 item 4: the SDK's own renewal does not try an owed attestation before its time
+        if kept == nil, Self.inBackground, server.attestationOwed(), !server.attestationOwedAndDue(false) {
+            let e = RecognizerError.offline("the install's attestation is owed and its next try comes later")
+            lastFailure.withLock { $0 = CausedFailure(error: e, cause: ErrorCause(stage: "attest", reason: "other").traced()) }
+            throw e
+        }
+        guard let next = kept ?? keys.makeNext() else { throw .storageFailed("the install key store made no key") }
         let text: String
         do throws(CloudError) {
             text = try await server.certify(next.key)
         } catch {
             LeaseAttemptTrace.current?.failed(error)
-            keys.discard(generation: next.generation)
+            // SDK 4.0.5 (40.6): the cause where it is (stage attest), with the attempt's chain, for the app's error,
+            // the report and diagnose's lastFailure
+            lastFailure.withLock { $0 = CausedFailure(error: error.recognizerError, cause: ErrorCause.of(error, stage: "attest")) }
+            // 40.2 item 5: an attestation still owed keeps its next key for the next try in this process
+            if server.attestationOwed() {
+                pendingNext.withLock { $0 = next }
+            } else {
+                keys.discard(generation: next.generation)
+            }
             if case .rejected(_, let code, _, _) = error, code == "install_sig_invalid" { onIssue("other", "install_sig_invalid") }
             throw error.recognizerError
         }
         guard let c = InstallCertificate.parse(text, trustedKeys: server.trustedKeys), c.isFor(installHash: next.key.installHash) else {
             keys.discard(generation: next.generation)
+            // SDK 4.0.5 (40.5): the check it failed, for the attempt's chain
+            let check = InstallCertificate.check(text, trustedKeys: server.trustedKeys, installHash: next.key.installHash) ?? AnswerCheck.certFormat
+            CauseChain.add(CauseHop.made(stage: "lease", reason: "invalid_answer", hostRole: "api", httpStatus: 200, errorCode: check))
             onIssue("other", "install_cert_unreadable")
             throw .serverRejected(status: 0, code: "invalid_response", message: "the install certificate does not verify")
         }
         keys.promote(next.key, generation: next.generation)
-        certFile.write(StoredCertificate(generation: next.generation, certificate: text))
+        certFile.write(StoredCertificate(generation: next.generation, certificate: text, appRelease: server.appRelease,
+                                         unattested: c.att == "none" ? server.unattestedWhy() : nil))
+        // SDK 4.0.5 (40.2 item 8): an attested certificate is what the refusal asked for: the app's next call asks at once
+        if c.att != "none" { attestRefusalFile.delete() }
         // the Core over the new key: its lease part starts over, the clock's floor and the usage carry over. A model
         // open on the old Core keeps that Core until it closes.
         hostBox.withLock { $0 = nil }
         return c
     }
+
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 item 10): an upgrade's target: the attestation with the NEXT install key (not the
+    /// install's) and its certificate; nil when the attestation did not end attested (the next key kept while the
+    /// attestation is owed). Nothing of the install changes here; each try makes its own Core (`upgradeLease`).
+    private func upgradeTarget(_ server: LeaseServer) async -> UpgradeTarget? {
+        guard let up = server.upgrade else { return nil }
+        let kept = pendingNext.withLock { (p: inout (key: any InstallKey, generation: Int)?) -> (key: any InstallKey, generation: Int)? in
+            defer { p = nil }
+            return p?.generation == keys.generation + 1 ? p : nil
+        }
+        guard let next = kept ?? keys.makeNext() else { return nil }
+        let text: String
+        do throws(CloudError) {
+            text = try await up(next.key)
+        } catch {
+            if server.attestationOwed() { pendingNext.withLock { $0 = next } } else { keys.discard(generation: next.generation) }
+            return nil
+        }
+        guard let c = InstallCertificate.parse(text, trustedKeys: server.trustedKeys), c.isFor(installHash: next.key.installHash), c.att != "none" else {
+            keys.discard(generation: next.generation)
+            return nil
+        }
+        return UpgradeTarget(key: next.key, generation: next.generation, certificate: c, text: text)
+    }
+
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 item 10): one upgrade try of a capped install: the full lease asked with the attested
+    /// certificate and the next key's Core, and the switch (`switchTo`) only once that Core accepted it. Any other end
+    /// leaves the capped lease, its certificate and its key in force (the new Core dropped unsaved), keeps the target for
+    /// the next try by 40.2 item 4's schedule, and owes the attestation again (a restart makes it anew). A take in
+    /// progress: the upgrade waits.
+    func upgradeLease(_ m: ModelManifest, _ server: LeaseServer) async throws(RecognizerError) -> LeaseRecord {
+        guard open.withLock({ $0 }) == nil else { throw .offline("a take is in progress: the upgrade waits") }
+        let now = clocks.wallMs() / 1000
+        var target = pendingUpgrade.withLock { (t: inout UpgradeTarget?) -> UpgradeTarget? in
+            // a target whose certificate ends within the hour, or whose key is no longer the next one, is made anew
+            if let x = t, x.certificate.expiresAt <= now + 3600 || x.generation != keys.generation + 1 { t = nil }
+            return t
+        }
+        if target == nil { target = await upgradeTarget(server) }
+        guard let t = target else { throw .offline("the install's attestation is still owed") }
+        // the Core in force saves nothing while the try's Core lives (its saves held back, written when the try ends
+        // without a switch), and the try's Core is made after that: it takes the counter and the state as they stay
+        // until it accepts (Core c3: two saves of the old Core meanwhile would leave the new state older than the
+        // counter, and a restart would lose the full lease)
+        let oldGate = (try? host())?.platform.state as? CoreStateGate
+        oldGate?.hold()
+        let res: Result<LeaseRecord, RecognizerError>
+        do throws(CoreFailure) {
+            t.host = try CoreHost(platform: CorePlatform(storage: CoreStorage(root: storage), key: t.key,
+                                                         state: CoreStateGate(state, held: true), clocks: clocks))
+            res = await Self.$upgrading.withValue(t) { () async -> Result<LeaseRecord, RecognizerError> in
+                do throws(RecognizerError) {
+                    return .success(try await self.fetchLease(m))
+                } catch {
+                    return .failure(error)
+                }
+            }
+        } catch {
+            res = .failure(error.recognizerError)
+        }
+        // no switch: the try's Core goes unsaved, and the Core in force writes what it held back (nothing once silenced)
+        t.host = nil
+        oldGate?.commit()
+        switch res {
+        case .success(let r):
+            pendingUpgrade.withLock { $0 = nil }
+            return r
+        case .failure(let e):
+            // switched (the Core accepted, a later step failed): the upgrade is done
+            if keys.generation == t.generation {
+                pendingUpgrade.withLock { $0 = nil }
+                throw e
+            }
+            t.failures += 1
+            let wait = AttestPolicy.background(.transient, failures: t.failures, draw: Double.random(in: AttestPolicy.draw)) ?? AttestPolicy.backgroundCap
+            t.nextTry = now + Int64(wait)
+            pendingUpgrade.withLock { $0 = t }
+            server.oweAttestationAfter(wait)
+            throw e
+        }
+    }
+
+    /// 40.2 item 10, step 4: the next key is the install's, its certificate and its Core the ones in force, the new
+    /// Core's held saves written and the old Core silenced (a model or another Client holding it never saves again: its
+    /// state would replace the new key's lease). Called with the folder's lock held, right after the upgrade's Core
+    /// accepted the full lease. False, and nothing changes, when a model is open on the Core in force (it opened during
+    /// the try): the upgrade waits, and the new Core is dropped unsaved.
+    private func switchTo(_ up: UpgradeTarget) -> Bool {
+        guard let next = up.host else { return false }
+        let old = hostBox.withLock { $0 } ?? liveHost
+        if open.withLock({ $0 }) != nil { return false }
+        if let old, old.openSlot.withLock({ (s: CoreHost.OpenSlot) in s.model != nil }) { return false }
+        keys.promote(up.key, generation: up.generation)
+        certFile.write(StoredCertificate(generation: up.generation, certificate: up.text, appRelease: server?.appRelease))
+        (next.platform.state as? CoreStateGate)?.commit()
+        (old?.platform.state as? CoreStateGate)?.silence()
+        _ = try? LiveCores.take(LiveCores.key(storage: storage, installHash: up.key.installHash)) { () throws(CoreFailure) -> CoreHost in next }
+        hostBox.withLock { $0 = next }
+        attestRefusalFile.delete()
+        return true
+    }
+
+    /// 40.2 item 10: the upgrade's Core accepted the full lease while a model was open on the Core in force: no switch now.
+    static let upgradeWaits = CoreFailure(status: Int(QLC_E_ARG), detail: 0, call: "a model opened during the upgrade")
 
     /// One lease attempt (18.4.7.1): `request`, and when it brings no lease, its outcome told to the Core by the answer
     /// that ended it: refused for the API's own refusal (after 18.4.10's repeats inside it), unreachable for anything
@@ -558,6 +967,8 @@ final class ProtectedRuntime: @unchecked Sendable {
         switch result {
         case .success(let r):
             attempts.withLock { $0.endedAtMs = 0; $0.unreachable = false; $0.error = nil; $0.hostRole = nil; $0.fallback = nil }
+            // 24.14 item 4: a lease ends what a refusal for attestation left remembered
+            attestRefusalFile.delete()
             return r
         case .failure(let e):
             told(e, trace, last)
@@ -566,7 +977,8 @@ final class ProtectedRuntime: @unchecked Sendable {
     }
 
     private func told(_ e: RecognizerError, _ trace: LeaseAttemptTrace, _ last: RequestTrace.Entry? = nil) {
-        guard trace.asked, !trace.stopped else { return }
+        // 40.2 item 10: an upgrade's failure says nothing of the lease in force (the capped one keeps working)
+        guard trace.asked, !trace.stopped, Self.upgrading == nil else { return }
         (try? host())?.leaseAttempt(refused: trace.apiRefusal)
         let cause = lastFailure.withLock { $0?.cause }
         let reason = Self.graceReason(cause, status: trace.status)
@@ -613,15 +1025,27 @@ final class ProtectedRuntime: @unchecked Sendable {
                             .offline, now: clocks.wallMs() / 1000, cause: cause)
         }
         var renewToken = false, reattested = false, rechallenged = false, pieceFallback = false
+        // SDK 4.0.5 (ATTEST_40.md 40.7): a server that does not take `unattested` yet (400) is asked once more without it
+        var sendUnattested = true
         // 18.4.10 (4.0.1, endpoints_40.json's attempts): after invalid_token the request is repeated once with the
         // renewed token and the SAME challenge (a challenge is a stateless HMAC good on every api host, 28.5); 4.0.0
         // asked a new one
         var keptChallenge: String?
-        var cert = try await certificate()
+        // 40.2 item 10: an upgrade asks with its attested certificate and its Core over the next key
+        let upgrading = Self.upgrading
+        var cert: InstallCertificate
+        if let up = upgrading { cert = up.certificate } else { cert = try await certificate() }
         let now = { self.clocks.wallMs() / 1000 }
         let trace = LeaseAttemptTrace.current
         while true {
-            guard let host = try self.host() else { throw .storageFailed("no install key") }
+            let host: CoreHost
+            if let up = upgrading {
+                guard let h = up.host else { throw .storageFailed("no Core for the upgrade") }
+                host = h
+            } else {
+                guard let h = try self.host() else { throw .storageFailed("no install key") }
+                host = h
+            }
             let token: String
             let challenge: String
             do throws(CloudError) {
@@ -644,12 +1068,17 @@ final class ProtectedRuntime: @unchecked Sendable {
             do throws(CoreFailure) { ask = try host.leaseAsk(challenge: challenge, build: m.build) } catch {
                 return try fail(error.recognizerError, .other, now: now())
             }
-            let body: [String: Any] = [
+            var body: [String: Any] = [
                 "v": 1, "platform": server.platform, "install_cert": cert.encoded,
                 "install_key": host.platform.key.spki.base64URL, "install_sign_key": host.platform.key.spki.base64URL,
                 "challenge": challenge, "install_sig": ask.installSig, "model": m.modelID, "version": m.version, "build": m.build,
                 "key_id": enc.keyID, "core": ask.core,
             ]
+            // SDK 4.0.5 (ATTEST_40.md 40.3 item 2): why a certificate without attestation is one, a named path only
+            let unattested = cert.att == "none" && sendUnattested
+                ? (certFile.read().takingUnreadableAsMissing.flatMap { $0.generation == keys.generation ? $0.unattested : nil } ?? server.unattestedWhy())
+                : nil
+            if let unattested { body["unattested"] = unattested }
             let resp: HTTPClient.Response
             // 28.3, 18.4.7.1 (4.0.1): the answer this route asks for is a lease answer of 18.4.5 (its `base` on an
             // allowed host, 28.4) whose lease the Core accepts; another 2xx is unreachable on that host, and the next
@@ -660,29 +1089,48 @@ final class ProtectedRuntime: @unchecked Sendable {
             // SDK 4.0.2: the folder's stops as this request goes out (`LeaseStops`)
             let sentStops = LeaseStops.current(storage)
             let accept: @Sendable (HTTPClient.Response) -> Bool = { (a: HTTPClient.Response) -> Bool in
-                guard a.status == 200, let answer = LeaseAnswer.parse(a.body), Self.acceptedBase(answer.base) != nil else { return false }
+                guard a.status == 200 else { return false }
+                // SDK 4.0.5 (ATTEST_40.md 40.5): an answer this host gave that is not taken names the check it failed
+                let read = LeaseAnswer.read(a.body)
+                guard let answer = read.answer, read.check == nil else {
+                    AnswerCheck.failed(read.check ?? AnswerCheck.leaseV)
+                    return false
+                }
+                guard Self.acceptedBase(answer.base) != nil else {
+                    AnswerCheck.failed(AnswerCheck.baseHost)
+                    return false
+                }
                 let result: Result<(expiresAt: Int64, refreshAfter: Int64), CoreFailure>
                 // SDK 4.0.2: a lease older than the one this folder holds (an attempt of a closed Client, answered after
                 // a newer one) is taken as answered and never handed to the Core; nor is one answered after a stop
                 folderLock.lock()
                 if LeaseStops.current(folder) != sentStops {
                     result = .failure(Self.stoppedSinceSent)
-                } else if let saved = Self.newer(than: answer, build: build, in: leases) {
+                } else if upgrading == nil, let saved = Self.newer(than: answer, build: build, in: leases) {
                     result = .success((saved.expiresAt, saved.refreshAfter))
                 } else {
-                    do throws(CoreFailure) { result = .success(try host.leaseAccept(answer.lease, manifest: raw, build: build)) } catch {
-                        result = .failure(error)
+                    var r: Result<(expiresAt: Int64, refreshAfter: Int64), CoreFailure>
+                    // spec fix 17: the answer's signed time first, so the lease is judged at the server's time
+                    if let t = answer.time { host.leaseTime(t) }
+                    do throws(CoreFailure) { r = .success(try host.leaseAccept(answer.lease, manifest: raw, build: build)) } catch {
+                        r = .failure(error)
                     }
+                    // 40.2 item 10, step 4: the upgrade's Core accepted the full lease: only now the switch
+                    if case .success = r, let up = upgrading, !self.switchTo(up) { r = .failure(Self.upgradeWaits) }
+                    result = r
                 }
                 folderLock.unlock()
                 verdict.withLock { $0 = (a.body, result) }
                 if case .success = result { return true }
-                // an answer after a stop ends the request on this host (no other host is asked for it)
-                if case .failure(let f) = result, f == Self.stoppedSinceSent { return true }
+                // an answer after a stop ends the request on this host (no other host is asked for it); so does a
+                // full lease taken while a model opened (40.2 item 10: the upgrade waits)
+                if case .failure(let f) = result, f == Self.stoppedSinceSent || f == Self.upgradeWaits { return true }
+                // 40.5: the Core's refusal by its status and detail (4.0.2 reported the status alone: "lease, expired, -5")
+                if case .failure(let f) = result { AnswerCheck.failed(AnswerCheck.coreAccept(status: f.status, detail: f.detail)) }
                 return false
             }
             do throws(CloudError) {
-                var r = try HTTPClient.jsonRequest(server.apiURL.appendingPathComponent("v1/model-key"), body: body, auth: token)
+                var r = try HTTPClient.jsonRequest(Self.leaseURL(server.apiURL), body: body, auth: token)
                 r.timeoutInterval = 30
                 trace?.asking()
                 resp = try await server.transport.send(r, accepting: accept)
@@ -691,18 +1139,24 @@ final class ProtectedRuntime: @unchecked Sendable {
             }
             trace?.answered(status: resp.status, body: resp.body, retryAfter: resp.header("Retry-After"))
             if resp.status == 200 {
-                guard let answer = LeaseAnswer.parse(resp.body) else {
+                // SDK 4.0.5 (ATTEST_40.md 40.5): an answer every host gave and none passed is invalid_answer with the check
+                // the one that ended the request failed (`error_code`), and its hops are the cause's chain (40.6)
+                let read = LeaseAnswer.read(resp.body)
+                guard let answer = read.answer, read.check == nil || read.check == AnswerCheck.leaseBase else {
                     onIssue("other", "lease_answer_unreadable")
-                    return try fail(.serverRejected(status: 200, code: "invalid_response", message: "the lease answer is not one"), .other, now: now())
+                    let check = read.check ?? AnswerCheck.leaseV
+                    return try fail(.serverRejected(status: 200, code: "invalid_response", message: "the lease answer is not one (\(check))"), .other,
+                                    now: now(), cause: ErrorCause(stage: "lease", reason: "invalid_answer", httpStatus: 200, errorCode: check))
                 }
                 // 28.4 (4.0.1): a `base` off the allow-list makes no lease answer of 18.4.5 (4.0.0 accepted the lease and
                 // then had no folder to fetch from)
                 guard let base = Self.acceptedBase(answer.base) else {
+                    let check = read.check ?? AnswerCheck.baseHost
                     return try fail(.serverRejected(status: 200, code: "invalid_response", message: "the lease answer names no model folder of Quran Lab's"),
-                                    .other, now: now())
+                                    .other, now: now(), cause: ErrorCause(stage: "lease", reason: "invalid_answer", httpStatus: 200, errorCode: check))
                 }
                 // SDK 4.0.2: an older lease than the folder's own changes nothing (see `accept`)
-                let kept = folderLock.withLock { Self.newer(than: answer, build: m.build, in: leases) }
+                let kept = upgrading != nil ? nil : folderLock.withLock { Self.newer(than: answer, build: m.build, in: leases) }
                 if let kept {
                     lastFailure.withLock { $0 = nil }
                     return kept
@@ -715,7 +1169,13 @@ final class ProtectedRuntime: @unchecked Sendable {
                         let build = m.build
                         let r = folderLock.withLock { () -> Result<(expiresAt: Int64, refreshAfter: Int64), CoreFailure> in
                             if LeaseStops.current(folder) != sentStops { return .failure(Self.stoppedSinceSent) }
-                            do throws(CoreFailure) { return .success(try host.leaseAccept(answer.lease, manifest: raw, build: build)) } catch {
+                            if let t = answer.time { host.leaseTime(t) } // spec fix 17, as above
+                            do throws(CoreFailure) {
+                                let ok = try host.leaseAccept(answer.lease, manifest: raw, build: build)
+                                // 40.2 item 10, step 4 (the answer the request ended on, accepted here)
+                                if let up = upgrading, keys.generation != up.generation, !self.switchTo(up) { return .failure(Self.upgradeWaits) }
+                                return .success(ok)
+                            } catch {
                                 return .failure(error)
                             }
                         }
@@ -726,9 +1186,15 @@ final class ProtectedRuntime: @unchecked Sendable {
                     if error == Self.stoppedSinceSent {
                         throw .serverRejected(status: 0, code: "stopped", message: "a stop arrived while this lease request was on its way")
                     }
-                    // the Core refused the lease (another install's, another release's, expired by its clock)
+                    // 40.2 item 10: a model opened during the upgrade; the capped lease stays in force, the upgrade waits
+                    if error == Self.upgradeWaits { throw .offline("a model opened during the upgrade: it waits") }
+                    // the Core refused the lease (another install's, another release's, expired by its clock). SDK 4.0.5
+                    // (ATTEST_40.md 40.5): an answer, so invalid_answer with its check (`expired_on_arrival`, `signature`,
+                    // ...); 4.0.2 reported reason `expired` and the status (-5) alone, with no role, fallback or status, and
+                    // the app got needs_connection for a request that was answered (24.4 rule 2)
                     let outcome: LeaseOutcome = error.detail == Self.leaseExpiredDetail ? .expired : .refused
-                    let cause = ErrorCause(stage: "lease", reason: outcome == .expired ? "expired" : "invalid", errorCode: String(error.status))
+                    let check = AnswerCheck.coreAccept(status: error.status, detail: error.detail)
+                    let cause = ErrorCause(stage: "lease", reason: "invalid_answer", httpStatus: 200, errorCode: check)
                     return try fail(error.recognizerError, outcome, now: now(), cause: cause)
                 }
                 // 18.4.5, 18.6.7 (spec fix 16, quranlab-core d128af8): the answer's piece right after the accept of
@@ -738,7 +1204,11 @@ final class ProtectedRuntime: @unchecked Sendable {
                 if let p = answer.piece { host.piece(p) }
                 if let c = answer.certificate, let parsed = InstallCertificate.parse(c, trustedKeys: server.trustedKeys),
                    parsed.isFor(installHash: host.installHash) {
-                    certFile.write(StoredCertificate(generation: keys.generation, certificate: c))
+                    // SDK 4.0.5: the renewed certificate keeps the release and the named path it was made with (until 4.0.5
+                    // the release was dropped here, so an unattested install attested again at its next certificate)
+                    let kept = certFile.read().takingUnreadableAsMissing.flatMap { $0.generation == keys.generation ? $0 : nil }
+                    certFile.write(StoredCertificate(generation: keys.generation, certificate: c, appRelease: kept?.appRelease,
+                                                     unattested: kept?.unattested))
                 }
                 let rec = LeaseRecord(build: m.build, base: base.absoluteString,
                                       expiresAt: accepted.expiresAt, refreshAfter: accepted.refreshAfter, issuedAt: answer.issuedAt)
@@ -785,6 +1255,9 @@ final class ProtectedRuntime: @unchecked Sendable {
                 keptChallenge = challenge
             case .newChallenge where !rechallenged:
                 rechallenged = true
+            case .reattest where upgrading != nil:
+                // 40.2 item 10: the upgrade's own certificate refused: this try ends, the capped lease stays
+                return try fail(.offline("the upgrade's certificate was not taken"), .offline, now: now())
             case .reattest where !reattested:
                 reattested = true
                 cert = try await certificate(renew: true)
@@ -793,6 +1266,10 @@ final class ProtectedRuntime: @unchecked Sendable {
                 // gets `server_rejected` with its error, and nothing is removed
                 let cause = ErrorCause(stage: "lease", reason: "refused", httpStatus: resp.status, errorCode: reason ?? error)
                 return try fail(.offline("an unsigned stop on the lease route was not acted on"), .refused, now: now(), cause: cause)
+            case .sdkBug where unattested != nil:
+                // 40.7: a server that does not take `unattested` yet; the request once more without it
+                sendUnattested = false
+                keptChallenge = challenge
             case .sdkBug:
                 onIssue("other", "bad_request:model-key")
                 return try fail(refusal.error(status: resp.status, body: resp.body), .other, now: now())
@@ -802,14 +1279,27 @@ final class ProtectedRuntime: @unchecked Sendable {
                 // its last good piece; the request is asked once more under it (the lease in force covers a bad piece)
                 pieceFallback = true
             case .refused(let code, _):
-                // an attestation or integrity the server did not accept (24.3 `lease`): `server_rejected`, never a stop
-                let reason = code == "lease_integrity_failed" ? "integrity_failed" : code.hasPrefix("lease_attestation") ? "attestation_failed" : "refused"
+                // an attestation or integrity the server did not accept (24.3 `lease`): `server_rejected`, never a stop.
+                // SDK 4.0.5 (ERRORS_40 24.14 item 2): `lease_attestation_required` is reason `refused`, as on every SDK
+                // (4.0.3 and 4.0.4 said `attestation_failed`)
+                let reason = code == "lease_integrity_failed" ? "integrity_failed" : "refused"
                 // 24.3 (69326fb): an integrity refusal's error_code is the check it names (`verdict:boot`, `core`)
                 let body = (try? JSONSerialization.jsonObject(with: resp.body)) as? [String: Any]
                 let errorCode = code == "lease_integrity_failed" ? (HTTPClient.reason(body) ?? code) : code
                 let cause = ErrorCause(stage: "lease", reason: reason, httpStatus: resp.status, errorCode: errorCode)
-                return try fail(refusal.error(status: resp.status, body: resp.body), code.hasPrefix("lease_attestation") ? .attestation : .refused,
-                                now: now(), cause: cause)
+                let error = refusal.error(status: resp.status, body: resp.body)
+                // 24.14 item 4: remembered with the app's release, so the app's next call within 10 minutes asks nothing
+                if code == "lease_attestation_required", case .serverRejected(let st, let c, let msg, _) = error {
+                    attestRefusalFile.write(AttestationRefusal(at: now(), appRelease: server.appRelease, status: st, code: c, message: msg))
+                    // SDK 4.0.5 (ATTEST_40.md 40.2 item 8): never given up: the attestation is owed now, made in the
+                    // background with 40.2's tries, and the lease asked again once it is accepted
+                    // only a certificate without attestation is owed one (an attested one refused is the server's to
+                    // explain: attesting again would make a new key and the same refusal)
+                    if cert.att == "none" { server.oweAttestation() }
+                    let build = m
+                    Task.detached(priority: .utility) { [weak self] in self?.attestIfOwed(build) }
+                }
+                return try fail(error, code.hasPrefix("lease_attestation") ? .attestation : .refused, now: now(), cause: cause)
             case .sdkTooOld, .buildUnknown, .routeOff:
                 return try fail(refusal.error(status: resp.status, body: resp.body), .refused, now: now())
             default:
@@ -831,7 +1321,7 @@ final class ProtectedRuntime: @unchecked Sendable {
         lastFailure.withLock { $0 = failure }
         let retryAfter = LeaseAttemptTrace.current?.retryAfter ?? 0
         // 18.4.7.3 item 4: an attempt that met a held route sent nothing; it is no failed attempt and moves no wait
-        if LeaseAttemptTrace.current?.wasHeld != true {
+        if LeaseAttemptTrace.current?.wasHeld != true, Self.upgrading == nil {
             let row = retry.withLock { (r: inout LeaseRetry) -> LeaseRetry in
                 r.failed(now: now, retryAfter: retryAfter)
                 return r
@@ -840,6 +1330,15 @@ final class ProtectedRuntime: @unchecked Sendable {
         }
         onLease(outcome)
         throw e
+    }
+
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 item 1): `POST /v1/model-key?sdk=<version>`: qlab-api reads the SDK's version from the
+    /// request first for a strict app (its `leaseSdkVersion`), so a robust SDK is never taken for an older one.
+    static func leaseURL(_ api: URL) -> URL {
+        let base = api.appendingPathComponent("v1/model-key")
+        guard var c = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return base }
+        c.queryItems = [URLQueryItem(name: "sdk", value: SDKInfo.version)]
+        return c.url ?? base
     }
 
     /// A lease answered after a stop of this folder that came while its request was on its way (`LeaseStops`).
@@ -1126,7 +1625,7 @@ final class ProtectedRuntime: @unchecked Sendable {
     func prepareAccelerator(_ folder: ModelFolder, context: String, compact: Bool) throws(RecognizerError) -> CoreAcceleratorStream {
         let model = try openModel(folder, context: context)
         let dispatch = AcceleratorGate.dispatchFolder(storage: storage)
-        defer { AcceleratorGate.clear(dispatch) }
+        defer { AcceleratorGate.release(dispatch) }
         switch model.accelPrepare(kind: compact ? "coreml-compact" : "coreml", dispatchDir: dispatch) {
         case .failure(let e):
             onIssue("other", "accel_prepare:\(e.status):\(e.detail)")
@@ -1258,7 +1757,19 @@ actor LeaseFlight {
         }
         running[build] = t
         let r = await t.value
-        running[build] = nil
+        // SDK 4.0.5: only its own entry (a flight `runAfter` started meanwhile stays joinable)
+        if running[build] == t { running[build] = nil }
         return try r.get()
+    }
+
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 item 8): `body` as a flight of its own once the one running for `build` has ended:
+    /// the background attestation after a refusal never joins the attempt that was refused.
+    func runAfter(_ build: String, _ body: @escaping @Sendable () async throws(RecognizerError) -> LeaseRecord) async throws(RecognizerError)
+        -> LeaseRecord {
+        if let t = running[build] {
+            _ = await t.value
+            if running[build] == t { running[build] = nil }
+        }
+        return try await run(build, body)
     }
 }

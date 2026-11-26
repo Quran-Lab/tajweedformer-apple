@@ -47,4 +47,31 @@ final class AcceptedBaseTests: XCTestCase {
         let inside = try FileManager.default.contentsOfDirectory(atPath: storage.appendingPathComponent("core/dispatch").path)
         XCTAssertEqual(inside, [], "nothing a prepare wrote survives the start")
     }
+
+    /// SDK 4.0.5: each prepare has a dispatch folder of its own, and neither a start (a second Client made) nor another
+    /// prepare empties the folder of a prepare in flight in this process; its own end does. Until 4.0.4 both emptied the
+    /// one folder under a package Core ML was loading. Not compiled or run on 11-25 (no Mac).
+    func testAPrepareInFlightKeepsItsDispatchFolder() throws {
+        let storage = Fixtures.storage()
+        let first = AcceleratorGate.dispatchFolder(storage: storage)
+        let pkg = first.appendingPathComponent("0123456789abcdef.mlmodelc/weights")
+        try FileManager.default.createDirectory(at: pkg, withIntermediateDirectories: true)
+        try Data("program".utf8).write(to: pkg.appendingPathComponent("weight.bin"))
+        // a second Client made, and a second prepare begun, while the first loads its package
+        _ = ProtectedRuntime(storage: storage, server: nil, keys: InstallKeyring(storage: storage))
+        let second = AcceleratorGate.dispatchFolder(storage: storage)
+        XCTAssertNotEqual(first, second)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pkg.appendingPathComponent("weight.bin").path),
+                      "the first prepare's package is still there")
+        AcceleratorGate.release(first)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.path), "its own end removes it")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
+        AcceleratorGate.release(second)
+        // a folder no prepare of this process holds (one a process left) goes at the next start
+        let left = storage.appendingPathComponent("core/dispatch").appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("x.mlmodelc")
+        try FileManager.default.createDirectory(at: left, withIntermediateDirectories: true)
+        _ = ProtectedRuntime(storage: storage, server: nil, keys: InstallKeyring(storage: storage))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: storage.appendingPathComponent("core/dispatch").path), [])
+    }
 }

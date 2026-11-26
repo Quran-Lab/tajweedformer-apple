@@ -13,6 +13,9 @@ final class ShareResampler {
     private var input: AVAudioPCMBuffer
     private var output: AVAudioPCMBuffer
     private var ended = false
+    /// The input's frames so far, and the output's given to the sinks.
+    private var inputFrames: Int64 = 0
+    private var outputFrames: Int64 = 0
 
     init(inputRate: Double) throws(RecognizerError) {
         guard inputRate >= 8_000, inputRate <= 384_000,
@@ -46,18 +49,47 @@ final class ShareResampler {
         }
         input.floatChannelData![0].update(from: samples.baseAddress!, count: samples.count)
         input.frameLength = AVAudioFrameCount(samples.count)
-        try run(final: false, sink)
+        inputFrames += Int64(samples.count)
+        try run(final: false, limit: nil, sink)
+    }
+
+    /// The output's length for the input so far when it is upsampled: the input's length at 48 kHz, rounded down (what
+    /// the converter gives on macOS); nil from 48 kHz up, where the converter's own end is whole on every platform.
+    var upsampledLength: Int64? {
+        let rate = Double(OpusSettings.codedRate)
+        guard inputRate < rate else { return nil }
+        if inputRate == inputRate.rounded() { return inputFrames * Int64(OpusSettings.codedRate) / Int64(inputRate) }
+        return Int64((Double(inputFrames) * rate / inputRate).rounded(.down))
     }
 
     /// The converter's tail. The resampler cannot be used afterwards.
+    ///
+    /// SDK 4.0.5: when it upsamples, the input is followed by silence until the output reaches the input's length at
+    /// 48 kHz, and nothing past that length is given; then the stream ends. iOS's converter (the mastering algorithm)
+    /// ends its stream without the filter's tail when it upsamples by about 2 or more: 4 s at 16 kHz gave 699 samples
+    /// short of 4 s at 48 kHz (14.6 ms), 229 at 22.05 kHz, 126 at 24 kHz, 2424 at 8 kHz, on the iPhone (iOS 26.6.1) and
+    /// the Simulator alike, while macOS gives the whole. The output was aligned; only its end was missing.
     func flush(_ sink: (UnsafeBufferPointer<Float>) throws(RecognizerError) -> Void) throws(RecognizerError) {
         guard !ended else { return }
         ended = true
+        let target = upsampledLength
+        if let target {
+            // a second of silence at most: the converters' tails are a few hundred input frames
+            let block = 256
+            var padded = 0
+            while outputFrames < target, padded < Int(inputRate) {
+                input.floatChannelData![0].update(repeating: 0, count: block)
+                input.frameLength = AVAudioFrameCount(block)
+                try run(final: false, limit: target, sink)
+                padded += block
+            }
+        }
         input.frameLength = 0
-        try run(final: true, sink)
+        try run(final: true, limit: target, sink)
     }
 
-    private func run(final: Bool, _ sink: (UnsafeBufferPointer<Float>) throws(RecognizerError) -> Void) throws(RecognizerError) {
+    /// Converts what `input` holds (once) and hands the output to `sink`, no more than `limit` frames in all.
+    private func run(final: Bool, limit: Int64?, _ sink: (UnsafeBufferPointer<Float>) throws(RecognizerError) -> Void) throws(RecognizerError) {
         // the input block runs synchronously inside convert(to:error:withInputFrom:), on this thread
         final class Once: @unchecked Sendable { var given = false }
         let once = Once()
@@ -75,8 +107,11 @@ final class ShareResampler {
                 return nil
             }
             if status == .error { throw .storageFailed("resampling to 48 kHz failed: \(error?.localizedDescription ?? "")") }
-            if output.frameLength > 0 {
-                try sink(UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength)))
+            var n = Int(output.frameLength)
+            if let limit { n = min(n, Int(max(0, limit - outputFrames))) }
+            if n > 0 {
+                outputFrames += Int64(n)
+                try sink(UnsafeBufferPointer(start: output.floatChannelData![0], count: n))
             }
             // .haveData: the output buffer filled up and more is waiting
             if status != .haveData { break }

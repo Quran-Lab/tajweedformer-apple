@@ -44,7 +44,8 @@ enum KeychainAnswer: Equatable, Sendable {
 protocol InstallKeychains {
     func readDataProtection() -> KeychainAnswer
     /// The Mac's login keychain, read without any UI (4.0.2): a keychain that would ask (locked, or an item another
-    /// binary made) answers at once with a refusal (`errSecInteractionNotAllowed`) instead.
+    /// binary made) answers at once with a refusal (`errSecInteractionNotAllowed`) instead. SDK 4.0.5: with the
+    /// keychain's own interaction switch off, and never longer than 2 s (`KeychainInstallKeyStore.readLogin()`).
     func readLogin() -> KeychainAnswer
     /// Puts `key` in place of the item: the add's status.
     func writeDataProtection(_ key: Data) -> OSStatus
@@ -116,7 +117,66 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
         return q
     }
 
-    static func read(_ query: [String: Any]) -> KeychainAnswer {
+    #if os(macOS)
+    /// SDK 4.0.5: the longest a read of the login keychain may take (tests shorten it).
+    static let loginReadLimit = Locked<TimeInterval>(2)
+    /// One login keychain read at a time: the keychain's interaction switch below is the whole process's.
+    private static let loginReads = NSLock()
+
+    /// The login keychain read, never interactive and never longer than `loginReadLimit`. macOS 26 (the CI's runner,
+    /// 2026-11-26) still shows the legacy file keychain's "confirm access" dialog for an item another code signature
+    /// made, LAContext.interactionNotAllowed in the query notwithstanding: SecItemCopyMatching then waited in securityd
+    /// for an answer nobody gives (InstallKeychainTests, the whole test process for an hour). So the keychain's own
+    /// switch is off around the read (SecKeychainSetUserInteractionAllowed, restored after; process-wide, hence the
+    /// lock), and the read runs on a thread of its own: when it has not answered within the limit it is taken as
+    /// refused (`errSecInteractionNotAllowed`: the SDK's file keeps the next key), and the thread is left to the system.
+    /// The only read of the login keychain there is: this store's item, through `withoutKeychainInteraction`.
+    func readLogin(limit: TimeInterval = KeychainInstallKeyStore.loginReadLimit.withLock { $0 }) -> KeychainAnswer {
+        let q = UncheckedBox(loginQuery)
+        return Self.withoutKeychainInteraction(limit: limit) { Self.copy(q.value) }
+    }
+
+    /// The login keychain's item deleted the same way (tests: a delete of an item another signature made could ask too).
+    func deleteLogin(limit: TimeInterval = KeychainInstallKeyStore.loginReadLimit.withLock { $0 }) {
+        let q = UncheckedBox(loginQuery)
+        _ = Self.withoutKeychainInteraction(limit: limit) {
+            SecItemDelete(q.value as CFDictionary)
+            return .notFound
+        }
+    }
+
+    /// `body` on a thread of its own with the keychain's user interaction off (as it was again after), its answer, or
+    /// `errSecInteractionNotAllowed` when it has not answered within `limit`.
+    static func withoutKeychainInteraction(limit: TimeInterval, _ body: @escaping @Sendable () -> KeychainAnswer) -> KeychainAnswer {
+        loginReads.lock()
+        defer { loginReads.unlock() }
+        var was = DarwinBoolean(true)
+        let known = SecKeychainGetUserInteractionAllowed(&was) == errSecSuccess
+        SecKeychainSetUserInteractionAllowed(false)
+        defer { if known { SecKeychainSetUserInteractionAllowed(was.boolValue) } }
+        let answer = Locked<KeychainAnswer?>(nil)
+        let done = DispatchSemaphore(value: 0)
+        let thread = Thread {
+            let a = body()
+            answer.withLock { $0 = a }
+            done.signal()
+        }
+        thread.name = "quranlab.login-keychain-read"
+        thread.start()
+        guard done.wait(timeout: .now() + max(0, limit)) == .success, let a = answer.withLock({ $0 }) else {
+            return .error(errSecInteractionNotAllowed)
+        }
+        return a
+    }
+    #endif
+
+    /// The data protection keychain's item (`query`: `kSecUseDataProtectionKeychain`, so the legacy file keychain and its
+    /// dialogs are never reached).
+    func readDataProtection() -> KeychainAnswer { Self.copy(query) }
+
+    /// The one SecItemCopyMatching of the store. Private: the login keychain is read only through `readLogin`, never
+    /// with this alone (on macOS 26 such a read could wait on a dialog for as long as the process lives).
+    private static func copy(_ query: [String: Any]) -> KeychainAnswer {
         var q = query
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -156,13 +216,20 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
     /// keychain's (read without UI), else none. A file that is there and cannot be read is a failure (a new key would
     /// take the place of one that may be there); a login keychain that refuses (locked, no UI allowed, no keychain)
     /// is not: the file keeps the next key.
+    /// SDK 4.0.5: a key found in the login keychain (kept there by 3.1.0 to 4.0.1) is written to the SDK's file at once,
+    /// so every later start finds it there and the login keychain is read once per install: a rebuilt tool (another code
+    /// signature) is never put to its access dialog again. The login keychain's item is left as it is (a delete could
+    /// ask too). A file that cannot be written leaves it as before: the key is still the login keychain's.
     private static func elsewhere(_ k: any InstallKeychains) -> InstallKeyLookup {
         switch k.readFile() {
         case .data(let d) where d.count == keyBytes: return .key(d)
         case .error(let status): return .failed("the install key's file could not be read (status \(status))")
         default: break
         }
-        if case .data(let d) = k.readLogin(), d.count == keyBytes { return .key(d) }
+        if case .data(let d) = k.readLogin(), d.count == keyBytes {
+            _ = k.writeFile(d)
+            return .key(d)
+        }
         return .none
     }
 
@@ -214,8 +281,14 @@ struct KeychainInstallKeyStore: InstallKeyStoring {
 /// The system's keychains and the SDK's file for one store's item.
 struct SystemKeychains: InstallKeychains {
     let store: KeychainInstallKeyStore
-    func readDataProtection() -> KeychainAnswer { KeychainInstallKeyStore.read(store.query) }
-    func readLogin() -> KeychainAnswer { KeychainInstallKeyStore.read(store.loginQuery) }
+    func readDataProtection() -> KeychainAnswer { store.readDataProtection() }
+    func readLogin() -> KeychainAnswer {
+        #if os(macOS)
+        store.readLogin()
+        #else
+        .notFound
+        #endif
+    }
     func writeDataProtection(_ key: Data) -> OSStatus { KeychainInstallKeyStore.add(store.query, key, deviceOnly: true) }
     func readFile() -> KeychainAnswer {
         guard let file = store.file else { return .notFound }

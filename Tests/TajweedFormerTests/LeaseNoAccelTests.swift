@@ -30,7 +30,8 @@ final class LeaseNoAccelTests: XCTestCase {
     }
 
     /// 21.6 item 5: a lease without bit 3, then a lease with it. The first gives no failure, no backoff, no incident
-    /// and the CPU engine (the deny list's demotion recorded once); the second runs the attempt to the promotion.
+    /// and the CPU engine (its demotion recorded once, `not_attested` since the server takes the 19th reason, 21.2);
+    /// the second runs the attempt to the promotion.
     func testALeaseWithoutProgramsThenALeaseWithThem() async {
         h.leaseAllows.withLock { $0 = false }
         let c = h.controller()
@@ -44,9 +45,9 @@ final class LeaseNoAccelTests: XCTestCase {
         XCTAssertNil(r?.notBefore)
         XCTAssertEqual(r?.attempts, 0, "no attempt started")
         XCTAssertEqual(r?.denied, true)
-        XCTAssertEqual(r?.lastReason, .denylist)
+        XCTAssertEqual(r?.lastReason, .notAttested)
         XCTAssertEqual(h.incidents.withLock { $0 }.count, 0)
-        XCTAssertEqual(h.promotions.map { $0.kind }, [.demoted(.denylist)], "the deny list's demotion, once")
+        XCTAssertEqual(h.promotions.map { $0.kind }, [.demoted(.notAttested)], "its demotion, once")
         await c.run(h.stages())
         XCTAssertEqual(h.promotions.count, 1, "once while the state holds")
         // a lease that allows programs: the attempt runs (this launch, the key never tried)
@@ -118,7 +119,8 @@ final class LeaseNoAccelTests: XCTestCase {
         XCTAssertNil(next.record?.backoffUntil)
         XCTAssertNil(next.leaseForSession(), "this session runs on the CPU")
         XCTAssertEqual(h.incidents.withLock { $0 }.count, 0)
-        XCTAssertFalse(h.promotions.contains { if case .demoted(let r) = $0.kind { return r != .denylist } else { return false } })
+        // a refused load for the lease is that lease's demotion (`not_attested` since 21.2's switch is on), never a failure's
+        XCTAssertFalse(h.promotions.contains { if case .demoted(let r) = $0.kind { return r != .denylist && r != .notAttested } else { return false } })
         // a lease that allows programs (the Core accepted one): the build loads again, no golden test
         h.failures.withLock { $0[.compile] = nil }
         h.resetCalls()
@@ -195,5 +197,37 @@ final class LeaseNoAccelTests: XCTestCase {
         await c.run(h.stages())
         XCTAssertEqual(c.state, .ready, "the key 4.0.1 ended for the lease is promoted")
         XCTAssertEqual(c.record?.attempts, 5)
+    }
+
+    /// SDK 4.0.5 (ACCEL_40 21.2, 21.6; the developer report of 11-23): a lease without accelerator programs (an install
+    /// that is not attested, a command-line tool, a development key's) reads `not_attested` in `model.backend`, never
+    /// `denylist`, which is the config's deny list only. The telemetry names it `not_attested` too (the server takes
+    /// the 19th reason since 2026-11-23); with `sendsNotAttested` off it counts `denylist`, as 4.0.2 to 4.0.4 did.
+    func testALeaseWithoutProgramsReadsNotAttested() async {
+        defer { AcceleratorController.sendsNotAttested.withLock { $0 = true } }
+        XCTAssertTrue(AcceleratorController.sendsNotAttested.withLock { $0 }, "on: the server takes the reason")
+        h.leaseAllows.withLock { $0 = false }
+        let c = h.controller()
+        await c.run(h.stages())
+        XCTAssertEqual(c.record?.lastReason, .notAttested)
+        XCTAssertEqual(c.backendReason, "not_attested")
+        XCTAssertEqual(h.promotions.map { $0.kind }, [.demoted(.notAttested)])
+        // the switch off: the telemetry counts it denylist, model.backend still names it
+        AcceleratorController.sendsNotAttested.withLock { $0 = false }
+        let n = PromotionTests.Harness()
+        n.leaseAllows.withLock { $0 = false }
+        let nc = n.controller()
+        await nc.run(n.stages())
+        XCTAssertEqual(nc.record?.lastReason, .denylist)
+        XCTAssertEqual(nc.backendReason, "not_attested")
+        XCTAssertEqual(n.promotions.map { $0.kind }, [.demoted(.denylist)])
+        AcceleratorController.sendsNotAttested.withLock { $0 = true }
+        // the config's deny list: never not_attested
+        let d = PromotionTests.Harness()
+        d.denied.withLock { $0 = "deny rule r1" }
+        let dc = d.controller()
+        await dc.run(d.stages())
+        XCTAssertEqual(dc.backendReason, "denylist")
+        XCTAssertEqual(d.promotions.map { $0.kind }, [.demoted(.denylist)])
     }
 }

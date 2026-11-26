@@ -1,0 +1,7446 @@
+{
+ "about": "API_40.md (section 37): made by tools/api40.py; do not edit by hand",
+ "routes": [
+  {
+   "method": "GET",
+   "path": "/v1/config?key=x&sdk=4.0.5",
+   "route": "config"
+  },
+  {
+   "method": "GET",
+   "path": "/v1/attest/challenge",
+   "route": "challenge"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/attest",
+   "route": "attest"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/attest/assert",
+   "route": "assert"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/register",
+   "route": "register"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/model-key",
+   "route": "lease"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/events",
+   "route": "events"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/issues",
+   "route": "issues"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/uploads",
+   "route": "sharing"
+  },
+  {
+   "method": "PUT",
+   "path": "/v1/uploads/0123456789abcdef/takes",
+   "route": "sharing"
+  },
+  {
+   "method": "GET",
+   "path": "/v1/contributions/summary",
+   "route": "sharing"
+  },
+  {
+   "method": "POST",
+   "path": "/v1/contributions/delete",
+   "route": "sharing"
+  },
+  {
+   "method": "GET",
+   "path": "/v1/contributions/challenge",
+   "route": "sharing"
+  },
+  {
+   "method": "GET",
+   "path": "/v1/origin-check?key=x",
+   "route": null
+  },
+  {
+   "method": "GET",
+   "path": "/v1/sdk/latest",
+   "route": null
+  },
+  {
+   "method": "GET",
+   "path": "/v1/health",
+   "route": null
+  },
+  {
+   "method": "GET",
+   "path": "/v1/uploadsx",
+   "route": null
+  },
+  {
+   "method": "GET",
+   "path": "/v1/attest",
+   "route": null
+  }
+ ],
+ "classes": [
+  {
+   "name": "a config that verifies",
+   "route": "config",
+   "answer": {
+    "status": 200
+   },
+   "reading": "taken",
+   "class": null
+  },
+  {
+   "name": "a 304 to a config sent with If-None-Match",
+   "route": "config",
+   "answer": {
+    "status": 304,
+    "conditional": true
+   },
+   "reading": "taken",
+   "class": null
+  },
+  {
+   "name": "a 304 to any other request",
+   "route": "register",
+   "answer": {
+    "status": 304
+   },
+   "reading": "unreachable",
+   "class": "http_3xx"
+  },
+  {
+   "name": "a redirect",
+   "route": "config",
+   "answer": {
+    "status": 302
+   },
+   "reading": "unreachable",
+   "class": "http_3xx"
+  },
+  {
+   "name": "a lease the Core refuses (28.5)",
+   "route": "lease",
+   "answer": {
+    "status": 200,
+    "not_answer": true
+   },
+   "reading": "unreachable",
+   "class": "bad_body"
+  },
+  {
+   "name": "a config whose signature does not verify",
+   "route": "config",
+   "answer": {
+    "status": 200,
+    "not_answer": true
+   },
+   "reading": "unreachable",
+   "class": "bad_body"
+  },
+  {
+   "name": "a 2xx whose body ended early",
+   "route": "events",
+   "answer": {
+    "status": 202,
+    "cut": true
+   },
+   "reading": "unreachable",
+   "class": "cut"
+  },
+  {
+   "name": "401 invalid_token: a refusal, counted",
+   "route": "register",
+   "answer": {
+    "status": 401,
+    "json_error": true
+   },
+   "reading": "refusal",
+   "class": "http_4xx"
+  },
+  {
+   "name": "403 sdk_too_old",
+   "route": "config",
+   "answer": {
+    "status": 403,
+    "json_error": true
+   },
+   "reading": "refusal",
+   "class": "http_403"
+  },
+  {
+   "name": "403 without the API body (an edge page)",
+   "route": "config",
+   "answer": {
+    "status": 403
+   },
+   "reading": "unreachable",
+   "class": "http_403"
+  },
+  {
+   "name": "404 without the API body",
+   "route": "lease",
+   "answer": {
+    "status": 404
+   },
+   "reading": "unreachable",
+   "class": "http_404"
+  },
+  {
+   "name": "400 invalid_body",
+   "route": "events",
+   "answer": {
+    "status": 400,
+    "json_error": true
+   },
+   "reading": "refusal",
+   "class": "http_4xx"
+  },
+  {
+   "name": "429: a slow down, the request ends here",
+   "route": "events",
+   "answer": {
+    "status": 429,
+    "json_error": true
+   },
+   "reading": "slow_down",
+   "class": "http_429"
+  },
+  {
+   "name": "a standby's 503 for /v1/events (28.9 item 2)",
+   "route": "events",
+   "answer": {
+    "status": 503
+   },
+   "reading": "unreachable",
+   "class": "http_503"
+  },
+  {
+   "name": "502",
+   "route": "attest",
+   "answer": {
+    "status": 502
+   },
+   "reading": "unreachable",
+   "class": "http_5xx"
+  },
+  {
+   "name": "offline",
+   "route": "config",
+   "answer": {
+    "error": "offline"
+   },
+   "reading": "unreachable",
+   "class": "offline"
+  },
+  {
+   "name": "the name not resolved",
+   "route": "config",
+   "answer": {
+    "error": "dns"
+   },
+   "reading": "unreachable",
+   "class": "dns"
+  },
+  {
+   "name": "refused",
+   "route": "config",
+   "answer": {
+    "error": "connect"
+   },
+   "reading": "unreachable",
+   "class": "connect"
+  },
+  {
+   "name": "a certificate refused",
+   "route": "config",
+   "answer": {
+    "error": "tls"
+   },
+   "reading": "unreachable",
+   "class": "tls"
+  },
+  {
+   "name": "28.3 item 6's bound",
+   "route": "lease",
+   "answer": {
+    "error": "timeout"
+   },
+   "reading": "unreachable",
+   "class": "timeout"
+  },
+  {
+   "name": "the web's TypeError while online",
+   "route": "config",
+   "answer": {
+    "error": "other"
+   },
+   "reading": "unreachable",
+   "class": "no_answer"
+  }
+ ],
+ "buckets": {
+  "total_ms_bounds": [
+   50,
+   100,
+   200,
+   300,
+   500,
+   1000,
+   2000,
+   5000
+  ],
+  "connect_ms_bounds": [
+   50,
+   100,
+   200,
+   300,
+   500,
+   1000,
+   2000,
+   5000
+  ],
+  "ready_s_bounds": [
+   1,
+   2,
+   5,
+   10,
+   30,
+   60,
+   120,
+   300
+  ],
+  "ms": [
+   {
+    "ms": 0,
+    "bucket": 0
+   },
+   {
+    "ms": 49.9,
+    "bucket": 0
+   },
+   {
+    "ms": 50,
+    "bucket": 1
+   },
+   {
+    "ms": 99,
+    "bucket": 1
+   },
+   {
+    "ms": 100,
+    "bucket": 2
+   },
+   {
+    "ms": 299.5,
+    "bucket": 3
+   },
+   {
+    "ms": 300,
+    "bucket": 4
+   },
+   {
+    "ms": 999,
+    "bucket": 5
+   },
+   {
+    "ms": 1000,
+    "bucket": 6
+   },
+   {
+    "ms": 4999,
+    "bucket": 7
+   },
+   {
+    "ms": 5000,
+    "bucket": 8
+   },
+   {
+    "ms": 61000,
+    "bucket": 8
+   }
+  ],
+  "s": [
+   {
+    "s": 0.2,
+    "bucket": 0
+   },
+   {
+    "s": 1,
+    "bucket": 1
+   },
+   {
+    "s": 1.99,
+    "bucket": 1
+   },
+   {
+    "s": 2,
+    "bucket": 2
+   },
+   {
+    "s": 9.9,
+    "bucket": 3
+   },
+   {
+    "s": 10,
+    "bucket": 4
+   },
+   {
+    "s": 59,
+    "bucket": 5
+   },
+   {
+    "s": 60,
+    "bucket": 6
+   },
+   {
+    "s": 119,
+    "bucket": 6
+   },
+   {
+    "s": 120,
+    "bucket": 7
+   },
+   {
+    "s": 300,
+    "bucket": 8
+   },
+   {
+    "s": 3600,
+    "bucket": 8
+   }
+  ]
+ },
+ "telemetry": {
+  "fail_keys": [
+   "offline",
+   "dns",
+   "connect",
+   "tls",
+   "timeout",
+   "no_answer",
+   "http_3xx",
+   "http_403",
+   "http_404",
+   "http_429",
+   "http_4xx",
+   "http_503",
+   "http_5xx",
+   "cut",
+   "bad_body"
+  ],
+  "proto_keys": [
+   "h1",
+   "h2",
+   "h3"
+  ],
+  "routes": [
+   "config",
+   "challenge",
+   "attest",
+   "assert",
+   "register",
+   "lease",
+   "events",
+   "issues",
+   "sharing"
+  ],
+  "api": [
+   {
+    "name": "one entry",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "none that day",
+    "api": [],
+    "accepted": true
+   },
+   {
+    "name": "every route on one host",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "challenge",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "attest",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "assert",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "register",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "lease",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "events",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "issues",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "sharing",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "twelve entries",
+    "api": [
+     {
+      "host": "api0.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api1.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api2.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api3.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api4.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api5.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api6.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api7.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api8.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api9.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api10.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api11.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "nothing failed, no status, no time (empty objects)",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 0,
+      "fail": {},
+      "total_ms": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 0,
+      "reused": 0,
+      "connect_ms": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {},
+      "moves": [],
+      "day_first": 0
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "every class and version named, zeros included",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "offline": 0,
+       "dns": 0,
+       "connect": 0,
+       "tls": 0,
+       "timeout": 0,
+       "no_answer": 0,
+       "http_3xx": 0,
+       "http_403": 0,
+       "http_404": 0,
+       "http_429": 0,
+       "http_4xx": 0,
+       "http_503": 0,
+       "http_5xx": 0,
+       "cut": 0,
+       "bad_body": 0
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h1": 0,
+       "h2": 0,
+       "h3": 0
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "more failures than requests: taken (no field is held to another)",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 1,
+      "fail": {
+       "dns": 4
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "four moves",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "the same host on two routes",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "lease",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 0
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "a standby host",
+    "api": [
+     {
+      "host": "api-a.tajweedformer.com",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api.quranlab.ai",
+        "why": "http_503",
+        "n": 2
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": true
+   },
+   {
+    "name": "thirteen entries",
+    "api": [
+     {
+      "host": "api0.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api1.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api2.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api3.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api4.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api5.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api6.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api7.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api8.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api9.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api10.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api11.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api12.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a host off the allow-list",
+    "api": [
+     {
+      "host": "api.example.com",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a lookalike",
+    "api": [
+     {
+      "host": "evilquranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a host in capitals",
+    "api": [
+     {
+      "host": "API.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a route that is not one (origin-check is not counted)",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "origin_check",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "the same (host, route) twice",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a field left out (moves)",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a field more (a path)",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1,
+      "path": "/v1/config"
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "total_ms of 8",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "connect_ms of 10",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "fail as a list",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "an unknown class",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "http_418": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "an unknown version",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "quic": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a negative count",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": -1,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a count that is not a whole number",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 2.5,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "day_first 2",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 2
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "day_first true",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": true
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "five moves",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "connect",
+        "n": 1
+       },
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "tls",
+        "n": 1
+       },
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       },
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "no_answer",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a move to its own host",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api.quranlab.ai",
+        "why": "dns",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a move off the allow-list",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api.example.com",
+        "why": "dns",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a move for slowness (the api role has no 34.4 or 34.5)",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "slow",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a move with n 0",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "dns",
+        "n": 0
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a (to, why) twice",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "dns",
+        "n": 1
+       },
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "dns",
+        "n": 2
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "accepted": false
+   },
+   {
+    "name": "a list that is not one",
+    "api": {
+     "config": {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    },
+    "accepted": false
+   }
+  ],
+  "ready": [
+   {
+    "name": "a first launch and three later ones",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1
+    },
+    "accepted": true
+   },
+   {
+    "name": "only a failed ask",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 1,
+     "day_first": 0
+    },
+    "accepted": true
+   },
+   {
+    "name": "a field left out",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "day_first": 1
+    },
+    "accepted": false
+   },
+   {
+    "name": "a field more (the build)",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1,
+     "build": "x"
+    },
+    "accepted": false
+   },
+   {
+    "name": "first of 8",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1
+    },
+    "accepted": false
+   },
+   {
+    "name": "as an object of buckets",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": {
+      "le_1": 3
+     },
+     "not_ready": 0,
+     "day_first": 1
+    },
+    "accepted": false
+   },
+   {
+    "name": "a negative count",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": -1,
+     "day_first": 1
+    },
+    "accepted": false
+   },
+   {
+    "name": "day_first 2",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 2
+    },
+    "accepted": false
+   }
+  ],
+  "bodies": [
+   {
+    "name": "SDK 4.0.5 with api and ready",
+    "sdk_version": "4.0.5",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1
+    },
+    "accepted": true
+   },
+   {
+    "name": "SDK 4.0.0 with api and ready (EVENTS4: any SDK 4 body)",
+    "sdk_version": "4.0.0",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1
+    },
+    "accepted": true
+   },
+   {
+    "name": "SDK 3.1.5 with api: refused (EVENTS3 is closed)",
+    "sdk_version": "3.1.5",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1
+    },
+    "accepted": false
+   },
+   {
+    "name": "SDK 2.0.2 with api: refused (EVENTS2 is closed)",
+    "sdk_version": "2.0.2",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     }
+    ],
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1
+    },
+    "accepted": false
+   }
+  ]
+ },
+ "sends": [
+  {
+   "name": "a first launch: one new connection, then reuse; the model ready after 41.5 s",
+   "steps": [
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 180,
+       "proto": "h2",
+       "conn": "new",
+       "connect_ms": 120
+      }
+     ]
+    ],
+    [
+     "call",
+     "challenge",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "attest",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 95,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "register",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 60,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "lease",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 210,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "ready",
+     "first",
+     41.5
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 1,
+       "reused": 0,
+       "connect_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "challenge",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "attest",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "register",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "lease",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ],
+     "ready": {
+      "first": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "later": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "not_ready": 0,
+      "day_first": 1
+     }
+    }
+   ]
+  },
+  {
+   "name": "the first host refuses the connection: the move is on the host left; day_first once per route",
+   "steps": [
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "error": "connect"
+      },
+      {
+       "status": 200,
+       "ms": 320,
+       "proto": "h1",
+       "conn": "new",
+       "connect_ms": 250
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {
+        "connect": 1
+       },
+       "total_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 0,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {},
+       "moves": [
+        {
+         "to": "api-b.tajweedformer.com",
+         "why": "connect",
+         "n": 1
+        }
+       ],
+       "day_first": 1
+      },
+      {
+       "host": "api-b.tajweedformer.com",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 1,
+       "reused": 0,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h1": 1
+       },
+       "moves": [],
+       "day_first": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a 304 is taken; a 429 and a refusal end the request on their host (no move)",
+   "steps": [
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 30,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 304,
+       "ms": 12,
+       "proto": "h2",
+       "conditional": true,
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "events",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "status": 429,
+       "json_error": true,
+       "ms": 25,
+       "proto": "h2",
+       "conn": "reused"
+      },
+      {
+       "status": 200,
+       "ms": 50,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "register",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "status": 401,
+       "json_error": true,
+       "ms": 22,
+       "proto": "h2",
+       "conn": "reused"
+      },
+      {
+       "status": 200,
+       "ms": 50,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 2,
+       "fail": {},
+       "total_ms": [
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 2,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 2
+       },
+       "moves": [],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "events",
+       "requests": 1,
+       "fail": {
+        "http_429": 1
+       },
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "register",
+       "requests": 1,
+       "fail": {
+        "http_4xx": 1
+       },
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a standby's 503 on /v1/events: the next host, counted as a move",
+   "steps": [
+    [
+     "call",
+     "events",
+     [
+      "api-b.tajweedformer.com",
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 503,
+       "ms": 35,
+       "proto": "h2",
+       "conn": "reused"
+      },
+      {
+       "status": 200,
+       "ms": 70,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api-b.tajweedformer.com",
+       "route": "events",
+       "requests": 1,
+       "fail": {
+        "http_503": 1
+       },
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [
+        {
+         "to": "api.quranlab.ai",
+         "why": "http_503",
+         "n": 1
+        }
+       ],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "events",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "the bounds: a 13th (host, route) and a 5th (to, why) are not counted",
+   "steps": [
+    [
+     "call",
+     "lease",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "error": "dns"
+      },
+      {
+       "status": 200,
+       "ms": 100,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "lease",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "error": "connect"
+      },
+      {
+       "status": 200,
+       "ms": 100,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "lease",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "error": "tls"
+      },
+      {
+       "status": 200,
+       "ms": 100,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "lease",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "error": "timeout"
+      },
+      {
+       "status": 200,
+       "ms": 100,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "lease",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "error": "other"
+      },
+      {
+       "status": 200,
+       "ms": 100,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "lease",
+     [
+      "api.quranlab.ai",
+      "api-b.tajweedformer.com"
+     ],
+     [
+      {
+       "error": "dns"
+      },
+      {
+       "status": 200,
+       "ms": 100,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api0.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api1.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api2.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api3.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api4.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api5.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api6.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api7.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api8.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api9.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api10.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api11.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api12.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 40,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "lease",
+       "requests": 6,
+       "fail": {
+        "dns": 2,
+        "connect": 1,
+        "tls": 1,
+        "timeout": 1,
+        "no_answer": 1
+       },
+       "total_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 0,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {},
+       "moves": [
+        {
+         "to": "api-b.tajweedformer.com",
+         "why": "dns",
+         "n": 2
+        },
+        {
+         "to": "api-b.tajweedformer.com",
+         "why": "connect",
+         "n": 1
+        },
+        {
+         "to": "api-b.tajweedformer.com",
+         "why": "tls",
+         "n": 1
+        },
+        {
+         "to": "api-b.tajweedformer.com",
+         "why": "timeout",
+         "n": 1
+        }
+       ],
+       "day_first": 1
+      },
+      {
+       "host": "api-b.tajweedformer.com",
+       "route": "lease",
+       "requests": 6,
+       "fail": {},
+       "total_ms": [
+        0,
+        0,
+        6,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 6,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 6
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api0.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      },
+      {
+       "host": "api1.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api2.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api3.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api4.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api5.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api6.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api7.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api8.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      },
+      {
+       "host": "api9.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "two sends in a day, then midnight: day_first again on the new day",
+   "steps": [
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 25,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "ready",
+     "later",
+     0.8
+    ],
+    [
+     "seal"
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 28,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "ready",
+     "not_ready"
+    ],
+    [
+     "seal"
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 26,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "midnight"
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 31,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "ready",
+     "later",
+     2.5
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ],
+     "ready": {
+      "first": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "later": [
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "not_ready": 0,
+      "day_first": 1
+     }
+    },
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      }
+     ],
+     "ready": {
+      "first": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "later": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "not_ready": 1,
+      "day_first": 0
+     }
+    },
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      }
+     ]
+    },
+    {
+     "day": "2026-11-25",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ],
+     "ready": {
+      "first": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "later": [
+       0,
+       0,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "not_ready": 0,
+      "day_first": 1
+     }
+    }
+   ]
+  },
+  {
+   "name": "a platform that cannot tell the version or the connection counts neither",
+   "steps": [
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 150
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 0,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {},
+       "moves": [],
+       "day_first": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a new connection without its connect time: new_conn only",
+   "steps": [
+    [
+     "call",
+     "lease",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 400,
+       "proto": "h2",
+       "conn": "new"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "lease",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 1,
+       "reused": 0,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "an idle install: a delta holding only its events posts is not sent; they wait for one with other content",
+   "steps": [
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 30,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ],
+    [
+     "call",
+     "events",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 202,
+       "ms": 60,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ],
+    [
+     "seal"
+    ],
+    [
+     "call",
+     "events",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 202,
+       "ms": 55,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 25,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ]
+    },
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "events",
+       "requests": 2,
+       "fail": {},
+       "total_ms": [
+        0,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 2,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 2
+       },
+       "moves": [],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "the waiting events counts go with the next delta that has other content (a launch, a session, hosts)",
+   "steps": [
+    [
+     "call",
+     "events",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 202,
+       "ms": 60,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ],
+    [
+     "seal",
+     "other"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "events",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a failed events post is sent at the next send point (a standby's 503 included)",
+   "steps": [
+    [
+     "call",
+     "events",
+     [
+      "api-b.tajweedformer.com",
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 503,
+       "ms": 35,
+       "proto": "h2",
+       "conn": "reused"
+      },
+      {
+       "status": 202,
+       "ms": 70,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api-b.tajweedformer.com",
+       "route": "events",
+       "requests": 1,
+       "fail": {
+        "http_503": 1
+       },
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [
+        {
+         "to": "api.quranlab.ai",
+         "why": "http_503",
+         "n": 1
+        }
+       ],
+       "day_first": 1
+      },
+      {
+       "host": "api.quranlab.ai",
+       "route": "events",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "midnight: events counts still waiting are dropped, never sent alone",
+   "steps": [
+    [
+     "call",
+     "events",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 202,
+       "ms": 60,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ],
+    [
+     "midnight"
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 30,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-25",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "config",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ready is content: events counts beside it are sent",
+   "steps": [
+    [
+     "call",
+     "events",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 202,
+       "ms": 60,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "ready",
+     "later",
+     0.6
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": [
+    {
+     "day": "2026-11-24",
+     "api": [
+      {
+       "host": "api.quranlab.ai",
+       "route": "events",
+       "requests": 1,
+       "fail": {},
+       "total_ms": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "new_conn": 0,
+       "reused": 1,
+       "connect_ms": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       ],
+       "proto": {
+        "h2": 1
+       },
+       "moves": [],
+       "day_first": 1
+      }
+     ],
+     "ready": {
+      "first": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "later": [
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "not_ready": 0,
+      "day_first": 1
+     }
+    }
+   ]
+  },
+  {
+   "name": "flags.analytics false: nothing counted, nothing sealed",
+   "steps": [
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 25,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "off"
+    ],
+    [
+     "call",
+     "config",
+     [
+      "api.quranlab.ai"
+     ],
+     [
+      {
+       "status": 200,
+       "ms": 25,
+       "proto": "h2",
+       "conn": "reused"
+      }
+     ]
+    ],
+    [
+     "ready",
+     "later",
+     1.5
+    ],
+    [
+     "seal"
+    ]
+   ],
+   "bodies": []
+  }
+ ],
+ "points": [
+  {
+   "name": "api and ready, from Egypt",
+   "body": {
+    "v": 2,
+    "day": "2026-11-24",
+    "product": "apple",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.1",
+    "device": {
+     "class": "A17",
+     "soc": "a17pro",
+     "os_major": 18,
+     "ram_tier": "8_16"
+    },
+    "cohorts": [],
+    "report_id": "6f1c0e9a4b2d47e8a1c3f5d7b9e0a2c4",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "config",
+      "requests": 14,
+      "fail": {
+       "timeout": 1,
+       "http_503": 1
+      },
+      "total_ms": [
+       3,
+       6,
+       2,
+       1,
+       0,
+       1,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 2,
+      "reused": 11,
+      "connect_ms": [
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 12,
+       "h3": 1
+      },
+      "moves": [
+       {
+        "to": "api-b.tajweedformer.com",
+        "why": "timeout",
+        "n": 1
+       }
+      ],
+      "day_first": 1
+     },
+     {
+      "host": "api.quranlab.ai",
+      "route": "lease",
+      "requests": 2,
+      "fail": {},
+      "total_ms": [
+       0,
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 0,
+      "reused": 2,
+      "connect_ms": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 2
+      },
+      "moves": [],
+      "day_first": 1
+     },
+     {
+      "host": "api-b.tajweedformer.com",
+      "route": "config",
+      "requests": 1,
+      "fail": {},
+      "total_ms": [
+       0,
+       0,
+       0,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 1,
+      "reused": 0,
+      "connect_ms": [
+       0,
+       0,
+       0,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {},
+      "moves": [],
+      "day_first": 0
+     }
+    ],
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1
+    }
+   },
+   "country": "EG",
+   "asn": 8452,
+   "region": "C",
+   "app": "ios:org.example.recite",
+   "api_client": [
+    {
+     "indexes": [
+      "config"
+     ],
+     "blobs": [
+      "ap1",
+      "2026-11-24",
+      "api.quranlab.ai",
+      "EG",
+      "8452",
+      "config",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      14,
+      1,
+      2,
+      11,
+      3,
+      6,
+      2,
+      1,
+      0,
+      1,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "indexes": [
+      "config"
+     ],
+     "blobs": [
+      "ap2",
+      "2026-11-24",
+      "api.quranlab.ai",
+      "EG",
+      "8452",
+      "config",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      12,
+      1,
+      14
+     ]
+    },
+    {
+     "indexes": [
+      "config"
+     ],
+     "blobs": [
+      "ap3",
+      "2026-11-24",
+      "api.quranlab.ai",
+      "EG",
+      "8452",
+      "config",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "indexes": [
+      "config"
+     ],
+     "blobs": [
+      "ap4",
+      "2026-11-24",
+      "api.quranlab.ai",
+      "EG",
+      "8452",
+      "config",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5",
+      "api-b.tajweedformer.com",
+      "timeout"
+     ],
+     "doubles": [
+      1
+     ]
+    },
+    {
+     "indexes": [
+      "lease"
+     ],
+     "blobs": [
+      "ap1",
+      "2026-11-24",
+      "api.quranlab.ai",
+      "EG",
+      "8452",
+      "lease",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      2,
+      1,
+      0,
+      2,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "indexes": [
+      "lease"
+     ],
+     "blobs": [
+      "ap2",
+      "2026-11-24",
+      "api.quranlab.ai",
+      "EG",
+      "8452",
+      "lease",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      2
+     ]
+    },
+    {
+     "indexes": [
+      "config"
+     ],
+     "blobs": [
+      "ap1",
+      "2026-11-24",
+      "api-b.tajweedformer.com",
+      "EG",
+      "8452",
+      "config",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      1,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "indexes": [
+      "config"
+     ],
+     "blobs": [
+      "ap3",
+      "2026-11-24",
+      "api-b.tajweedformer.com",
+      "EG",
+      "8452",
+      "config",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "indexes": [
+      "ready"
+     ],
+     "blobs": [
+      "ap5",
+      "2026-11-24",
+      "-",
+      "EG",
+      "8452",
+      "ready",
+      "C",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "apx": [
+    {
+     "indexes": [
+      "ios:org.example.recite"
+     ],
+     "blobs": [
+      "ios:org.example.recite",
+      "2026-11-24",
+      "apx",
+      "apple",
+      "ios",
+      "4.0.5",
+      "config"
+     ],
+     "doubles": [
+      15,
+      2,
+      1,
+      3,
+      11,
+      3,
+      6,
+      2,
+      2,
+      0,
+      1,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "indexes": [
+      "ios:org.example.recite"
+     ],
+     "blobs": [
+      "ios:org.example.recite",
+      "2026-11-24",
+      "apx",
+      "apple",
+      "ios",
+      "4.0.5",
+      "lease"
+     ],
+     "doubles": [
+      2,
+      0,
+      1,
+      0,
+      2,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "indexes": [
+      "ios:org.example.recite"
+     ],
+     "blobs": [
+      "ios:org.example.recite",
+      "2026-11-24",
+      "apx",
+      "apple",
+      "ios",
+      "4.0.5",
+      "ready"
+     ],
+     "doubles": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ]
+    }
+   ]
+  },
+  {
+   "name": "no country, network or region known",
+   "body": {
+    "v": 2,
+    "day": "2026-11-24",
+    "product": "apple",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.1",
+    "device": {
+     "class": "A17",
+     "soc": "a17pro",
+     "os_major": 18,
+     "ram_tier": "8_16"
+    },
+    "cohorts": [],
+    "report_id": "6f1c0e9a4b2d47e8a1c3f5d7b9e0a2c4",
+    "api": [
+     {
+      "host": "api.quranlab.ai",
+      "route": "lease",
+      "requests": 2,
+      "fail": {},
+      "total_ms": [
+       0,
+       0,
+       1,
+       1,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "new_conn": 0,
+      "reused": 2,
+      "connect_ms": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "proto": {
+       "h2": 2
+      },
+      "moves": [],
+      "day_first": 1
+     }
+    ]
+   },
+   "country": null,
+   "asn": null,
+   "region": null,
+   "app": "ios:org.example.recite",
+   "api_client": [
+    {
+     "indexes": [
+      "lease"
+     ],
+     "blobs": [
+      "ap1",
+      "2026-11-24",
+      "api.quranlab.ai",
+      "XX",
+      "0",
+      "lease",
+      "-",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      2,
+      1,
+      0,
+      2,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "indexes": [
+      "lease"
+     ],
+     "blobs": [
+      "ap2",
+      "2026-11-24",
+      "api.quranlab.ai",
+      "XX",
+      "0",
+      "lease",
+      "-",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      2
+     ]
+    }
+   ],
+   "apx": [
+    {
+     "indexes": [
+      "ios:org.example.recite"
+     ],
+     "blobs": [
+      "ios:org.example.recite",
+      "2026-11-24",
+      "apx",
+      "apple",
+      "ios",
+      "4.0.5",
+      "lease"
+     ],
+     "doubles": [
+      2,
+      0,
+      1,
+      0,
+      2,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ready alone",
+   "body": {
+    "v": 2,
+    "day": "2026-11-24",
+    "product": "apple",
+    "platform": "ios",
+    "sdk_version": "4.0.5",
+    "app_version": "2.1",
+    "device": {
+     "class": "A17",
+     "soc": "a17pro",
+     "os_major": 18,
+     "ram_tier": "8_16"
+    },
+    "cohorts": [],
+    "report_id": "6f1c0e9a4b2d47e8a1c3f5d7b9e0a2c4",
+    "ready": {
+     "first": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     "later": [
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "not_ready": 0,
+     "day_first": 1
+    }
+   },
+   "country": "SA",
+   "asn": 25019,
+   "region": "01",
+   "app": "ios:org.example.recite",
+   "api_client": [
+    {
+     "indexes": [
+      "ready"
+     ],
+     "blobs": [
+      "ap5",
+      "2026-11-24",
+      "-",
+      "SA",
+      "25019",
+      "ready",
+      "01",
+      "d",
+      "ios",
+      "apple",
+      "4.0.5"
+     ],
+     "doubles": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "apx": [
+    {
+     "indexes": [
+      "ios:org.example.recite"
+     ],
+     "blobs": [
+      "ios:org.example.recite",
+      "2026-11-24",
+      "apx",
+      "apple",
+      "ios",
+      "4.0.5",
+      "ready"
+     ],
+     "doubles": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      3,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+     ]
+    }
+   ]
+  }
+ ]
+}

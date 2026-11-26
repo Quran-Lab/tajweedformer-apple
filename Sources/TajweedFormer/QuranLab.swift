@@ -91,7 +91,8 @@ enum QuranLab {
     /// Configure once at launch with the app's developer key (sdk.quranlab.ai). The launch sequence runs in the
     /// background at utility priority: token, registration, the signed config (then every 60 s while a recognizer is
     /// in use and at each foreground), the telemetry and issues that are due, the sharing outbox, and the update check
-    /// of a build this Client installed (never a first download: that waits for `model()` or `prefetch()`). Nothing in
+    /// of a build this Client installed (never a first download: that waits for `model()` or `prefetch()`); beside it
+    /// (SDK 4.0.5, contract 38.5) the downloads an earlier process left owed go on at once. Nothing in
     /// the recognition path waits on it.
     static func configure(key: String? = nil, options: Options = Options()) {
         state.withLock { $0 = Configuration(key: key, options: options) }
@@ -104,6 +105,11 @@ enum QuranLab {
         Contributions.recorder.reset()
         if let cloud, key != nil {
             Task.detached(priority: .utility) { await cloud.launch() }
+            // SDK 4.0.5: the owed downloads resume at once, beside the launch and at the priority of
+            // the app's own downloads, never waiting for its registration, config, flush or outbox
+            if QuranLabCloud.resumesAtStart.withLock({ $0 }) {
+                Task.detached(priority: .userInitiated) { await cloud.resumeOwed() }
+            }
         }
     }
 
