@@ -46,7 +46,9 @@ final class DiagnosisTests: XCTestCase {
             guard let e = e as? [String: Any], Set(e.keys) == ["api", "models", "lastFailover"],
                   isNull(e["api"]) || e["api"] is String, isNull(e["models"]) || e["models"] is String else { return "endpoints" }
             if !isNull(e["lastFailover"]) {
-                guard let f = e["lastFailover"] as? [String: Any], Set(f.keys) == ["role", "from", "to", "reason", "status", "at"],
+                // 4.0.5 (ATTEST_40.md 40.5): `check` last, a string only for invalid_answer
+                guard let f = e["lastFailover"] as? [String: Any], Set(f.keys) == ["role", "from", "to", "reason", "status", "at", "check"],
+                      isNull(f["check"]) || (f["reason"] as? String == "invalid_answer" && f["check"] is String),
                       ["api", "models", "web_frame"].contains(f["role"] as? String ?? ""), f["from"] is String,
                       isNull(f["to"]) || f["to"] is String,
                       ["network", "timeout", "http", "redirect", "invalid_answer"].contains(f["reason"] as? String ?? ""),
@@ -58,7 +60,10 @@ final class DiagnosisTests: XCTestCase {
         }
         if let p = r["protected"] {
             guard let p = p as? [String: Any],
-                  Set(p.keys) == ["keyStore", "lease", "leaseExpires", "leaseClass", "refreshAfter", "graceUntil", "core"],
+                  Set(p.keys).subtracting(["attestation", "lastFailure"])
+                    == ["keyStore", "lease", "leaseExpires", "leaseClass", "refreshAfter", "graceUntil", "core"],
+                  p["attestation"].map { a in (a as? [String: Any]).map { Set($0.keys) == ["state", "why", "failures", "nextTry"] } ?? false } ?? true,
+                  p["lastFailure"].map { f in (f as? [String: Any]).map { Set($0.keys) == ["stage", "reason", "httpStatus", "errorCode", "hostRole", "fallback", "chain"] } ?? false } ?? true,
                   isNull(p["keyStore"]) || ["secureEnclave", "keychain", "software", "file"].contains(p["keyStore"] as? String ?? ""),
                   let lease = p["lease"] as? String, ["valid", "grace", "expired", "stopped", "none"].contains(lease),
                   isNull(p["leaseClass"]) || ["attested", "standard"].contains(p["leaseClass"] as? String ?? ""),
@@ -238,6 +243,45 @@ final class DiagnosisTests: XCTestCase {
         XCTAssertEqual(d.lastError, "invalid_key")
     }
 
+    /// SDK 4.0.5: the
+    /// attestation and the last lease failure after `core`, only when known, and `lastFailover.check`; the section's
+    /// example, field for field.
+    func testTheAttestationAndTheLastLeaseFailure() throws {
+        var d = TajweedDiagnosis(sdkVersion: "4.0.5", sdkLatest: nil, key: .init(accepted: true, reason: nil), config: "fresh", model: nil,
+                                 context: nil, backend: nil, microphone: "granted", storage: .init(models: [], sharingQueueBytes: 0),
+                                 lastError: nil, droppedChunks: 0, connection: "unmetered")
+        var p = TajweedDiagnosis.Protected(keyStore: "secureEnclave", lease: "valid", leaseExpires: 1_796_209_600, leaseClass: "attested",
+                                           refreshAfter: 1_795_080_000, graceUntil: nil, core: "4.0.0-c3 ios-arm64")
+        XCTAssertFalse(d.json.contains("attestation"))
+        p.attestation = .init(state: "attested", why: nil, failures: 0, nextTry: nil)
+        let hops = [CauseHop(stage: "lease", hostRole: "api", host: "first", httpStatus: 200, reason: "invalid_answer", errorName: nil,
+                             errorCode: "expired_on_arrival"),
+                    CauseHop(stage: "lease", hostRole: "api", host: "standby", httpStatus: 503, reason: "http", errorName: nil,
+                             errorCode: "service_unavailable")]
+        p.lastFailure = .init(stage: "lease", reason: "invalid_answer", httpStatus: 200, errorCode: "expired_on_arrival", hostRole: "api",
+                              fallback: true, chain: hops.map(\.diagnosisJSON))
+        d.protected = p
+        d.endpoints = .init(api: "api.quranlab.ai", models: "cdn.quranlab.ai",
+                            lastFailover: .init(role: "api", from: "api.quranlab.ai", to: nil, reason: "invalid_answer", status: 200,
+                                                at: 1_795_080_100, check: "expired_on_arrival"))
+        XCTAssertNil(Self.problem(try Self.report(d)))
+        let r = try Self.report(d)
+        let prot = try XCTUnwrap(r["protected"] as? [String: Any])
+        let a = try XCTUnwrap(prot["attestation"] as? [String: Any])
+        XCTAssertEqual(a["state"] as? String, "attested")
+        XCTAssertTrue(Self.isNull(a["why"]) && Self.isNull(a["nextTry"]))
+        let f = try XCTUnwrap(prot["lastFailure"] as? [String: Any])
+        XCTAssertEqual(f["errorCode"] as? String, "expired_on_arrival")
+        XCTAssertEqual(f["fallback"] as? Bool, true)
+        let chain = try XCTUnwrap(f["chain"] as? [[String: Any]])
+        XCTAssertEqual(chain.count, 2)
+        XCTAssertEqual(chain[1]["host"] as? String, "standby")
+        XCTAssertNil(chain[0]["errorName"], "absent, never null")
+        let e = try XCTUnwrap((r["endpoints"] as? [String: Any])?["lastFailover"] as? [String: Any])
+        XCTAssertEqual(e["check"] as? String, "expired_on_arrival")
+        XCTAssertTrue(d.json.contains("\"core\": \"4.0.0-c3 ios-arm64\", \"attestation\": {\"state\": \"attested\""), d.json)
+    }
+
     /// SDK 4.0, contract section 25 (DIAGNOSIS_40.md at e5623a8): `protected` after the eleven shared fields, only with a
     /// runtime, its fields in the section's order: the section's example with an Apple key store, then its null rules.
     func testTheProtectedObjectOfSection25() throws {
@@ -279,14 +323,14 @@ final class DiagnosisTests: XCTestCase {
                             refreshAfter: 1_795_100_000, graceUntil: nil, core: "4.0.0-c3 ios-arm64")
         d.endpoints = .init(api: "api-b.tajweedformer.com", models: "cdn.quranlab.ai",
                             lastFailover: .init(role: "api", from: "api.quranlab.ai", to: "api-b.tajweedformer.com", reason: "http",
-                                                status: 503, at: 1_795_200_000))
+                                                status: 503, at: 1_795_200_000, check: nil))
         XCTAssertNil(Self.problem(try Self.report(d)))
         XCTAssertTrue(d.json.hasSuffix("\"core\": \"4.0.0-c3 ios-arm64\"},\n  \"endpoints\": {\"api\": \"api-b.tajweedformer.com\", "
             + "\"models\": \"cdn.quranlab.ai\", \"lastFailover\": {\"role\": \"api\", \"from\": \"api.quranlab.ai\", "
-            + "\"to\": \"api-b.tajweedformer.com\", \"reason\": \"http\", \"status\": 503, \"at\": 1795200000}}\n}"), d.json)
+            + "\"to\": \"api-b.tajweedformer.com\", \"reason\": \"http\", \"status\": 503, \"at\": 1795200000, \"check\": null}}\n}"), d.json)
         // none answered: to and status null; no failover yet: lastFailover null
         d.endpoints = .init(api: "api.quranlab.ai", models: "cdn.quranlab.ai",
-                            lastFailover: .init(role: "models", from: "cdn.quranlab.ai", to: nil, reason: "network", status: nil, at: 1_795_200_001))
+                            lastFailover: .init(role: "models", from: "cdn.quranlab.ai", to: nil, reason: "network", status: nil, at: 1_795_200_001, check: nil))
         XCTAssertNil(Self.problem(try Self.report(d)))
         XCTAssertTrue(d.json.contains("\"to\": null, \"reason\": \"network\", \"status\": null"), d.json)
         d.endpoints = .init(api: "api.quranlab.ai", models: "cdn.quranlab.ai", lastFailover: nil)

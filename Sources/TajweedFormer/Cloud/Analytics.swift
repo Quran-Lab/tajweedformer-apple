@@ -126,11 +126,27 @@ enum AnalyticsEvent: Sendable, Hashable {
     /// A model download: `revision` is the model version when it is known (else the build), `build` the build id.
     /// `failure`: why a download that failed failed (the telemetry's `failure_reasons`; Apple 3.1.5 and 4.0).
     case download(revision: String, build: String, profile: String, bytes: Int64, success: Bool, resumed: Bool,
-                  failure: DownloadFailure? = nil)
+                  failure: DownloadFailure? = nil, continuity: DownloadContinuity? = nil)
     /// The Neural Engine's promotion pipeline and in-session failovers (telemetry `promotions`).
     case promotion(PromotionTelemetry)
     /// SDK 4.0.2 (STEERING_40 34.6): one model request to a `models` host, for the per-host download counts.
     case modelHost(ModelHostSample)
+    /// SDK 4.0.5 (SPLIT_40 35.9): one of the split decide's counts on a host (`probes`, `would_probe`, `gain` with its
+    /// bucket as `n`, `slow_switches`, `bad_body`).
+    case modelSplit(host: String, field: String, n: Int)
+    /// SDK 4.0.5 (35.9 `wasted`): bytes a host sent that a cut discarded.
+    case modelWasted(host: String, bytes: Int64)
+    /// SDK 4.0.5 (35.9 `arms`): a CPU-set download ended (or failed) with `host` as P, inside the share (`acted`) or not.
+    case modelArm(host: String, acted: Bool, failed: Bool)
+    /// SDK 4.0.5 (API_40 37.3): an API request that ended, and a request of `route` that moved from `host` to `to`.
+    case apiCall(ApiSample)
+    case apiMove(host: String, route: String, to: String, why: String)
+    /// SDK 4.0.5 (37.5): the first ask of the process for a model, ready or not.
+    case ready(ReadySample)
+    /// SDK 4.0.5 (STEERING_40 34.9.7): a model request moved from `host` to `to` for `why`; a file or a download ended on
+    /// `host` (`moved`, `failed` with its class, `cancelled`, `paused`, `ready`, `not_ready`).
+    case modelMove(host: String, to: String, why: String)
+    case modelOutcome(host: String, field: String, cls: String?)
 }
 
 /// Receives every analytics event besides the SDK's own daily aggregates. Called on the recognition path: return
@@ -142,6 +158,37 @@ protocol AnalyticsSink: Sendable {
 /// Why a model download failed, as the telemetry's `downloads[].failure_reasons` names it (the server's
 /// DOWNLOAD_FAILURES; Apple 3.1.5 and 4.0). Before, a failure carried no reason, and a download the network stopped or
 /// that had no room was not counted at all.
+/// SDK 4.0.5: what a download continued from, counted with it (so a delta never holds kept bytes
+/// without the break they came from, or a start's time without its start).
+struct DownloadContinuity: Sendable, Hashable {
+    /// kB (1000 bytes) of kept bytes from an earlier process or call that the download used and did not fetch again.
+    var resumedKB = 0
+    /// The bucket of `resume_ms` (0 to 8): the time from the Client's creation to the first byte of the first resumed
+    /// request, once per process that resumed at its start, in the download that request belongs to.
+    var resumeBucket: Int?
+    /// How the download went on after a break: `system`, `start` or `call` (the first of them that applies); nil: it
+    /// went on from nothing an earlier call or process left.
+    var continued: String?
+    /// It was handed to the system when the app left (iOS tasks).
+    var handed = false
+    /// Files that started over, by the reasons of 38.6.
+    var restarted: [String: Int] = [:]
+
+    var isEmpty: Bool { resumedKB == 0 && resumeBucket == nil && continued == nil && !handed && restarted.isEmpty }
+
+    /// From an install's report: `fromStart` when the Client's start resumed the download (38.5).
+    init(_ r: InstallReport, fromStart: Bool = false, resumeBucket: Int? = nil) {
+        resumedKB = Int(max(0, r.keptBytes) / 1000)
+        // `system`: the system's carrier finished it while the app was away (no byte of the app's own after it)
+        if r.joinedBackground && r.fetchedBytes == 0 { continued = "system" } else if r.keptBytes > 0 { continued = fromStart ? "start" : "call" }
+        self.resumeBucket = continued == "start" ? resumeBucket : nil
+        handed = r.handed
+        restarted = r.restarted.filter { ContinuityRules.restartWhy.contains($0.key) && $0.value > 0 }
+    }
+
+    init() {}
+}
+
 enum DownloadFailure: String, Sendable, CaseIterable {
     case network, http
     case hashMismatch = "hash_mismatch"
@@ -176,6 +223,24 @@ final class AnalyticsStore: Sendable {
     /// `POST /v1/events` since 2026-11-21 (version 78b54062; anything but 34.6's entries is a 400). Off, the counts are
     /// still measured and kept with the day, and left out of its delta; turning it off is this one line.
     static let sendsHostCounts = Locked(true)
+    /// SDK 4.0.5 (API_40 37.6 item 1): whether the daily telemetry carries `api` and `ready`. ON: qlab-api takes them on
+    /// `POST /v1/events` since 2026-11-23 13:55Z (4757fd5, version ac01594d; the body is a closed schema, so a server
+    /// without them answers 400 and the delta is dropped). Off, they are still counted and kept with the day, and left
+    /// out of its delta when it is sealed; turning it off is this one line.
+    static let sendsApiCounts = Locked(true)
+    /// SDK 4.0.5 (STEERING_40 34.9.7): whether `hosts` entries carry `moves` and `outcome`. ON: qlab-api takes them since
+    /// the 404b push (2026-11-23 12:11Z, dl-moves-404). Off, they are counted and left out of the entries.
+    static let sendsDownloadMoves = Locked(true)
+    /// SDK 4.0.5 (SPLIT_40 35.9): whether `hosts` entries carry section 35's five fields (`probes`, `would_probe`,
+    /// `gain`, `wasted`, `arms`). OFF until qlab-api's deploy that takes them is confirmed (their branch was in test on
+    /// 11-23; an entry with a key the server does not know is a 400 and the delta is dropped). Off, they are
+    /// counted and left out of the entries.
+    static let sendsSplitFields = Locked(false)
+    /// SDK 4.0.5 (CONTINUITY_40 38.8, 38.9): whether `downloads` entries carry `resumed_kb`, `resume_ms`, `continued`,
+    /// `handed` and `restarted`. ON: qlab-api takes them since 2026-11-23 15:27Z (7f02471, the `dr1` point; the schemas
+    /// are closed, so a server without them answers 400 and the delta is dropped). Off, they are still counted with the
+    /// day's entries and left out of what is sent; turning it off is this one line.
+    static let sendsContinuity = Locked(true)
 
     struct Cohort: Codable, Equatable {
         var cohort: TelemetryCohort
@@ -225,6 +290,25 @@ final class AnalyticsStore: Sendable {
         var bytes: Int64 = 0, success = 0, failed = 0, resumed = 0
         /// Optional, so an earlier day's record decodes: the failed downloads by reason (`DownloadFailure`).
         var failureReasons: [String: Int]?
+        /// SDK 4.0.5, optional so a day saved by 4.0.4 decodes: `resumed_kb`, `resume_ms` (9 counts),
+        /// `continued`, `handed`, `restarted`.
+        var resumedKB: Int?
+        var resumeMs: [Int]?
+        var continued: [String: Int]?
+        var handed: Int?
+        var restarted: [String: Int]?
+
+        mutating func add(_ c: DownloadContinuity) {
+            if c.resumedKB > 0 { resumedKB = (resumedKB ?? 0) + c.resumedKB }
+            if let b = c.resumeBucket, (0...ContinuityRules.resumeMsBounds.count).contains(b) {
+                var m = resumeMs ?? [Int](repeating: 0, count: ContinuityRules.resumeMsBounds.count + 1)
+                m[b] += 1
+                resumeMs = m
+            }
+            if let k = c.continued, ContinuityRules.continued.contains(k) { continued = (continued ?? [:]).merging([k: 1], uniquingKeysWith: +) }
+            if c.handed { handed = (handed ?? 0) + 1 }
+            if !c.restarted.isEmpty { restarted = (restarted ?? [:]).merging(c.restarted, uniquingKeysWith: +) }
+        }
     }
 
     /// One `promotions` entry: a backend, model version, build and context.
@@ -249,9 +333,33 @@ final class AnalyticsStore: Sendable {
         /// SDK 4.0: attempts that passed the golden test and stayed on the CPU engine, the accelerator slower: each one's
         /// median chunk ms, accelerator and CPU (`slower_than_cpu`, at most 8 a day).
         var slowerThanCPU: [[Double]]?
+        /// SDK 4.0.5: the live promotions of the key that day, each take's tally added when it ended
+        /// (optional so days saved by 4.0.4 decode).
+        var live: LiveDay?
+        /// SDK 4.0.5: stages that prepare the program and ended because the device locked or the app left the foreground,
+        /// by why (`locked`, `background`): never a failure (optional so days saved by 4.0.4 decode).
+        var notNow: [String: Int]?
 
-        var activity: Int { attempts + failovers + demoted + reasons.values.reduce(0, +) + (blankConfirmedOK ?? 0) }
+        var activity: Int {
+            attempts + failovers + demoted + reasons.values.reduce(0, +) + (blankConfirmedOK ?? 0)
+                + (AnalyticsStore.notNowSent.withLock { $0 } ? (notNow?.values.reduce(0, +) ?? 0) : 0)
+                + (AnalyticsStore.livePromotionsSent.withLock { $0 } ? (live.map { $0.attempts + $0.held.values.reduce(0, +) } ?? 0) : 0)
+        }
     }
+
+    /// SDK 4.0.5: whether the promotions entries carry `live`. ON: qlab-api takes it since
+    /// 2026-11-23 15:27Z (7f02471, the `p7` and `p8` points; the schemas are closed, so a server without it answers 400
+    /// and the whole delta is dropped). Off, `live` is still counted and kept with the day, and left out of its delta;
+    /// turning it off is this one line. (A switch, not a constant, so the tests check both.)
+    static let livePromotionsSent = Locked(true)
+
+    /// SDK 4.0.5: whether the promotions entries carry `not_now` (a compile or load the
+    /// device's lock or the app's leaving cut, counted apart from every failure). ON: qlab-api takes it since
+    /// 2026-11-26 13:46Z (cd0f715) from bodies of SDK 4.0.5 and later; its promotions schema is
+    /// closed, so a server without it answers 400 and the whole delta is dropped. Off, it is still counted and kept
+    /// with the day, and left out of its delta; turning it off is this one line. (A switch, not a constant, so the
+    /// tests check both.)
+    static let notNowSent = Locked(true)
 
     /// One UTC day's counts not sealed yet.
     struct Day: Codable, Equatable {
@@ -278,11 +386,32 @@ final class AnalyticsStore: Sendable {
         /// `hosts` while `AnalyticsStore.sendsHostCounts` is on (it is); off, they are left out of the day's delta when it
         /// is sealed.
         var hosts: [String: HostCount]?
+        /// SDK 4.0.5 (API_40 37.4, 37.5): the API requests by host and route (`ApiCount.key`), and the time to a ready
+        /// model. Sent while `AnalyticsStore.sendsApiCounts` is on.
+        var api: [String: ApiCount]?
+        var ready: ReadyCount?
+        /// The `api` keys in the order this delta first counted them (37.4, as the reference's pending entries).
+        var apiOrder: [String]?
 
         var isEmpty: Bool {
             cohorts.isEmpty && coverage.isEmpty && downloads.isEmpty && launches == 0 && ayahs == 0 && surahAyahs.isEmpty && words == 0
                 && ruleChecks.isEmpty && shareAsked == 0 && shareYes == 0 && shareNo == 0 && promotions.isEmpty && (v4?.isEmpty ?? true)
                 && ((hosts?.isEmpty ?? true) || !AnalyticsStore.sendsHostCounts.withLock { $0 })
+                && (((api?.isEmpty ?? true) && ready == nil) || !AnalyticsStore.sendsApiCounts.withLock { $0 })
+        }
+
+        /// SDK 4.0.5 (API_40 37.4, contract 222c408): an idle delta, whose only content would be `api` entries of the
+        /// `events` route, none of them with a failure: an idle install's own sends. It is not sealed: its counts wait
+        /// for a delta with other content (a count of PLATFORM_CLIENT 6, `hosts`, `ready`, another route's `api`), and
+        /// at 00:00 UTC they are dropped, never sent alone. Without this, every send carried the counts of the send
+        /// before it, and an install left open and idle posted at every send point forever.
+        var isIdle: Bool {
+            guard AnalyticsStore.sendsApiCounts.withLock({ $0 }), ready == nil, let a = api, !a.isEmpty,
+                  a.values.allSatisfy({ $0.route == "events" && !$0.fail.values.contains { $0 > 0 } }) else { return false }
+            var rest = self
+            rest.api = nil
+            rest.apiOrder = nil
+            return rest.isEmpty
         }
     }
 
@@ -306,7 +435,23 @@ final class AnalyticsStore: Sendable {
         /// SDK 4.0: this install's own days (17.8, 17.9), and the analytics session that is open (`session_s`).
         var learner: LearnerJournal?
         var openSession: OpenAnalyticsSession?
+        /// SDK 4.0.5 (STEERING_40 34.9.3 item 2, 34.9.4): per UTC day, the hosts an entry was sealed for (`day_first`, and
+        /// 34.6's 8 hosts a day across all its sends), and the sends after a download made (34.9.3 item 5). Kept with the
+        /// day's telemetry; optional so a state saved before decodes.
+        var hostsSealed: [String: [String]]?
+        var downloadSends: [String: Int]?
+        /// SDK 4.0.5 (API_40 37.4): per UTC day, the (host, route) pairs counted (at most 12), each pair's (to, why) moves
+        /// counted (at most 4), the routes an entry was sealed for (`day_first` per route), and whether a `ready` was.
+        var apiPairs: [String: [String]]?
+        var apiMoves: [String: [String: [String]]]?
+        var apiRoutesSealed: [String: [String]]?
+        var readySealed: [String]?
+        /// SDK 4.0.5 (34.9.7 item 4): per UTC day, the (from, to, why) moves counted: at most 32 across the day's sends.
+        var hostMoves: [String: [String]]?
     }
+
+    /// SDK 4.0.5 (34.9.3 item 5, `DL_SENDS`): the most sends after a download a UTC day. A released build may not change it.
+    static let downloadSendsPerDay = 4
 
     /// The counters besides sessions.
     enum Counter: Sendable {
@@ -419,6 +564,90 @@ final class AnalyticsStore: Sendable {
         saver.async { file.write(state.withLock { $0 }) }
     }
 
+    /// The day's counts of one `models` host (34.6): hosts of the allow-list only (28.1), at most 8 a day, by their
+    /// lower-case name.
+    /// SDK 4.0.5 (API_40 37.4): the day's counts of one (host, route): hosts of the allow-list only, at most 12 pairs a
+    /// day across all the day's sends (a request of a 13th is not counted).
+    func apiCount(_ name: String, _ route: String, _ body: (inout ApiCount) -> Void) {
+        let host = Endpoints.asciiLower(name)
+        guard Endpoints.hostAllowed(host), ApiRoute.all.contains(route) else { return }
+        let k = ApiCount.key(host, route)
+        mutate { d, s in
+            var pairs = s.apiPairs ?? [:]
+            var today = pairs[d.day] ?? []
+            if !today.contains(k) {
+                guard today.count < ApiCount.pairsPerDay else { return }
+                today.append(k)
+                pairs[d.day] = today
+                s.apiPairs = pairs
+            }
+            var m = d.api ?? [:]
+            var c = m[k] ?? ApiCount(host: host, route: route)
+            body(&c)
+            m[k] = c
+            d.api = m
+            if !(d.apiOrder ?? []).contains(k) { d.apiOrder = (d.apiOrder ?? []) + [k] }
+        }
+    }
+
+    /// 37.3 item 6: a move of a request of `route` from `host` to `to`: at most 4 (to, why) per (host, route) a day.
+    private func apiMove(_ name: String, _ route: String, to: String, why: String) {
+        let host = Endpoints.asciiLower(name), dest = Endpoints.asciiLower(to)
+        guard dest != host, Endpoints.hostAllowed(dest), FailClass.keys.contains(why) else { return }
+        let k = ApiCount.key(host, route), pair = dest + " " + why
+        var allowed = false
+        mutate { d, s in
+            var moves = s.apiMoves ?? [:]
+            var day = moves[d.day] ?? [:]
+            var seen = day[k] ?? []
+            if !seen.contains(pair) {
+                guard seen.count < ApiCount.movesPerEntry else { return }
+                seen.append(pair)
+                day[k] = seen
+                moves[d.day] = day
+                s.apiMoves = moves
+            }
+            allowed = true
+        }
+        if allowed { apiCount(host, route) { $0.move(to: dest, why: why) } }
+    }
+
+    /// 34.9.7 items 1 and 4: a move of a model request from `host` to `to` for `why`, on the host left: `to` another host
+    /// of the allow-list, `why` a class, `slow` or `hedge`; at most 32 (from, to, why) a day across its sends.
+    private func modelMove(_ name: String, to: String, why: String) {
+        let host = Endpoints.asciiLower(name), dest = Endpoints.asciiLower(to)
+        guard dest != host, Endpoints.hostAllowed(dest), FailClass.moveWhy.contains(why) else { return }
+        let triple = host + " " + dest + " " + why
+        var allowed = false
+        mutate { d, s in
+            var m = s.hostMoves ?? [:]
+            var day = m[d.day] ?? []
+            if !day.contains(triple) {
+                guard day.count < HostCount.movesMax else { return }
+                day.append(triple)
+                m[d.day] = day
+                s.hostMoves = m
+            }
+            allowed = true
+        }
+        if allowed { hostCount(host) { $0.move(to: dest, why: why) } }
+    }
+
+    func hostCount(_ name: String, _ body: (inout HostCount) -> Void) {
+        let host = Endpoints.asciiLower(name)
+        guard Endpoints.hostAllowed(host) else { return }
+        mutate { d, s in
+            var m = d.hosts ?? [:]
+            // 34.9.3 item 6: at most 8 hosts a day across all of the day's sends (the hosts sealed already count)
+            let day = Set(m.keys).union(s.hostsSealed?[d.day] ?? [])
+            guard day.contains(host) || day.count < HostCount.perDay else { return }
+            var c = m[host] ?? HostCount()
+            body(&c)
+            m[host] = c
+            d.hosts = m
+        }
+    }
+
     private func cohort(_ c: TelemetryCohort, _ body: (inout Cohort) -> Void) {
         mutate { d, _ in
             var x = d.cohorts[c.key] ?? Cohort(c)
@@ -491,7 +720,7 @@ final class AnalyticsStore: Sendable {
             cohort(co) { c in if passed { c.selfTestPass += 1 } else { c.selfTestFail += 1 } }
         case .fallback(let reason, let co):
             cohort(co) { $0.fallbacks[reason.rawValue, default: 0] += 1 }
-        case .download(let rev, let build, let profile, let bytes, let ok, let resumed, let failure):
+        case .download(let rev, let build, let profile, let bytes, let ok, let resumed, let failure, let continuity):
             let k = "\(rev)|\(build)|\(profile)"
             mutate { d, _ in
                 var x = d.downloads[k] ?? Download()
@@ -499,17 +728,34 @@ final class AnalyticsStore: Sendable {
                 if ok { x.success += 1 } else { x.failed += 1 }
                 if resumed { x.resumed += 1 }
                 if !ok, let failure { x.failureReasons = (x.failureReasons ?? [:]).merging([failure.rawValue: 1], uniquingKeysWith: +) }
+                // SDK 4.0.5 (38.8): with the download, at once
+                if let continuity, !continuity.isEmpty { x.add(continuity) }
                 d.downloads[k] = x
             }
         case .modelHost(let sample):
             // hosts of the allow-list only (28.1), at most 8 a day, by their lower-case name
-            let host = Endpoints.asciiLower(sample.host)
-            guard Endpoints.hostAllowed(host) else { return }
+            hostCount(sample.host) { $0.add(sample) }
+        case .modelSplit(let host, let field, let n):
+            hostCount(host) { $0.split(field, n) }
+        case .modelWasted(let host, let bytes):
+            hostCount(host) { $0.wastedBytes += max(0, bytes) }
+        case .modelMove(let host, let to, let why):
+            modelMove(host, to: to, why: why)
+        case .modelOutcome(let host, let field, let cls):
+            hostCount(host) { $0.ended(field, cls: cls) }
+        case .apiCall(let s):
+            apiCount(s.host, s.route) { $0.add(s) }
+        case .apiMove(let host, let route, let to, let why):
+            apiMove(host, route, to: to, why: why)
+        case .ready(let r):
             mutate { d, _ in
-                var m = d.hosts ?? [:]
-                guard m[host] != nil || m.count < HostCount.perDay else { return }
-                m[host, default: HostCount()].add(sample)
-                d.hosts = m
+                var x = d.ready ?? ReadyCount()
+                x.add(r)
+                d.ready = x
+            }
+        case .modelArm(let host, let acted, let failed):
+            hostCount(host) { c in
+                if acted { c.armActed[failed ? 1 : 0] += 1 } else { c.armCount[failed ? 1 : 0] += 1 }
             }
         case .promotion(let t):
             let k = "\(t.backend)|\(t.revision)|\(t.build)|\(t.context)"
@@ -541,6 +787,16 @@ final class AnalyticsStore: Sendable {
                     if acc > 0 { p.speedup[Histogram.speedupIndex(cpu / acc)] += 1 }
                     let pair = [acc, cpu].map { ($0 * 10).rounded() / 10 }
                     p.slowerThanCPU = Array(((p.slowerThanCPU ?? []) + [pair]).prefix(8))
+                case .notNow(_, let why):
+                    var n = p.notNow ?? [:]
+                    n[why, default: 0] += 1
+                    p.notNow = n
+                case .live(let tally):
+                    // a take's tally at once: its attempt with its outcome and its swap's latency (a delta never holds
+                    // an outcome without its attempt)
+                    var l = p.live ?? LiveDay()
+                    l.add(tally)
+                    p.live = l
                 }
                 d.promotions[k] = p
             }
@@ -616,7 +872,8 @@ final class AnalyticsStore: Sendable {
     /// sessions (the extras' counts go to the largest). `reported` lists exactly those of the six app-reported fields
     /// that this body carries, and is absent when it carries none: it is built here, from the body, so the two cannot
     /// disagree.
-    func payload(_ d: Day, reportID: String) -> [String: Any] {
+    func payload(_ d: Day, reportID: String, sealedBefore: Set<String> = [], apiRoutesBefore: Set<String> = [],
+                 readyBefore: Bool = false, apiOrder: [String] = []) -> [String: Any] {
         var cs = d.cohorts.values.sorted { ($0.sessions, $0.cohort.key) > ($1.sessions, $1.cohort.key) }
         if cs.count > 16 {
             for extra in cs[16...] { cs[0].merge(extra) }
@@ -659,6 +916,16 @@ final class AnalyticsStore: Sendable {
             o["failed"] = Self.clip(v.failed)
             o["resumed"] = Self.clip(v.resumed)
             if let r = v.failureReasons, !r.isEmpty { o["failure_reasons"] = r.mapValues { Self.clip($0) } }
+            // SDK 4.0.5 (38.8): behind their switch (off until the server takes them), each left out when 0
+            if Self.sendsContinuity.withLock({ $0 }) {
+                if let n = v.resumedKB, n > 0 { o["resumed_kb"] = Self.clip(n) }
+                if let m = v.resumeMs, m.count == ContinuityRules.resumeMsBounds.count + 1, m.contains(where: { $0 > 0 }) {
+                    o["resume_ms"] = m.map { Self.clip($0) }
+                }
+                if let c = v.continued?.filter({ $0.value > 0 }), !c.isEmpty { o["continued"] = c.mapValues { Self.clip($0) } }
+                if let n = v.handed, n > 0 { o["handed"] = Self.clip(n) }
+                if let r = v.restarted?.filter({ $0.value > 0 }), !r.isEmpty { o["restarted"] = r.mapValues { Self.clip($0) } }
+            }
             downloads.append(o)
         }
         var p: [String: Any] = ["v": 2, "day": d.day, "product": "apple", "platform": context.platform, "sdk_version": context.sdkVersion,
@@ -699,10 +966,46 @@ final class AnalyticsStore: Sendable {
         if !promotions.isEmpty { p["promotions"] = promotions }
         // SDK 4.0.2 (STEERING_40 34.6): behind its switch (on)
         if Self.sendsHostCounts.withLock({ $0 }), let h = d.hosts {
-            let hosts = HostCount.body(h)
+            let hosts = HostCount.body(h, sealedBefore: sealedBefore)
             if !hosts.isEmpty { p["hosts"] = hosts }
         }
+        // SDK 4.0.5 (API_40 37.4, 37.5): behind their switch (on)
+        if Self.sendsApiCounts.withLock({ $0 }) {
+            let api = Self.apiBody(d.api ?? [:], order: apiOrder, routesBefore: apiRoutesBefore)
+            if !api.isEmpty { p["api"] = api }
+            if let r = d.ready { p["ready"] = r.body(dayFirst: !readyBefore) }
+        }
         return p
+    }
+
+    /// The day's `api` (37.4): hosts of the allow-list, at most 12 entries, in the order the day first counted them
+    /// (`order`, the day's pairs); `day_first` 1 on the first entry of a route the day seals, whichever host it names.
+    static func apiBody(_ counts: [String: ApiCount], order: [String], routesBefore: Set<String>) -> [[String: Any]] {
+        var seen = routesBefore
+        func rank(_ c: ApiCount) -> Int { order.firstIndex(of: ApiCount.key(c.host, c.route)) ?? Int.max }
+        return counts.values.filter { Endpoints.hostAllowed($0.host) && $0.requests > 0 }
+            .sorted { (rank($0), $0.host, $0.route) < (rank($1), $1.host, $1.route) }
+            .prefix(ApiCount.pairsPerDay)
+            .map { c in
+                let first = !seen.contains(c.route)
+                seen.insert(c.route)
+                return c.entry(dayFirst: first)
+            }
+    }
+
+    /// SDK 4.0.5 (34.9.2 item 2): the body of the send after a download: the v2 body's head, `cohorts: []`, a fresh
+    /// `report_id`, and `hosts`, and nothing else.
+    func hostsPayload(day: String, hosts: [String: HostCount], reportID: String, sealedBefore: Set<String>) -> [String: Any] {
+        var device: [String: Any] = ["class": context.deviceClass, "os_major": context.osMajor, "ram_tier": context.ramTier]
+        if let soc = context.soc { device["soc"] = soc }
+        return ["v": 2, "day": day, "product": "apple", "platform": context.platform, "sdk_version": context.sdkVersion,
+                "app_version": context.appVersion, "device": device, "cohorts": [Any](), "report_id": reportID,
+                "hosts": HostCount.body(hosts, sealedBefore: sealedBefore)]
+    }
+
+    /// The hosts `body` carries (from its JSON, so it is what goes out).
+    private static func hostsIn(_ body: [String: Any]) -> [String] {
+        ((body["hosts"] as? [[String: Any]]) ?? []).compactMap { $0["host"] as? String }
     }
 
     /// The SDK-measured counters of SDK 3.0.0 for one cohort, each left out when zero: `takes`, `audio_s`, `speech_s`,
@@ -756,34 +1059,56 @@ final class AnalyticsStore: Sendable {
                     x.count == 2 ? ["accelerator_ms": min(600_000, max(0, x[0])), "cpu_ms": min(600_000, max(0, x[1]))] : nil
                 }
             }
+            // SDK 4.0.5 (30.9): left out when no take of the key that day had a live promotion or was held from one,
+            // and while the switch is off (`livePromotionsSent`, on)
+            if livePromotionsSent.withLock({ $0 }), let l = e.live, !l.isEmpty { o["live"] = l.object }
+            // SDK 4.0.5 (21.7): left out when no cut was counted, and while the switch is off (`notNowSent`, on)
+            if notNowSent.withLock({ $0 }), let n = e.notNow, !n.isEmpty { o["not_now"] = counts(n) }
             out.append(o)
         }
         return out
     }
     /// Seals the open counts of every day into deltas (each its own day, a fresh report id), saved before anything is
     /// sent; deltas and counts older than 7 days go unsent. Returns how many were sealed.
+    /// SDK 4.0.5: `only`, the days to seal (nil: every day).
     @discardableResult
-    func seal() -> Int {
+    func seal(only: Set<String>? = nil) -> Int {
         let oldest = TelemetryDay.string(clock().addingTimeInterval(-7 * 86_400))
         let off = metricsOff.withLock { $0 }
         let days = learnerDays.withLock { $0 }
         var core = days?.read()
         var toCore: [(sealed: String?, trendWeek: String?)] = []
+        let today = TelemetryDay.string(clock())
         let made = state.withLock { s -> Int in
             var n = 0
-            for k in s.open.keys.sorted() {
+            for k in s.open.keys.sorted() where only?.contains(k) ?? true {
                 guard var d = s.open[k] else { continue }
                 s.open[k] = nil
                 guard d.day >= oldest, !d.isEmpty else { continue }
+                // 37.4: an idle delta is not sealed: today's waits, still open, for other content or a failure; an
+                // earlier day's (00:00 UTC has passed) is dropped
+                if d.isIdle {
+                    if k >= today { s.open[k] = d }
+                    continue
+                }
                 // 17.8, 17.9: the learner facts of an active day and the week's trend, once, in this same write
                 toCore.append(Self.sealFacts(&d, &s, off: off, core: &core))
                 let id = Self.reportID()
-                guard let body = try? JSONSerialization.data(withJSONObject: payload(d, reportID: id), options: [.sortedKeys]) else { continue }
+                // 34.9.4: `day_first` 1 only for a host no earlier body of the day carried; 37.3 item 7: per route for `api`
+                let before = Set(s.hostsSealed?[d.day] ?? [])
+                let routesBefore = Set(s.apiRoutesSealed?[d.day] ?? [])
+                let readyBefore = s.readySealed?.contains(d.day) ?? false
+                let p = payload(d, reportID: id, sealedBefore: before, apiRoutesBefore: routesBefore, readyBefore: readyBefore,
+                                apiOrder: d.apiOrder ?? s.apiPairs?[d.day] ?? [])
+                guard let body = try? JSONSerialization.data(withJSONObject: p, options: [.sortedKeys]) else { continue }
                 s.seq += 1
                 s.sealed.append(Sealed(reportID: id, day: d.day, seq: s.seq, body: body))
+                Self.noteSealed(&s, day: d.day, hosts: Self.hostsIn(p))
+                Self.noteApiSealed(&s, day: d.day, body: p)
                 n += 1
             }
             s.sealed.removeAll { $0.day < oldest }
+            Self.forgetOld(&s, before: oldest)
             return n
         }
         saveNow()
@@ -797,11 +1122,82 @@ final class AnalyticsStore: Sendable {
         return made
     }
 
+    private static func noteSealed(_ s: inout State, day: String, hosts: [String]) {
+        guard !hosts.isEmpty else { return }
+        var m = s.hostsSealed ?? [:]
+        var x = m[day] ?? []
+        for h in hosts where !x.contains(h) { x.append(h) }
+        m[day] = x
+        s.hostsSealed = m
+    }
+
+    private static func forgetOld(_ s: inout State, before oldest: String) {
+        s.hostsSealed = s.hostsSealed?.filter { $0.key >= oldest }
+        s.downloadSends = s.downloadSends?.filter { $0.key >= oldest }
+        s.apiPairs = s.apiPairs?.filter { $0.key >= oldest }
+        s.apiMoves = s.apiMoves?.filter { $0.key >= oldest }
+        s.apiRoutesSealed = s.apiRoutesSealed?.filter { $0.key >= oldest }
+        s.readySealed = s.readySealed?.filter { $0 >= oldest }
+        s.hostMoves = s.hostMoves?.filter { $0.key >= oldest }
+    }
+
+    /// The routes and the `ready` a sealed body carried (37.3 item 7, 37.5 item 6).
+    private static func noteApiSealed(_ s: inout State, day: String, body: [String: Any]) {
+        let routes = ((body["api"] as? [[String: Any]]) ?? []).compactMap { $0["route"] as? String }
+        if !routes.isEmpty {
+            var m = s.apiRoutesSealed ?? [:]
+            var x = m[day] ?? []
+            for r in routes where !x.contains(r) { x.append(r) }
+            m[day] = x
+            s.apiRoutesSealed = m
+        }
+        if body["ready"] != nil {
+            var x = s.readySealed ?? []
+            if !x.contains(day) { x.append(day) }
+            s.readySealed = x
+        }
+    }
+
+    /// SDK 4.0.5 (STEERING_40 34.9.2, 34.9.3): a download ended (its files in place, or its failure told to its caller).
+    /// The open counts of every earlier day are sealed as their last deltas (a delta never spans midnight); then
+    /// today's host counts, when there are any and the day's sends after a download are fewer than 4, are sealed alone
+    /// (`hostsPayload`) and start again from zero. Every other count of today stays for the next send point. True when
+    /// a body was sealed for the download.
+    @discardableResult
+    func sealAfterDownload() -> Bool {
+        guard enabled else { return false }
+        let today = TelemetryDay.string(clock())
+        // the days before today close as at any send point (their deltas carry everything they counted)
+        let earlier = state.withLock { s in s.open.keys.filter { $0 < today } }
+        if !earlier.isEmpty { seal(only: Set(earlier)) }
+        let made = state.withLock { s -> Bool in
+            guard var d = s.open[today], let hosts = d.hosts, !hosts.isEmpty else { return false }
+            let sends = s.downloadSends?[today] ?? 0
+            guard sends < Self.downloadSendsPerDay else { return false }
+            let id = Self.reportID()
+            let before = Set(s.hostsSealed?[today] ?? [])
+            let p = hostsPayload(day: today, hosts: hosts, reportID: id, sealedBefore: before)
+            guard !Self.hostsIn(p).isEmpty, let body = try? JSONSerialization.data(withJSONObject: p, options: [.sortedKeys]) else { return false }
+            d.hosts = nil
+            s.open[today] = d
+            s.seq += 1
+            s.sealed.append(Sealed(reportID: id, day: today, seq: s.seq, body: body))
+            Self.noteSealed(&s, day: today, hosts: Self.hostsIn(p))
+            var ds = s.downloadSends ?? [:]
+            ds[today] = sends + 1
+            s.downloadSends = ds
+            return true
+        }
+        saveNow()
+        return made
+    }
+
     /// A send point: seals what was counted, then sends every sealed delta, oldest first. 202 deletes it; a refusal
     /// (400, 413) drops it; a retryable failure (network, 5xx, 429, 401 after a new token) keeps it and the rest for
     /// later, the same bytes. Returns how many the server accepted.
-    func flush(send: (Data) async throws(CloudError) -> Void) async -> Int {
-        seal()
+    /// SDK 4.0.5: `sealing` false sends what is sealed already and seals nothing (the send after a download, 34.9.2).
+    func flush(sealing: Bool = true, send: (Data) async throws(CloudError) -> Void) async -> Int {
+        if sealing { seal() }
         let mine = sending.withLock { (busy: inout Bool) -> Bool in
             if busy { return false }
             busy = true
@@ -880,6 +1276,11 @@ extension AnalyticsStore.Day {
         shareNo = try c.decodeIfPresent(Int.self, forKey: .shareNo) ?? 0
         promotions = try c.decodeIfPresent([String: AnalyticsStore.Promotion].self, forKey: .promotions) ?? [:]
         v4 = try? c.decodeIfPresent(RecitedDay.self, forKey: .v4)
+        // SDK 4.0.5 (34.9.3 item 2): the day's host counts survive a restart. Until 4.0.5 they were left out here, so the
+        // counts of a day not sealed yet were lost when the process ended
+        hosts = try? c.decodeIfPresent([String: HostCount].self, forKey: .hosts)
+        api = try? c.decodeIfPresent([String: ApiCount].self, forKey: .api)
+        ready = try? c.decodeIfPresent(ReadyCount.self, forKey: .ready)
     }
 }
 

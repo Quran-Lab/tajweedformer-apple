@@ -45,7 +45,7 @@ here. The names are those of the four TajweedFormer SDKs. Start with the README'
 public final class TajweedClient: Sendable
 ```
 
-The app's link to Quran Lab: the key, the signed config, registration, telemetry, issues, sharing and the model files on disk. Make one at launch with the app's key from sdk.quranlab.ai and keep it: One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition path waits on the network once the model is on the device. Making the Client downloads no model: the model downloads only when the app calls `model()` or `prefetch()` (a later start checks only for an update of a build this Client installed on this device). A model comes only from Quran Lab's server, through the Client (3.1.0): the key, the signed config, the SDK's own download and its verification. No call takes a model folder, and a Client opens only a build it downloaded itself on this device.
+The app's link to Quran Lab: the key, the signed config, registration, telemetry, issues, sharing and the model files on disk. Make one at launch with the app's key from sdk.quranlab.ai and keep it: One per process: a second one while the first is not closed throws `client_exists`. Nothing in the recognition path waits on the network once the model is on the device. Making the Client starts no download: the model downloads only when the app calls `model()` or `prefetch()` (a later start checks for an update of a build this Client installed on this device, and, SDK 4.0.5, goes on at once with a download an earlier process left unfinished, from the bytes on the device). A model comes only from Quran Lab's server, through the Client (3.1.0): the key, the signed config, the SDK's own download and its verification. No call takes a model folder, and a Client opens only a build it downloaded itself on this device.
 
 - `public let sharing: TajweedSharing`: Sharing recitations with Quran Lab: whether Quran Lab's switch has it on, the learner's choice, the outbox.
 - `public let analytics: TajweedAnalytics`: Counters the app reports itself.
@@ -94,14 +94,14 @@ One verified model build on this device: its version, contexts, tokens, calibrat
 - `public var calibration: TajweedCalibration?`: calibration.json as shipped: read-only data for an app's own judge. The SDK never applies it. Nil when the folder has none.
 - `public var reference: TajweedReference?`: The expected units of each ayah, read-only data for an app's own judge; nil when this build ships none. The table is not part of the model's download: `reference.fetch()` brings it, once. SDK 4.0: the table is encrypted and only the Core reads it, at the first `units` call after the model opened (it needs the lease then).
 - `public var sampleClips: [TajweedClip]`: Short recitations to run without a microphone (`listen(from:)`): the folder's self-test clips, else the three clips the SDK carries.
-- `public var backend: TajweedBackend`: The Backend the next Session will use.
+- `public var backend: TajweedBackend`: The Backend the next take of the engine the Model holds now runs on: the engine of its last Session or `prepare(options:)` (`cpu` before either). A Session with other options gets its own engine, which may start elsewhere: await `prepare(options:)` with a take's options before the take to have its engine loaded and warm. The stage says where the Neural Engine's build stands: `downloading`, `compiling` and `testing` while it is promoted, `loading` while a build promoted earlier is loaded again, `promoted` once takes run on it, `demoted` with a reason (`not_attested`: this install is not attested by App Attest, so it runs on the CPU engine). An engine of `backend: .cpu` reads `cpu`: its takes always run on the CPU engine.
 - `public func listen(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession`: A Session fed by the SDK's microphone: asks for the permission, captures at the device's rate and carries that rate to the Session. Interruptions, route changes and the app leaving the foreground are handled and reported on `session.events`. Throws `microphone_denied` when the permission is refused. Nothing is captured before this call or after the take ends.
 - `public func listen(from clip: TajweedClip, options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession`: The same path with no microphone: a Session fed by one of `sampleClips`, at real-time pace or (with `options.pace = .fast`) as fast as the engine takes it. The take ends with `ended(.sourceEnd)`.
 - `public func listen(from samples: [Float], sampleRate: Double, options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession`: The same with samples the app already has: mono, -1...1, at `sampleRate`.
 - `public func session(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession`: A Session the app pushes audio into (`session.push(_:)`), at `options.sampleRate`.
 - `public func prepare(options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedBackend`: Warms the engine for the Session these options describe, ahead of its first take. `client.model()` warms the default Session only; a Session with another context, other heads or another backend gets its own engine, which is otherwise made when its first take opens, too late for that take to start on the Neural Engine. Call this once with the options your takes use (their `context`, `heads` and `backend`; the other fields are not read): the context's files are fetched when they are not on the device yet, the CPU engine is built, and the call waits until the Neural Engine's build for these options is ready or will not be. It returns the Backend the next Session with the same options starts on: the accelerator where this device has one for them, else the CPU engine, with the stage and reason `backend` reports. Where no accelerator applies (an older system, a CPU-only context, `backend: .cpu`) it returns at once with the CPU engine. A second call with the same options finds the engine warm and does nothing more. A Session with other options is not covered by it: it gets its own engine as before. On a device that has not promoted the build yet, the wait includes the promotion (the build's download, on whatever network the device has, its compilation and its test, up to ten minutes); takes can run meanwhile on the CPU engine. While a Session is open the call throws `session_open`: it is for the time before a take.
 - `public func close() async`: Releases the engine. An open Session is cancelled.
-- `public func prepareAccelerator(context: String? = nil, again: Bool = false, timeout: Double = 300) async throws(TajweedError) -> TajweedBackend`: Prepares the Neural Engine's build for `context` (nil: the default context) now and waits for it (4.0.0, as Apple 3.1.5): the download (on whatever network the device has), the compile, the test against the CPU engine, then the build loaded and warm, so the next Session with `backend: .auto` runs on it from its first chunk. A build promoted at an earlier launch is loaded and warmed again (no test). `again: true` first forgets this device's verdict on the build (a failure, a demotion, a promotion) and prepares it from the start: the way to ask for it again after a failure. The preparation also runs by itself in the background (the first `.auto` engine of a launch starts it after the first take or 20 s without one); a process that ends during it simply goes on with it at a later launch. Call this when the app needs the Neural Engine at a known point, or when its takes name `backend: .cpu` (an engine for `.cpu` alone never prepares the Neural Engine). Returns `backend` as it stands when the build is ready, the preparation stopped (`demoted` with a reason, or `cpu` while it waits for power, a cooler device or a backoff), or `timeout` seconds passed; after a timeout the preparation goes on in the background. Throws `session_open` while a Session is open. Never needed for correctness: the CPU engine serves every take.
+- `public func prepareAccelerator(context: String? = nil, again: Bool = false, timeout: Double = 300) async throws(TajweedError) -> TajweedBackend`: Prepares the Neural Engine's build for `context` (nil: the default context) now and waits for it (4.0.0, as Apple 3.1.5): the download (on whatever network the device has), the compile, the test against the CPU engine, then the build loaded and warm, so the next Session with `backend: .auto` runs on it from its first chunk. A build promoted at an earlier launch is loaded and warmed again (no test). `again: true` first forgets this device's verdict on the build (a failure, a demotion, a promotion) and prepares it from the start: the way to ask for it again after a failure. The preparation also runs by itself in the background (the first `.auto` engine of a launch starts it after the first take or 20 s without one); a process that ends during it simply goes on with it at a later launch. Call this when the app needs the Neural Engine at a known point and wants to wait for it (`prepare(options:)` waits for the engine of given options). Returns `backend` as it stands when the build is ready, the preparation stopped (`demoted` with a reason, or `cpu` while it waits for power, a cooler device or a backoff), or `timeout` seconds passed; after a timeout the preparation goes on in the background. Throws `session_open` while a Session is open. Never needed for correctness: the CPU engine serves every take. SDK 4.0.5: an engine of `backend: .cpu` also starts the default build's preparation in the background, and keeps running its own takes on the CPU engine.
 
 ## TajweedSession
 
@@ -191,6 +191,7 @@ What ran or will run the model: the CPU engine or the Neural Engine's build, and
 - `case downloading`
 - `case compiling`
 - `case testing`
+- `case loading`: SDK 4.0.5: the build was promoted earlier and is being loaded and warmed again (a new launch, a new engine); takes run on the CPU engine until it is warm. To 4.0.4 this read `testing`.
 - `case promoted`: The accelerator's build passed its tests: takes run on it.
 - `case demoted`: The build failed a stage or a take and is set aside; the CPU engine serves.
 
@@ -202,7 +203,7 @@ public struct TajweedChunk: Sendable, Hashable
 
 One chunk of a take as it streams.
 
-- `public let index: Int`: The chunk's number in the take, from 0. After a `backendChanged` event the chunks from its `fromChunk` on come again with the same indexes: replace what you kept for them.
+- `public let index: Int`: The chunk's number in the take, from 0. After a `backendChanged` event the chunks from its `fromChunk` on come from the new Backend: replace what you kept for them (after a failover they come again with the same indexes; after a live promotion none had been handed out).
 - `public let startMs: Int`
 - `public let endMs: Int`
 - `public let firstFrame: Int`: The chunk's first 40 ms frame in the take.
@@ -454,6 +455,7 @@ public struct TajweedDiagnosis: Sendable, Hashable
 - `public var downloadProtocol: String?`: The protocol of the last model request that was answered for this Client in this process: `h3`, `h2` or `http/1.1`; nil when none was made yet or the system named none. Held in memory and sent in no telemetry. In `json` it is the optional key `downloadProtocol`, written after the eleven fields when it is known.
 - `public var protected: Protected? = nil`: Nil before the protected model's runtime exists (no key configured).
 - `public var endpoints: Endpoints? = nil`: SDK 4.0.1: nil without a key (no request is made to any host).
+- `public var live: Live? = nil`: SDK 4.0.5: nil until an attempt started in this process. In `json` it is the last field of `backend`.
 - `public var json: String`: The report as JSON, its eleven fields in the order every SDK writes them, for pasting; then `downloadProtocol` when one is known, (4.0) `protected`, and (4.0.1) `endpoints` after `protected` (28.7).
 
 ### TajweedDiagnosis.Key
@@ -492,6 +494,27 @@ public struct TajweedDiagnosis: Sendable, Hashable
 - `public let refreshAfter: Int64?`: A time of the lease the Core holds (unix seconds, its `refresh_after`), for support; nil when `lease` is `none` or `stopped`.
 - `public let graceUntil: Int64?`: A time the Core gives while `lease` is `grace` (unix seconds), for support; nil otherwise.
 - `public let core: String?`: The Core's release and target (`qlc_version`); nil when the Core is not loaded.
+- `public var attestation: Attestation? = nil`: SDK 4.0.5: where the install's attestation stands; nil when not known. In `json` after `core`, only when known.
+- `public var lastFailure: LeaseFailure? = nil`: SDK 4.0.5: why the last lease attempt of this process brought no lease; nil when none failed. In `json` last, only when there is one.
+
+### TajweedDiagnosis.Attestation
+
+- `public struct Attestation: Sendable, Hashable`: SDK 4.0.5 (40.6 item 2): the install's attestation.
+- `public let state: String`: `attested` (the certificate in force names App Attest), `pending` (an attestation is owed and retrying), `unattested` (a certificate without attestation, `why` the platform's reason or `judged`), or `none` (no certificate yet).
+- `public let why: String?`: For `unattested`: `unsupported`, `extension`, `no_team`, `apple_unavailable` or `judged`; else nil.
+- `public let failures: Int`: The transient failures in a row of the attestation owed (0 when none is owed).
+- `public let nextTry: Int64?`: When the next try in the background comes (unix seconds), nil when none is scheduled.
+
+### TajweedDiagnosis.LeaseFailure
+
+- `public struct LeaseFailure: Sendable, Hashable`: SDK 4.0.5 (40.6 item 2): the cause of the last lease attempt of the process that brought no lease. Tokens only.
+- `public let stage: String`
+- `public let reason: String`
+- `public let httpStatus: Int?`
+- `public let errorCode: String?`: The check an answer failed (`expired_on_arrival`, `schema:base`, ...), the server's `error`, or the system's code.
+- `public let hostRole: String?`
+- `public let fallback: Bool?`
+- `public let chain: [String]`: The attempt's hops, as the error report carries them (each a JSON object of `stage`, `hostRole`, `host`, `httpStatus`, `reason`, `errorName`, `errorCode`; never a host name).
 
 ### TajweedDiagnosis.Endpoints
 
@@ -509,6 +532,15 @@ public struct TajweedDiagnosis: Sendable, Hashable
 - `public let reason: String`: Why the first host was unreachable: `network` (no answer), `timeout`, `http` (a 5xx or another answer that was no answer of the route), `redirect` or `invalid_answer`.
 - `public let status: Int?`: The first host's HTTP status, when it answered one.
 - `public let at: Int64`: When, in unix seconds.
+- `public let check: String?`: SDK 4.0.5: the check the first host's answer failed when `reason` is `invalid_answer` (`not_json`, `expired_on_arrival`, ...); else nil.
+
+### TajweedDiagnosis.Live
+
+- `public struct Live: Sendable, Hashable`: SDK 4.0.5: the takes of this process that moved, or tried to move, from the CPU engine to the Neural Engine during the take. No identifier, no time.
+- `public let attempts: Int`: Attempts started in this process.
+- `public let swaps: Int`: Those that moved the take to the Neural Engine.
+- `public let last: String`: The outcome of the most recent attempt (`swapped`, `mismatch`, `mismatch_inexact`, `accel_failed`, `stalled`, `aborted`), or `running`.
+- `public let lastFromChunk: Int?`: The first chunk the Neural Engine ran in the most recent swap; nil before one.
 
 ## TajweedError
 

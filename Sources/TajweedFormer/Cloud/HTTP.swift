@@ -179,6 +179,8 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
     /// When a byte last moved for the request before its answer came: it started, or a part of its body went out
     /// (28.3 item 6: a host's silence is counted from there).
     let progressed = Locked(Date())
+    /// SDK 4.0.5 (37.3): what the task's metrics say of it (its time, its connection, its version), once they arrive.
+    let measure = Locked<ApiMeasure?>(nil)
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest) async -> URLRequest? {
@@ -194,6 +196,7 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
         let name = metrics.transactionMetrics.last(where: { $0.networkProtocolName != nil })?.networkProtocolName
         networkProtocol.withLock { $0 = name }
+        measure.withLock { $0 = ApiMeasure(metrics) }
     }
 }
 
@@ -206,6 +209,11 @@ struct HTTPClient: Sendable {
     /// SDK 4.0.2 (STEERING_40 34.6): told what each model file request did on its host (`stream`), for the per-host
     /// download counts of the telemetry day. Shared by every copy of this client.
     let modelHosts = Locked<(@Sendable (ModelHostSample) -> Void)?>(nil)
+    /// SDK 4.0.5 (section 37): see `apiCalls`.
+    let apiSink = Locked<(@Sendable (AnalyticsEvent) -> Void)?>(nil)
+    /// SDK 4.0.5 (STEERING_40 34.9.7): told each move of a model request and each end of a file or a download
+    /// (`.modelMove`, `.modelOutcome`). Shared by every copy of this client.
+    let modelSink = Locked<(@Sendable (AnalyticsEvent) -> Void)?>(nil)
 
     /// What `stream` measured of one model request (34.6).
     final class StreamProbe: @unchecked Sendable {
@@ -215,6 +223,10 @@ struct HTTPClient: Sendable {
         var written: Int64 = 0
         /// The body ended because the request was cancelled.
         var cancelled = false
+        /// SDK 4.0.5 (34.9.1): the answer's status, and what names the protocol it went by.
+        var status: Int?
+        var watch: NoRedirect?
+        var request: URLRequest?
     }
 
     struct Response: Sendable {
@@ -285,14 +297,30 @@ struct HTTPClient: Sendable {
         try await routed(request, role: nil, accept: accept)
     }
 
+    /// SDK 4.0.5 (plan A2): opens a connection to the API host `origin` on this client's session, without waiting: one
+    /// `GET /v1/health`, its answer ignored, so the next request to that host finds the connection (and its TLS) ready.
+    /// Never followed by a redirect, never retried, never counted.
+    func preconnect(_ origin: URL) {
+        guard let o = Endpoints.origin(of: origin) else { return }
+        var r = URLRequest(url: o.appendingPathComponent("v1/health"))
+        r.timeoutInterval = 10
+        let session = self.session
+        Task.detached(priority: .utility) {
+            _ = try? await session.data(for: r, delegate: NoRedirect())
+        }
+    }
+
     /// One request to the one host it names, as every request was before 4.0.1. `limited`: the host's silence limit
     /// of 28.3 item 6 (no byte for 10 s before the answer's status is no answer).
-    func once(_ request: URLRequest, limited: Bool) async throws(CloudError) -> Response {
+    func once(_ request: URLRequest, limited: Bool, probe: ApiProbe? = nil) async throws(CloudError) -> Response {
         let watch = NoRedirect()
+        probe?.watch.withLock { $0 = watch }
+        defer { probe?.ended.withLock { $0 = Date() } }
         let data: Data, response: URLResponse
         if limited {
             let opened = try await head(request, watch: watch, limit: Self.silenceLimit.withLock { $0 })
             response = opened.response
+            if let h = opened.response as? HTTPURLResponse { probe?.status.withLock { $0 = h.statusCode } }
             var body = Data()
             do {
                 for try await byte in opened.bytes { body.append(byte) }
@@ -304,6 +332,7 @@ struct HTTPClient: Sendable {
         } else {
             do {
                 (data, response) = try await session.data(for: request, delegate: watch)
+                if let h = response as? HTTPURLResponse { probe?.status.withLock { $0 = h.statusCode } }
             } catch {
                 // no answer: the system's words, and its error's domain and code for the error report
                 throw .offline(ErrorCause.noAnswer(error))
@@ -356,7 +385,16 @@ struct HTTPClient: Sendable {
         let written: Int64
         /// The protocol it went by, when the system named one.
         let networkProtocol: String?
+        /// SDK 4.0.5 (35.6): the request ended at its stop, a cut of section 35, before the end of its answer.
+        var cut = false
     }
+
+    /// SDK 4.0.5 (34.4): the failure of a request whose file was decided by its other request (a hedge): no answer of
+    /// its host, never unreachable.
+    static let hedgeLost = "the other request of the file answered first (34.4)"
+
+    /// SDK 4.0.5 (35.7 item 1): what a range of section 35 is when its answer is not its range.
+    static let notItsRange = HTTPWords.notItsRange
 
     /// The failure of a model request whose path a 503 with `Retry-After` holds on its host (28.11 item 2): no request
     /// went out. A failed attempt like any unreachable one (its count and pause, the next host), but no failover of
@@ -422,31 +460,42 @@ struct HTTPClient: Sendable {
     ///
     /// `hash` (4.0.1): told every piece written to the partial file, at its place in the file; a whole file is hashed
     /// as it is written beside it, and that hash becomes the partial file's when the whole file takes its place.
+    /// SDK 4.0.5: `control` (sections 34.4 and 35) holds the request while it runs: its stop (a cut), its range's own
+    /// file, and the host its answer was taken on. `hedge` (34.4): the request is one of a file's two, and its status is
+    /// the file's only when it is the first that decides; the other then ends before it touches the partial file.
     func stream(_ request: URLRequest, offset: Int64, size: Int64, into file: URL, hash: PartHasher? = nil,
+                control: StreamControl? = nil, hedge: HedgeTicket? = nil,
                 started: @Sendable (_ headers: [String: String], _ whole: Bool) -> Void,
                 received: @Sendable (Int64) -> Void) async throws(CloudError) -> Streamed {
         // SDK 4.0.2 (STEERING_40 34.6): every request that went out is told to `modelHosts`, however it ended
         let probe = StreamProbe()
         do throws(CloudError) {
             let answer = try await measuredStream(request, offset: offset, size: size, into: file, hash: hash, probe: probe,
-                                                  started: started, received: received)
-            tell(probe, request, lastByte: answer.whole || offset + answer.written == size, failure: nil)
+                                                  control: control, hedge: hedge, started: started, received: received)
+            tell(probe, request, lastByte: answer.whole || offset + answer.written == size, failure: nil, hedged: hedge?.hedged.withLock { $0 } ?? false)
             return answer
         } catch {
-            tell(probe, request, lastByte: false, failure: error)
+            tell(probe, request, lastByte: false, failure: error, hedged: hedge?.hedged.withLock { $0 } ?? false)
             throw error
         }
     }
 
     /// A model request's sample for the per-host counts (34.6), when it went out.
-    private func tell(_ probe: StreamProbe, _ request: URLRequest, lastByte: Bool, failure: CloudError?) {
+    private func tell(_ probe: StreamProbe, _ request: URLRequest, lastByte: Bool, failure: CloudError?, hedged: Bool = false) {
         guard let sent = probe.sent, let host = request.url?.host, let to = modelHosts.withLock({ $0 }) else { return }
         let ttfb = probe.answered.map { Int(($0.timeIntervalSince(sent) * 1000).rounded()) }
         let body = probe.answered.map { (probe.ended ?? Date()).timeIntervalSince($0) } ?? 0
         // contract ec46782: a cancel (the call's, the app's leaving) is never unreachable
         let cancelled = probe.cancelled || Task.isCancelled
-        to(ModelHostSample(host: host, ttfbMs: ttfb, bytes: probe.written, bodySeconds: max(0, body),
-                           unreachable: !cancelled && (failure.map(Self.unreachable) ?? false), lastByte: lastByte && failure == nil))
+        var s = ModelHostSample(host: host, ttfbMs: ttfb, bytes: probe.written, bodySeconds: max(0, body),
+                                unreachable: !cancelled && (failure.map(Self.unreachable) ?? false), lastByte: lastByte && failure == nil)
+        s.hedged = hedged
+        // SDK 4.0.5 (34.9.1): why it failed, and the version of a request that got a status
+        s.fail = FailClass.of(failure, status: probe.status, cancelled: cancelled)
+        if probe.status != nil, let r = probe.request {
+            s.proto = FailClass.proto(Self.networkProtocolOverride.withLock { $0 }?(r) ?? probe.watch?.networkProtocol.withLock { $0 })
+        }
+        to(s)
     }
 
     /// Whether a model request that failed with `e` ended unreachable (28.3 item 3; 34.6 as contract ec46782 reads it):
@@ -461,6 +510,7 @@ struct HTTPClient: Sendable {
     }
 
     private func measuredStream(_ request: URLRequest, offset: Int64, size: Int64, into file: URL, hash: PartHasher?, probe: StreamProbe,
+                                control: StreamControl?, hedge: HedgeTicket?,
                                 started: @Sendable (_ headers: [String: String], _ whole: Bool) -> Void,
                                 received: @Sendable (Int64) -> Void) async throws(CloudError) -> Streamed {
         let fm = FileManager.default
@@ -480,6 +530,7 @@ struct HTTPClient: Sendable {
         probe.sent = Date()
         let opened = try await head(request, watch: watch, limit: endpoints == nil ? nil : Self.silenceLimit.withLock { $0 })
         let incoming = opened.bytes, response = opened.response
+        hedge?.answered.withLock { $0 = true }
         guard let http = response as? HTTPURLResponse else { throw .invalid("not an HTTP response") }
         var headers: [String: String] = [:]
         for (k, v) in http.allHeaderFields {
@@ -487,9 +538,13 @@ struct HTTPClient: Sendable {
         }
         let status = http.statusCode
         probe.answered = Date()
+        probe.status = status
+        probe.watch = watch
+        probe.request = request
         if let endpoints, let origin {
             endpoints.holds.note(route, host: origin, status: status, retryAfter: Self.header(headers, "Retry-After"), now: endpoints.clock())
         }
+        if hedge == nil { control?.answered(status: status, retryAfter: Self.header(headers, "Retry-After") != nil) }
         if watch.refused.withLock({ $0 }) || Self.redirects.contains(status) {
             throw .rejected(status: status, code: Self.redirectCode,
                             message: "the server answered with a redirect (HTTP \(status)), which the SDK never follows")
@@ -508,49 +563,91 @@ struct HTTPClient: Sendable {
                 endpoints.holds.note(route, host: origin, status: status, retryAfter: Self.header(headers, "Retry-After"),
                                      body: Data(body), now: endpoints.clock())
             }
-            throw Self.failure(status: status, body: Data(body))
+            let failure = Self.failure(status: status, body: Data(body))
+            // SDK 4.0.5 (34.4): a refusal or a slow down is the file's answer only when it is the first that decides
+            if let hedge, let cls = FileHosts.answerClass(failure), cls != .unreachable, !hedge.claim(cls) {
+                probe.cancelled = true
+                throw .offline(Self.hedgeLost)
+            }
+            throw failure
         }
         // what the answer must be to be the file, and the most bytes it may bring
         let whole: Bool
         let limit: Int64
-        switch status {
-        case 206:
+        if let control, control.side != nil {
+            // SDK 4.0.5 (35.7 item 1, SPEC 16.1): a range of section 35 is taken only as a 206 that names exactly its
+            // start, its end and the manifest's size; anything else that says success is not its range (`ignored`)
             let said = Self.header(headers, "content-range")
-            guard let named = Self.contentRange(said) else { throw .badAnswer("a 206 without a Content-Range it can be held to") }
-            guard named.lower == offset, named.total == size, named.upper >= named.lower, named.upper < size else {
-                throw .badAnswer("a 206 for another range or another file size than the one asked for (\(said ?? ""))")
+            guard status == 206, let named = Self.contentRange(said), named.lower == control.lower, named.upper == control.end - 1,
+                  named.total == size else {
+                // 35.5 item 7: cancelled at once, nothing of it written; what the system received of it is discarded
+                let task = incoming.task
+                task.cancel()
+                if let tell = control.onDiscarded {
+                    let host = SplitHosts.key(request.url)
+                    Task.detached {
+                        for _ in 0..<100 where task.state != .completed { try? await Task.sleep(nanoseconds: 20_000_000) }
+                        tell(host, max(0, task.countOfBytesReceived))
+                    }
+                }
+                throw .badAnswer("\(Self.notItsRange): HTTP \(status) \(said ?? "")")
             }
             whole = false
-            limit = named.upper - named.lower + 1
-        case 200:
-            if Self.header(headers, "content-encoding") == nil, let given = Self.header(headers, "content-length").flatMap({ Int64($0) }),
-               given != size {
-                throw .badAnswer("a 200 of \(given) bytes for a file of \(size)")
+            limit = control.end - control.lower
+        } else {
+            switch status {
+            case 206:
+                let said = Self.header(headers, "content-range")
+                guard let named = Self.contentRange(said) else { throw .badAnswer("a 206 without a Content-Range it can be held to") }
+                guard named.lower == offset, named.total == size, named.upper >= named.lower, named.upper < size else {
+                    throw .badAnswer("a 206 for another range or another file size than the one asked for (\(said ?? ""))")
+                }
+                whole = false
+                limit = named.upper - named.lower + 1
+            case 200:
+                if Self.header(headers, "content-encoding") == nil, let given = Self.header(headers, "content-length").flatMap({ Int64($0) }),
+                   given != size {
+                    throw .badAnswer("a 200 of \(given) bytes for a file of \(size)")
+                }
+                whole = true
+                limit = size
+            default:
+                throw .badAnswer("HTTP \(status) is not a file")
             }
-            whole = true
-            limit = size
-        default:
-            throw .badAnswer("HTTP \(status) is not a file")
+        }
+        // SDK 4.0.5 (34.4): the file's answer is the first taken; the other request ends here, before any file is opened
+        if let hedge, !hedge.claim(.taken) {
+            probe.cancelled = true
+            throw .offline(Self.hedgeLost)
         }
         // a whole file asked from its first byte goes straight to the (empty) partial file; one sent in place of a
-        // resume goes beside it until all of it is in
+        // resume goes beside it until all of it is in; a range of section 35 goes to its own file
         let beside = whole && offset > 0
-        let target = beside ? Self.wholeFile(beside: file) : file
+        if let control {
+            let task = incoming.task
+            control.attach(host: SplitHosts.key(request.url), whole: beside, cancel: { task.cancel() })
+        }
+        let side = control?.side
+        let target = side ?? (beside ? Self.wholeFile(beside: file) : file)
         let handle: FileHandle
         do {
-            if beside { try? fm.removeItem(at: target) }
+            if beside || side != nil { try? fm.removeItem(at: target) }
             if !fm.fileExists(atPath: target.path) { fm.createFile(atPath: target.path, contents: nil) }
             handle = try FileHandle(forWritingTo: target)
-            let begin = beside ? Int64(0) : offset
+            let begin = (beside || side != nil) ? Int64(0) : offset
             try handle.truncate(atOffset: UInt64(begin))
             try handle.seek(toOffset: UInt64(begin))
         } catch {
             throw .storage("cannot open \(target.lastPathComponent): \(error.localizedDescription)")
         }
-        if !beside { started(headers, false) }
+        if !beside, side == nil { started(headers, false) }
+        // SDK 4.0.5 (38.6): a whole file sent in place of a resume starts the file again from here: its validator is kept
+        // now, the empty file beside the partial one made first, so a process that ends during it leaves both to the next
+        // (`ModelInstaller.takeBeside`). Until 4.0.5 the validator was kept only once the whole file had arrived.
+        if beside { started(headers, true) }
         // the hash of what this answer writes: the partial file's own (a range, a whole file from its first byte), or
-        // one of its own (a whole file beside the partial file)
-        let writing = beside ? (hash == nil ? nil : PartHasher()) : hash
+        // one of its own (a whole file beside the partial file); a range of section 35 is hashed when it is joined
+        let writing = side != nil ? nil : (beside ? (hash == nil ? nil : PartHasher()) : hash)
         let first = beside ? Int64(0) : offset
         var written: Int64 = 0
         var buffer = [UInt8]()
@@ -559,6 +656,45 @@ struct HTTPClient: Sendable {
         var broken: String?
         // the body ran past what the answer may bring
         var over = false
+        // SDK 4.0.5 (35.6): the request reached its stop (a cut) before the end of its answer
+        var cut = false
+        // the bytes that arrived past the stop and were never written
+        var dropped: Int64 = 0
+        // where the body's first byte is in the file, and the stop as last read
+        let absFirst = control?.lower ?? offset
+        var stopAt = control?.stop ?? Int64.max
+        // writes the gathered bytes; true when the request must read no more (a write failed, or it is at its stop)
+        func flush() -> Bool {
+            guard !buffer.isEmpty else { return false }
+            if let control {
+                let n = buffer.count
+                let at = first + written
+                let gathered = buffer
+                let r = control.commit(n) { (k: Int) -> String? in
+                    Self.write(gathered, count: k, to: handle, hash: writing, at: at)
+                }
+                buffer.removeAll(keepingCapacity: true)
+                if let e = r.error {
+                    storage = e
+                    return true
+                }
+                dropped += Int64(n - r.written)
+                written += Int64(r.written)
+                if r.written > 0, !beside { received(Int64(r.written)) }
+                stopAt = control.stop
+                if r.atStop {
+                    cut = true
+                    return true
+                }
+                return false
+            }
+            let n = Int64(buffer.count)
+            storage = Self.write(&buffer, to: handle, hash: writing, at: first + written)
+            if storage != nil { return true }
+            written += n
+            if !beside { received(n) }
+            return false
+        }
         do {
             for try await byte in incoming {
                 if written + Int64(buffer.count) >= limit {
@@ -566,31 +702,60 @@ struct HTTPClient: Sendable {
                     break
                 }
                 buffer.append(byte)
-                if buffer.count >= Self.pieceBytes {
-                    storage = Self.write(&buffer, to: handle, hash: writing, at: first + written)
-                    if storage != nil { break }
-                    written += Int64(Self.pieceBytes)
-                    if !beside { received(Int64(Self.pieceBytes)) }
+                if buffer.count >= Self.pieceBytes || absFirst + written + Int64(buffer.count) >= stopAt {
+                    if flush() { break }
                 }
             }
         } catch {
             broken = error.localizedDescription
-            probe.cancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
+            probe.cancelled = error is CancellationError || (error as? URLError)?.code == .cancelled || control?.cancelledByUs == true
         }
-        // what arrived before the connection ended is written before the failure is reported
-        if storage == nil, !buffer.isEmpty {
-            let last = Int64(buffer.count)
-            storage = Self.write(&buffer, to: handle, hash: writing, at: first + written)
-            if storage == nil {
-                written += last
-                if !beside { received(last) }
-            }
-        }
+        // a cut that found the request waiting for its next byte cancelled it: its end is the cut's
+        if control?.isCutting == true { cut = true }
+        // what arrived before the connection ended is written before the failure is reported (never past a stop)
+        if storage == nil, !buffer.isEmpty { _ = flush() }
         try? handle.synchronize()
         try? handle.close()
         probe.written = written
         probe.ended = Date()
         let named = Self.networkProtocolOverride.withLock { $0 }?(request) ?? watch.networkProtocol.withLock { $0 }
+        // the stop was the end of the answer itself: no cut
+        if cut, written >= limit { cut = false }
+        // SDK 4.0.5 (38.6, vector `beside_after_validator_change`): a whole file beside the partial one that ended before
+        // its last byte takes the partial file's place with what arrived, under its own validator (kept when it began),
+        // and the download goes on from there; the partial file's bytes were of the file before it changed, and go. When
+        // none arrived, or the answer was not the file, the partial file is emptied. Until 4.0.5 the bytes that arrived
+        // were dropped and the old ones kept.
+        func besideInPlace(keep: Bool) -> String? {
+            var failed: String?
+            try? fm.removeItem(at: file)
+            if keep, written > 0 {
+                do { try fm.moveItem(at: target, to: file) } catch { failed = error.localizedDescription }
+            }
+            try? fm.removeItem(at: target)
+            if !fm.fileExists(atPath: file.path) { fm.createFile(atPath: file.path, contents: nil) }
+            let now = ModelInstaller.sizeOnDisk(file)
+            if let hash {
+                if now > 0, let writing { hash.take(writing) } else { hash.restart() }
+            }
+            received(now - offset)
+            return failed
+        }
+        if cut, storage == nil {
+            // SDK 4.0.5 (35.5 item 4, 35.6): a cut is the request's end at the byte it was told, never a failure of its
+            // host. The transfer is ended; what the system had received for it past the last byte read is counted with
+            // the bytes that arrived past the stop (`wasted`), once the transfer has stopped.
+            let task = incoming.task
+            task.cancel()
+            if let control, let tell = control.onDiscarded {
+                let consumed = written + dropped, early = dropped, host = SplitHosts.key(request.url)
+                Task.detached {
+                    for _ in 0..<100 where task.state != .completed { try? await Task.sleep(nanoseconds: 20_000_000) }
+                    tell(host, early + max(0, task.countOfBytesReceived - consumed))
+                }
+            }
+            return Streamed(status: status, headers: headers, whole: false, written: written, networkProtocol: named, cut: true)
+        }
         if beside {
             // the whole file takes the partial file's place only when all of it has arrived
             if storage == nil, !over, broken == nil, written == size {
@@ -602,17 +767,20 @@ struct HTTPClient: Sendable {
                     throw .storage("cannot put \(file.lastPathComponent) in place: \(error.localizedDescription)")
                 }
                 if let hash, let writing { hash.take(writing) }
-                started(headers, true)
                 received(size - offset)
                 return Streamed(status: status, headers: headers, whole: true, written: written, networkProtocol: named)
             }
-            try? fm.removeItem(at: target)
+            // what arrived goes on when the connection broke; a write that failed, a body that ran past the file or
+            // one that ended cleanly short was not the file
+            if let failed = besideInPlace(keep: storage == nil && !over && broken != nil) {
+                throw .storage("cannot put \(file.lastPathComponent) in place: \(failed)")
+            }
             if let storage { throw .storage("cannot write \(target.lastPathComponent): \(storage)") }
             if over { throw .badAnswer("a 200 that runs past the file's \(size) bytes") }
             if let broken { throw .offline(broken) }
             throw .badAnswer("a 200 of \(written) bytes for a file of \(size)")
         }
-        if let storage { throw .storage("cannot write \(file.lastPathComponent): \(storage)") }
+        if let storage { throw .storage("cannot write \(target.lastPathComponent): \(storage)") }
         // a whole file from its first byte that ended cleanly short of its size, or ran past it, was not the file: what
         // it wrote goes (a connection that broke keeps what it delivered, and the file is resumed from there)
         if whole, broken == nil, over || written != size {
@@ -627,6 +795,21 @@ struct HTTPClient: Sendable {
         if let broken { throw .offline(broken) }
         if written == 0 { throw .badAnswer("a \(status) without a byte") }
         return Streamed(status: status, headers: headers, whole: false, written: written, networkProtocol: named)
+    }
+
+    /// The first `count` gathered bytes written to the file where the handle stands (`offset` of the file); they go to
+    /// `hash`. The failure's words when the write fails.
+    private static func write(_ buffer: [UInt8], count: Int, to handle: FileHandle, hash: PartHasher?, at offset: Int64) -> String? {
+        do {
+            try buffer.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                let piece = UnsafeRawBufferPointer(rebasing: raw[0..<count])
+                try handle.write(contentsOf: Data(piece))
+                hash?.append(piece, at: offset)
+            }
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     /// Writes the gathered bytes to the file at `offset` (where the handle stands) and empties the buffer; the bytes

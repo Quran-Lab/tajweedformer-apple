@@ -23,6 +23,9 @@ struct ErrorReportBody: Encodable, Sendable {
         /// more than one host.
         var host_role: String?
         var fallback: Bool?
+        /// 4.0.5 (ATTEST_40.md 40.6): the cause chain, 1 to 8 hops; absent when there is none. A server accepts it before
+        /// any SDK sends it (40.7).
+        var chain: [CauseHop.Wire]?
     }
 
     var day: String
@@ -57,7 +60,8 @@ struct ErrorReportBody: Encodable, Sendable {
                        device_model: DeviceModel.current.flatMap { Self.token($0, #"^[A-Za-z0-9_.,-]{1,32}$"#) },
                        ram_tier: DeviceContext.ramTier, abi: Self.abi,
                        host_role: e.hostRole.flatMap { EndpointRole(rawValue: $0) }?.rawValue,
-                       fallback: e.hostRole == nil ? nil : e.fallback)
+                       fallback: e.hostRole == nil ? nil : e.fallback,
+                       chain: e.chain.flatMap { CauseChain.last($0) }.map { $0.map(\.wire) })
     }
 
     /// `value` when the whole of it matches `pattern`, else nil.

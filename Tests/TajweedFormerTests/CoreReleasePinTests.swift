@@ -32,9 +32,23 @@ final class CoreReleasePinTests: XCTestCase {
 
     func testEveryFunctionOfTheHeaderIsThere() throws {
         try requireProductionCore()
-        XCTAssertEqual(CoreRelease.functions.count, 63)
+        XCTAssertEqual(CoreRelease.functions.count, 65)
+        XCTAssertEqual(Set(CoreRelease.clockAnchorFunctions).subtracting(CoreRelease.functions), [])
         let all = UnsafeMutableRawPointer(bitPattern: -2) // RTLD_DEFAULT
-        for f in CoreRelease.functions { XCTAssertNotNil(dlsym(all, f), f) }
+        // the pinned c3: its header's 63, and none of spec fix 17's (the SDK calls nothing of them with c3)
+        for f in CoreRelease.functions where !CoreRelease.clockAnchorFunctions.contains(f) { XCTAssertNotNil(dlsym(all, f), f) }
+        for f in CoreRelease.clockAnchorFunctions { XCTAssertNil(dlsym(all, f), "\(f) in the pinned c3") }
+    }
+
+    /// Any linked Core (the test release of the unit tests too): spec fix 17's two exports come together, and a Core
+    /// that has them has every function the SDK knows. Runs where the production pins above skip.
+    func testTheClockAnchorExportsComeTogether() {
+        let all = UnsafeMutableRawPointer(bitPattern: -2) // RTLD_DEFAULT
+        let clock = CoreRelease.clockAnchorFunctions.map { dlsym(all, $0) != nil }
+        XCTAssertTrue(clock.allSatisfy { $0 } || clock.allSatisfy { !$0 }, "\(zip(CoreRelease.clockAnchorFunctions, clock).map { "\($0) \($1)" })")
+        XCTAssertEqual(CoreOptional.leaseTime != nil, clock.allSatisfy { $0 }, "CoreOptional.leaseTime follows the export")
+        guard clock.allSatisfy({ $0 }) else { return }
+        for f in CoreRelease.functions { XCTAssertNotNil(dlsym(all, f), "\(f) in \(CoreHost.version)") }
     }
 
     /// Quran Lab's production V4 manifest (key ad6879dd) passes the Core's signature check and stops at the lease

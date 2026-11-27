@@ -76,6 +76,10 @@ enum PromotionReason: String, Sendable, Codable, CaseIterable {
     /// The app was quit normally (willTerminate) while a compile, load or first inference ran: not a crash, retried
     /// with the backoff.
     case interrupted
+    /// SDK 4.0.5 (ACCEL_40 21.2, the 19th reason, contract c222a05): the lease in force does not allow accelerator
+    /// programs (an install that is not attested, or a development key's), so no attempt starts. Counted under this
+    /// name while `AcceleratorController.sendsNotAttested` is on (qlab-api takes it since 2026-11-23); `denylist` off.
+    case notAttested = "not_attested"
 
     /// Failures that the same model revision on the same OS build would repeat: never retried for the key.
     var deterministic: Bool { [.goldenMismatch, .cpuMismatch, .nonFinite, .crash].contains(self) }
@@ -87,7 +91,8 @@ enum PromotionReason: String, Sendable, Codable, CaseIterable {
         case .crash: return "crash_on_last_run"
         case .hang: return "timeout"
         case .nonFinite: return "nan"
-        case .failover, .denylist: return "other"
+        // 21.2: not_attested is never an issue report's cause; it opens no incident
+        case .failover, .denylist, .notAttested: return "other"
         default: return rawValue
         }
     }
@@ -107,6 +112,11 @@ struct PromotionFailure: Error, Sendable, Equatable {
     /// the Core's `QLC_E_LEASE` with `QLC_D_LEASE_NO_ACCEL`). Not a failure of the build or the device: the controller
     /// takes the deny list's path (`noteDenied`), and nothing is counted. No reason of its own (21.2's list is closed).
     var leaseNoAccel = false
+    /// SDK 4.0.5: the Core was busy with something else when the stage asked it (another model open that a take holds,
+    /// a program being prepared: `CoreFailure.isBusy`). Not a failure of the build or the device: nothing is counted or
+    /// reported, the attempt stays where it stood, and the next run (the end of a take, the next launch) goes on from
+    /// there. 4.0.1 and 4.0.2 counted it as a `compile_error` against the build's retry budget.
+    var notNow = false
 
     init(_ reason: PromotionReason, _ detail: String, errorDomain: String? = nil, errorCode: String? = nil, clip: String? = nil,
          divergence: Divergence? = nil) {
@@ -667,14 +677,35 @@ struct PromotionConditions: Sendable, Equatable {
     var battery: Float?        // 0...1, nil when unknown or no battery
     var charging = false
     var thermal: ProcessInfo.ThermalState = .nominal
+    /// SDK 4.0.5, iOS: whether files with complete protection can be read now (the device unlocked since it last
+    /// locked: `UIApplication.isProtectedDataAvailable`), and whether the app is in the background. Elsewhere always
+    /// true and false.
+    var protectedData = true
+    var background = false
 
-    /// Nil when the pipeline may run a stage; else why it waits. The same for every stage. SDK 4.0.2 (section 33): no
-    /// network condition, the `download` stage goes on whatever network the device has (to 4.0.1 it waited for an
-    /// unmetered one).
-    func blocker(for stage: PromotionStage) -> String? {
+    /// Nil when the pipeline may run a stage; else why it waits. SDK 4.0.2 (section 33): no network condition, the
+    /// `download` stage goes on whatever network the device has (to 4.0.1 it waited for an unmetered one).
+    ///
+    /// SDK 4.0.5: a stage that makes the Core prepare the program (`prepares`: the compile; the warm-up when the build
+    /// was not compiled in the same run, and the reload of a promoted build) waits for the device unlocked and the app
+    /// not in the background. A warm-up right after its compile prepares nothing and does not wait. The Core's prepare writes the Core ML program into the dispatch
+    /// folder with complete file protection (accel_coreml.m load_file; the build ships no specification, so the program
+    /// is never loaded from memory), and Core ML maps its weights from there while it compiles:
+    /// - on a locked device the program cannot be written, and the prepare fails (`accel_program`, counted against the
+    ///   build), which is all a BGProcessingTask while charging could do;
+    /// - a device locked during the compile takes the key of that protection away 10 s later, and the next page of
+    ///   weights read is a SIGBUS: EXC_BAD_ACCESS KERN_MEMORY_ERROR in MIL::IRTensorValue::GetDataView<Fp16>, 14.9 s
+    ///   into a compile with the app in the background (an iPhone 13 Pro Max on iOS 27.2.1, SDK 4.0.2, 2026-11-24).
+    /// This gate keeps a compile from starting in either state; one under way when the learner locks the device still
+    /// fails that way until the Core writes the package with a lesser protection or loads the program from memory.
+    func blocker(for stage: PromotionStage, prepares: Bool = false) -> String? {
         if lowPower { return "Low Power Mode" }
         if let b = battery, b >= 0, b < PromotionPolicy.minimumBattery, !charging { return "battery below 20 %" }
         if thermal == .serious || thermal == .critical { return "thermal state" }
+        if prepares {
+            if !protectedData { return "the device is locked" }
+            if background { return "the app is in the background" }
+        }
         return nil
     }
 
@@ -688,7 +719,8 @@ struct PromotionConditions: Sendable, Equatable {
         }
     }
 
-    /// The device now: power, battery and thermal state (never the network).
+    /// The device now: power, battery and thermal state (never the network), and on iOS whether protected data is
+    /// available and the app in the background.
     static func current() async -> PromotionConditions {
         var c = PromotionConditions()
         c.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -696,7 +728,23 @@ struct PromotionConditions: Sendable, Equatable {
         let (level, charging) = await battery()
         c.battery = level
         c.charging = charging
+        let app = await appState()
+        c.protectedData = app.protectedData
+        c.background = app.background
         return c
+    }
+
+    /// iOS: whether protected data is available, and whether the app is in the background (the main thread's). Else
+    /// (true, false).
+    static func appState() async -> (protectedData: Bool, background: Bool) {
+        #if canImport(UIKit) && os(iOS)
+        return await MainActor.run { () -> (protectedData: Bool, background: Bool) in
+            let app = UIApplication.shared
+            return (app.isProtectedDataAvailable, app.applicationState == .background)
+        }
+        #else
+        return (true, false)
+        #endif
     }
 
     /// The battery charge (nil without a battery) and whether it is charging or full.
@@ -728,6 +776,87 @@ struct PromotionConditions: Sendable, Equatable {
     }
 }
 
+/// SDK 4.0.5: the device locking (files of complete protection going away) and the app leaving the foreground, counted
+/// in this process, so that a stage can tell whether one came while it ran; and a wait that ends early when the device is
+/// unlocked or the app comes back. iOS only: elsewhere the counts stay 0 and the wait is a plain sleep.
+final class InterruptionWatch: @unchecked Sendable {
+    struct Count: Sendable, Equatable {
+        var locked = 0
+        var background = 0
+    }
+
+    static let shared = InterruptionWatch()
+
+    private let lock = NSLock()
+    private var count = Count()
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        #if canImport(UIKit) && os(iOS)
+        let c = NotificationCenter.default
+        observers = [
+            c.addObserver(forName: UIApplication.protectedDataWillBecomeUnavailableNotification, object: nil, queue: nil) { [weak self] _ in
+                self?.note { $0.locked += 1 }
+            },
+            c.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { [weak self] _ in
+                self?.note { $0.background += 1 }
+            },
+            c.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { [weak self] _ in
+                self?.wake()
+            },
+            c.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
+                self?.wake()
+            },
+        ]
+        #endif
+    }
+
+    /// Starts the watch (the first use does): call before the stage it is to cover.
+    static func start() { _ = shared }
+
+    var now: Count {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    private func note(_ change: (inout Count) -> Void) {
+        lock.lock()
+        change(&count)
+        lock.unlock()
+    }
+
+    private func wake() {
+        lock.lock()
+        let w = Array(waiters.values)
+        waiters = [:]
+        lock.unlock()
+        w.forEach { $0.resume() }
+    }
+
+    /// Sleeps `seconds`, or less: until the device is unlocked or the app becomes active again.
+    func wait(upTo seconds: TimeInterval) async {
+        let id = UUID()
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            waiters[id] = c
+            lock.unlock()
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1_000_000_000))
+                self.resume(id)
+            }
+        }
+    }
+
+    private func resume(_ id: UUID) {
+        lock.lock()
+        let c = waiters.removeValue(forKey: id)
+        lock.unlock()
+        c?.resume()
+    }
+}
+
 /// One promotions telemetry event: an attempt that ended (promoted, or failed at a stage), a demotion, or a failover.
 struct PromotionTelemetry: Sendable, Hashable {
     enum Kind: Sendable, Hashable {
@@ -743,6 +872,13 @@ struct PromotionTelemetry: Sendable, Hashable {
         /// SDK 4.0: an attempt that passed the golden test ended unpromoted, the accelerator slower than the CPU engine
         /// (`reasons.slower_than_cpu`, with both medians).
         case slowerThanCPU(acceleratorMs: Double, cpuMs: Double, compileMs: Double?)
+        /// SDK 4.0.5: a take's part of the day's `live` object, at its end (its attempt and outcome,
+        /// its swap's latency and the audio the accelerator served after it, or the reason it was held from one).
+        case live(LiveTally)
+        /// SDK 4.0.5: a stage that prepares the program (the compile, a load) ended because the device locked or the app
+        /// left the foreground while it ran (`locked`, `background`): not a failure, nothing counted against the build;
+        /// the stage runs again once the device is unlocked and the app in the foreground.
+        case notNow(stage: PromotionStage, why: String)
     }
 
     /// "ane" (as cohort backends).

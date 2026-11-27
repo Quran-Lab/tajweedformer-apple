@@ -90,6 +90,14 @@ final class FakeAccelerator: AcceleratorBackend {
     /// Seconds a warm-up takes, and the warm-ups run.
     var warmUpCost: Double = 0
     let warmUpsRun = Locked(0)
+    /// Chunks (by index since the reset) whose every frame's token this accelerator moves to another id: a build whose
+    /// chunks differ from the CPU engine's (a live promotion's mismatch).
+    var differ: @Sendable (Int) -> Bool = { _ in false }
+    /// When set, every chunk carries this `conf` value (the fake CPU engine gives none): the accelerator's chunks told
+    /// apart from the CPU's in a take.
+    var marker: Float?
+    /// Resets seen (a live promotion's replay resets first).
+    let resets = Locked(0)
 
     /// - Parameter held: chunks both engines hear nothing in (the CPU engine of the test is made with the same).
     init(failAt: Int = -1, failure: Failure = .none, held: Range<Int>? = nil) {
@@ -109,6 +117,7 @@ final class FakeAccelerator: AcceleratorBackend {
         inner.reset()
         produced = 0
         chunkSeconds = []
+        resets.withLock { $0 += 1 }
     }
 
     func push(_ s: UnsafeBufferPointer<Float>) throws(RecognizerError) -> [HeadsBuffer] { try watch(try inner.push(s)) }
@@ -134,6 +143,17 @@ final class FakeAccelerator: AcceleratorBackend {
             var blankHere = failure == .blank && failAt >= 0 && i >= failAt
             if case .blankSpan(let n) = failure, failAt >= 0, i >= failAt, i < failAt + n { blankHere = true }
             if blankHere { c.logProbs = (0..<c.logProbs.count).map { (k: Int) -> Float in k % 38 == 0 ? 0 : -20 } }
+            if differ(i) {
+                var lp = c.logProbs
+                for row in stride(from: 0, to: lp.count, by: 38) {
+                    var best = 0
+                    for v in 1..<38 where lp[row + v] > lp[row + best] { best = v }
+                    lp[row + best] = -20
+                    lp[row + best % 37 + 1] = 0
+                }
+                c.logProbs = lp
+            }
+            if let m = marker { c.conf = [Float](repeating: m, count: c.n20) }
             chunkSeconds.append(spent)
             out.append(c)
         }

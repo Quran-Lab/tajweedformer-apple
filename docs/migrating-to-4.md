@@ -12,7 +12,7 @@ on, are published only encrypted, for SDK 4.0: an app on 3.x never gets them.
 | 3.x | 4.0 |
 | --- | --- |
 | `TajweedClientOptions(analytics: .off)` turned the anonymous analytics off. | Removed, with `TajweedClientOptions.Analytics`, so code that sets it no longer compiles: delete `analytics:`. Anonymous analytics are always on, because they are daily counts and durations only, never audio, text, names or device identifiers. Only Quran Lab can switch them off, from its signed config. |
-| `TajweedClientOptions(audience: .children)` chose another sharing sheet, and `client.sharing.setOn(_:guardianConfirmed:)` took a confirmation. | Removed, with `TajweedClientOptions.Audience` and the `guardianConfirmed:` argument, so code that sets them no longer compiles: delete the argument. Every app shows the same sharing sheet, and `setOn(_:)` takes the learner's switch alone. Complying with children's privacy law is your app's and its app store's. |
+| `TajweedClientOptions(audience: .children)` chose another sharing sheet, and `client.sharing.setOn(_:guardianConfirmed:)` took a confirmation. | Removed, with `TajweedClientOptions.Audience` and the `guardianConfirmed:` argument, so code that sets them no longer compiles: delete the argument. Every app shows the same sharing sheet, and `setOn(_:)` takes the learner's switch alone. Every learner is asked, whoever the app is for: you choose the sheet's wording (`setWording`), its look (`theme`) and your app's own moment to ask (`ask()`), and a learner, or a parent through your app's own flow, can say "Not now", turn sharing off or delete what was shared at any time. Complying with children's privacy law (for example COPPA, the GDPR's rules for children, parental consent) is yours, through your app's own flows, its privacy policy and its store declarations. Quran Lab never asks or guesses a learner's age. |
 | The model's folder held plain files. | The model is encrypted for this install. Only the calibration and the sample clips are plain. No call returns a model file, a path into the model, weights or keys. The model downloads once more after the upgrade, when the app first calls `client.model()` or `client.prefetch()`, so that call needs a connection once. |
 | Making the Client (`TajweedClient(key:)`) could download the model at launch, on a device that had none. | Making the Client downloads nothing. The model downloads only when the app calls `client.model()` or `client.prefetch()`; a later start checks only for an update of a build the Client installed on this device. Call `prefetch()` where you want the model on the device ahead of the first take. |
 | `client.model()` worked offline once the model was downloaded. | It works offline while the install's lease is valid: learners keep working offline for days at a time (the exact time is set by Quran Lab and may change), and the lease is renewed in the background whenever the device is online. See "The protected model". |
@@ -43,8 +43,18 @@ on, are published only encrypted, for SDK 4.0: an app on 3.x never gets them.
 - **A lease per install.** The model opens under a lease Quran Lab signs for this install. Learners keep working
   offline for days at a time; the exact time is set by Quran Lab and may change. While the device is online the SDK
   renews the lease in the background about once a day, and a valid lease never waits for a renewal. Offline with a
-  valid lease, the model opens. With App Attest the install is hardware-verified and may use the Neural Engine. When
-  App Attest fails on a device, the SDK goes on unattested, on the CPU engine: it never locks a learner out for it.
+  valid lease, the model opens. With App Attest the install is hardware-verified and may use the Neural Engine. A
+  failure of the network or of Apple's App Attest service is tried again with the same key, also as soon as the
+  network comes back (SDK 4.0.5): a strict app's install waits for it, any other app's learner gets the model at once
+  and the install moves to the attested class once it succeeds. When App Attest cannot be used on a device, or Apple
+  refuses it, the SDK goes on
+  unattested, on the CPU engine: for an app registered before
+  2026-11-23 it never locks a learner out for it. An app registered from 2026-11-23 on is strict: its production
+  installs lease only once attested, and until then `model()` fails with `server_rejected` and the reason
+  `lease_attestation_required` (its fix on iOS: a development key for Simulator builds, the App Attest capability on
+  devices; on a Mac, the capability with a provisioning profile).
+  A call within 10 minutes of that refusal gets the same error without asking again, unless the app's version or
+  build changed; an unattested install of a new release attests again at its first launch (SDK 4.0.5).
 - **When Quran Lab cannot be reached.** If the lease has ended and Quran Lab cannot be reached (no answer, a server
   error, or "too many requests"), the model keeps opening under that lease for up to 24 hours more. A refusal from
   Quran Lab ends this at once. A model open

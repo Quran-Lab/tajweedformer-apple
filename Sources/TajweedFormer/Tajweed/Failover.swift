@@ -45,6 +45,15 @@ import Foundation
 //   divergence is measured by FailoverTests on the self-test clips.
 // A blank verification has no stall budget (it runs beside the session): it replays the whole ring, so a take of up to
 // 30 s is verified exactly.
+//
+// Live promotion (SDK 4.0.5, contract section 30; the rules and the take's decide in LiveTake.swift) is the same
+// machinery in the other direction: a take on the CPU engine whose build becomes ready replays the ring through the
+// accelerator on the accelerator's own queue (`AcceleratorFeed`, as a blank verification replays it through a CPU
+// engine beside the session), catches up, judges the newest window of chunks both engines computed, then runs beside
+// the CPU engine on the same pieces, and the take moves to the accelerator at a pause (or after 8 s of audio without
+// one; never in a stall). The decide (`LiveTake`) says what happens at each event; the runner carries it out. Until
+// the swap the accelerator's chunks are never handed out, and any trouble on it ends the attempt with the take on the
+// CPU engine as if nothing had happened.
 
 /// The exact CPU engine as a take sees it (the Core's, `CoreStreamEngine`; a fake in tests).
 protocol CPUStreamEngine: AnyObject {
@@ -193,6 +202,16 @@ final class AcceleratorExecutor: @unchecked Sendable {
         case .failure(let e)?: return .threw(e, nsError: slot.nsError)
         case nil: return .threw(.neuralEngineUnavailable("no result"), nsError: nil)
         }
+    }
+
+    /// Runs `body` on the queue without waiting for it and without a deadline (a live promotion's replay, contract
+    /// 30.3); false when the executor was abandoned.
+    @discardableResult
+    func enqueue(_ body: @escaping @Sendable (any AcceleratorBackend) -> Void) -> Bool {
+        if abandoned { return false }
+        let box = UncheckedBox(backend)
+        queue.async { body(box.value) }
+        return true
     }
 
     /// Resets the backend for a new take, on the queue, so it never overlaps a call; without `wait` the caller does
@@ -397,9 +416,111 @@ final class BlankVerification: @unchecked Sendable {
     }
 }
 
+/// Audio fed to an accelerator on its own serial queue with no deadline, off the audio path: a live
+/// promotion's replay (the backend reset first) and its catch-up rounds. Its result is read by the take's next call,
+/// as a blank verification's is. It keeps the heads of its last chunks from `keepFrom` on (30.4: the first window is
+/// mostly the replay's own last chunks).
+final class AcceleratorFeed: @unchecked Sendable {
+    struct Result {
+        /// The chunks the accelerator gave.
+        var chunks = 0
+        /// The heads of the last of them, by their index in the feed (the take chunk is the feed's first plus it).
+        var kept: [(index: Int, heads: HeadsBuffer)] = []
+        /// A failure in the feed (an exception, a NaN or infinite value, a head out of range), at chunk `at` of it.
+        var failure: (cause: FailoverCause, detail: String, at: Int, ns: NSError?)?
+        var cancelled = false
+    }
+
+    /// The absolute sample position the feed ends at.
+    let end: Int
+    private let lock = NSLock()
+    private let finished = DispatchSemaphore(value: 0)
+    private var _done = false
+    private var _cancelled = false
+    private var _result = Result()
+
+    /// - Parameters:
+    ///   - ring: the take's ring as it is now (a copy: its samples are read on the accelerator's queue), and `tail`, the
+    ///     call's audio not in it yet; the feed is the ring from absolute sample `from` on, then `tail`, in pieces of
+    ///     `piece` samples.
+    ///   - keepFrom: the feed's first chunk whose heads may be kept; `keepLast` the most kept. Nil when the executor
+    ///     was abandoned.
+    init?(_ exec: AcceleratorExecutor, ring: AudioRing, from: Int, tail: [Float], reset: Bool, piece: Int, keepFrom: Int = 0,
+          keepLast: Int = 0) {
+        end = ring.total + tail.count
+        let p = max(1, piece)
+        guard exec.enqueue({ [self] b in
+            self.run(b, ring.samples(from: from) + tail, reset: reset, piece: p, keepFrom: keepFrom, keepLast: keepLast)
+        }) else { return nil }
+    }
+
+    private func run(_ b: any AcceleratorBackend, _ audio: [Float], reset: Bool, piece: Int, keepFrom: Int, keepLast: Int) {
+        var r = Result()
+        if reset { b.reset() }
+        var at = 0
+        while at < audio.count, !isCancelled {
+            let n = min(piece, audio.count - at)
+            let lo = at
+            do throws(RecognizerError) {
+                let out = try audio.withBuffer { (p) throws(RecognizerError) -> [HeadsBuffer] in
+                    try b.push(UnsafeBufferPointer(rebasing: p[lo..<(lo + n)]))
+                }
+                for (i, c) in out.enumerated() {
+                    if let bad = HeadsCheck.check(c) {
+                        r.failure = (bad.0, "the replay: \(bad.1)", r.chunks + i, nil)
+                        break
+                    }
+                    let index = r.chunks + i
+                    if keepLast > 0, index >= keepFrom {
+                        r.kept.append((index, c))
+                        if r.kept.count > keepLast { r.kept.removeFirst(r.kept.count - keepLast) }
+                    }
+                }
+                if r.failure == nil { r.chunks += out.count }
+            } catch {
+                r.failure = (.exception, "the accelerator threw in the replay: \(error)", r.chunks, b.lastError)
+            }
+            if r.failure != nil { break }
+            at += n
+        }
+        r.cancelled = isCancelled
+        lock.lock()
+        _result = r
+        _done = true
+        lock.unlock()
+        finished.signal()
+    }
+
+    var isDone: Bool { lock.lock(); defer { lock.unlock() }; return _done }
+    private var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return _cancelled }
+
+    /// Waits until the feed ended (at most `seconds`); true when it did.
+    @discardableResult
+    func wait(_ seconds: TimeInterval) -> Bool {
+        if isDone { return true }
+        let ok = finished.wait(timeout: .now() + max(0, seconds)) == .success
+        if ok { finished.signal() }   // later waits pass at once
+        return ok
+    }
+
+    /// Stops the feed at its next piece.
+    func cancel() {
+        lock.lock()
+        _cancelled = true
+        lock.unlock()
+    }
+
+    func take() -> Result {
+        lock.lock()
+        defer { lock.unlock() }
+        return _result
+    }
+}
+
 /// Runs one take on the accelerator or the CPU engine, watches every accelerator chunk, and switches to the CPU engine
-/// at a failed chunk (see the top of this file). Not thread-safe: the recognizer (an actor) drives it; tests drive it
-/// with fakes.
+/// at a failed chunk (see the top of this file); a take on the CPU engine moves to the accelerator when a live
+/// promotion swaps. Not thread-safe: the recognizer (an actor) drives it; tests drive it with
+/// fakes.
 final class TakeRunner {
     /// What a push or finish adds to the take: drop the take's chunks from `truncateTo` on (when set), then append
     /// `chunks` in order.
@@ -409,6 +530,9 @@ final class TakeRunner {
         /// Hand the take's chunks out again from this index on (a confirmed blank disagreement: the CPU's chunks
         /// replace those the accelerator heard nothing in, with the same indexes).
         var redeliverFrom: Int?
+        /// A live swap in this call: the first chunk the accelerator ran. The chunks before it are the
+        /// CPU engine's; nothing is replaced.
+        var liveSwapFrom: Int?
     }
 
     /// A switch to the CPU engine during this take.
@@ -516,6 +640,49 @@ final class TakeRunner {
     /// What starting the last verification cost the audio path, ms (the ring's buffer is copied once, at its next append).
     private(set) var lastSuspicionMs: Double?
 
+    /// A live promotion's numbers (the recognizer's, set at the take's start).
+    var livePolicy = LivePolicy()
+    /// The take's decide, for a take that started on the CPU engine.
+    private(set) var liveTake: LiveTake?
+    /// Leases the accelerator's build when the decide starts an attempt (the recognizer's: the session's lease).
+    var liveLease: (() -> AcceleratorExecutor?)?
+    /// The decide's clock, ms (monotonic; tests set their own).
+    var liveClock: () -> Int = { Int(DispatchTime.now().uptimeNanoseconds / 1_000_000) }
+    /// The accelerator an attempt runs on, from its replay to its swap or its end.
+    private var liveExec: AcceleratorExecutor?
+    /// The replay, or a catch-up round, on the accelerator's queue.
+    private var liveFeedRun: AcceleratorFeed?
+    private(set) var liveRounds = 0
+    /// The take chunk the accelerator's next chunk is (30.1), and the next one the decide hears of.
+    private var liveNext = 0
+    private var liveReported = 0
+    /// Caught up: the accelerator runs each piece beside the CPU engine.
+    private(set) var liveSynced = false
+    /// The compared heads of recent chunks of each engine, by take chunk (30.4: the first window is mostly chunks the
+    /// CPU engine already handed out), the accelerator's with their times (they are handed out after a swap).
+    private var liveCPUHeads: [Int: HeadsBuffer] = [:]
+    private var liveAccHeads: [Int: (heads: HeadsBuffer, seconds: Double)] = [:]
+    /// The attempt's warm chunk times (the take's own once it swaps), and whether its next chunk is cold.
+    private var liveWarm: [Double] = []
+    private var liveColdNext = false
+    /// The accelerator's failure (`accel_failed`), and what else ended or judged the attempt, for its record.
+    private var liveFailure: (cause: FailoverCause, detail: String, chunk: Int?, elapsedMs: Double?, deadlineMs: Double?, ns: NSError?)?
+    private var liveNote: String?
+    /// The call in progress: its audio (not in the ring yet), the CPU's chunks with their times, what the decide
+    /// handed out.
+    private var livePiece: [Float] = []
+    private var liveCPUCall: [Int: (heads: HeadsBuffer, seconds: Double)] = [:]
+    private var liveEmitted: [(heads: HeadsBuffer, seconds: Double)] = []
+    /// How the last attempt ended and the take's tally, until the recognizer takes them.
+    private var liveEndOut: LiveEnd?
+    private var liveTallyOut: LiveTally?
+    private var liveLeased = false
+    private var liveFailoverFed = false
+    /// The first chunk the accelerator ran after a live swap in this take.
+    private(set) var liveSwapFrom: Int?
+    /// The CPU engine a live swap retired: the recognizer closes the take's recited journal on it, then lets it go.
+    private(set) var retiredCPU: (any CPUStreamEngine)?
+
     /// - Parameters:
     ///   - cpu: the CPU engine when it is already open (else the first CPU take opens it).
     ///   - openCPU: opens the CPU engine (cold).
@@ -533,8 +700,11 @@ final class TakeRunner {
 
     /// The deadline of the next warm chunk, ms: from the key's and the take's warm chunk times (the most recent 64),
     /// else the policy's.
-    var laterLimitMs: Double {
-        let s = Array((policy.warmMs + takeWarmMs).suffix(PromotionPolicy.warmSamplesKept))
+    var laterLimitMs: Double { laterLimitMs(with: []) }
+
+    /// The same with `extra` warm chunk times of the take (a live attempt's shadow, before they are the take's).
+    private func laterLimitMs(with extra: [Double]) -> Double {
+        let s = Array((policy.warmMs + takeWarmMs + extra).suffix(PromotionPolicy.warmSamplesKept))
         guard s.count >= PromotionPolicy.minWarmSamples else { return policy.deadlineMs }
         return PromotionPolicy.deadlineMs(p90Ms: AcceleratorController.percentile(s, 0.9), medianMs: AcceleratorController.percentile(s, 0.5))
     }
@@ -590,6 +760,7 @@ final class TakeRunner {
     /// audio path), else on the CPU engine.
     func start(accelerator a: AcceleratorExecutor?) throws(RecognizerError) {
         dropVerification()
+        dropLive()
         ring.reset()
         chunks = 0
         blankRun = 0
@@ -619,12 +790,25 @@ final class TakeRunner {
     }
 
     /// 16 kHz samples in; what they add to the take out.
-    func push(_ s: [Float]) throws(RecognizerError) -> Output {
+    /// `takenAtMs` (`liveClock`'s): when the piece's audio was taken from its source, for a live promotion's stall
+    ///; nil for audio read as fast as possible.
+    func push(_ s: [Float], takenAtMs: Int? = nil) throws(RecognizerError) -> Output {
         defer { ring.append(s) }
-        guard let a = accelerator else { return Output(chunks: try cpuPush(s)) }
+        guard let a = accelerator else {
+            let first = chunks
+            let secondsFrom = chunkSeconds.count
+            let out = try cpuPush(s)
+            // the decide hears the CPU's chunks until a swap (after a swap and a failover back, the take is the
+            // failover's: its CPU chunks are handed out as they come)
+            guard let st = liveTake?.state, [.cpu, .rebuild, .committed, .done].contains(st) else { return Output(chunks: out) }
+            return liveStep(s, cpu: out, first: first, secondsFrom: secondsFrom, takenAtMs: takenAtMs)
+        }
         if let v = verification, v.isDone {
             verification = nil
-            if let o = try settle(v, audio: s, finishing: false) { return o }
+            if let o = try settle(v, audio: s, finishing: false) {
+                liveNoteFailover()
+                return o
+            }
         }
         if a.takeCold() { coldNext = true }
         let expected = max(1, s.count / max(1, chunkSamples) + 1)
@@ -634,20 +818,29 @@ final class TakeRunner {
         let r = a.run(timeout: timeout, grace: policy.hangGraceMs / 1000) { (b: any AcceleratorBackend) throws(RecognizerError) -> [HeadsBuffer] in
             try s.withBuffer { (p) throws(RecognizerError) in try b.push(p) }
         }
-        return try judge(r, audio: s, finishing: false, firstLimit: first, laterLimit: later)
+        let o = try judge(r, audio: s, finishing: false, firstLimit: first, laterLimit: later)
+        liveNoteFailover()
+        return o
     }
 
     /// The end of the take (the flush); what it adds to the take. A blank verification still running is waited for
     /// (at most `PromotionPolicy.verifyWaitAtFinish`), so a confirmed disagreement still reaches the take.
     func finish() throws(RecognizerError) -> Output {
         guard let a = accelerator else {
+            // 30.7: a take that ends while a live attempt runs ends it (aborted); the flush is the CPU's
+            liveEndTake()
             guard let cpu else { throw .sessionClosed }
             return Output(chunks: try timed { () throws(RecognizerError) in try cpu.finish() })
         }
+        // after a live swap: the take's end in the decide once the flush is in (a failover in it counts)
+        defer { liveEndTake() }
         if let v = verification {
             verification = nil
             if v.wait(PromotionPolicy.verifyWaitAtFinish) {
-                if let o = try settle(v, audio: [], finishing: true) { return o }
+                if let o = try settle(v, audio: [], finishing: true) {
+                    liveNoteFailover()
+                    return o
+                }
             } else {
                 v.cancel()
             }
@@ -660,7 +853,9 @@ final class TakeRunner {
             (b: any AcceleratorBackend) throws(RecognizerError) -> [HeadsBuffer] in
             try b.finish()
         }
-        return try judge(r, audio: [], finishing: true, firstLimit: first, laterLimit: later)
+        let o = try judge(r, audio: [], finishing: true, firstLimit: first, laterLimit: later)
+        liveNoteFailover()
+        return o
     }
 
     private func cpuPush(_ s: [Float]) throws(RecognizerError) -> [HeadsBuffer] {
@@ -829,5 +1024,437 @@ final class TakeRunner {
         chunkSeconds += Array(repeating: stall / 1000 / Double(max(1, out.count)), count: add.count)
         blankRun = 0
         return Output(truncateTo: kept, chunks: add, redeliverFrom: cause == .blank ? k : nil)
+    }
+
+    // MARK: live promotion
+
+    /// A live promotion's numbers for this take.
+    struct LivePolicy {
+        /// The build's `golden_raw_tolerance` from its signed manifest; nil: the build has none (no token edit passes).
+        var tolerance: GoldenRawTolerance?
+        /// The audio that arrived during a replay round which the take's own call feeds the accelerator, in chunks, at
+        /// most: more is fed by another round off the audio path (a take fed faster than real time).
+        var syncChunks = 4
+        /// Rounds after the replay before the attempt gives up (`aborted`): the accelerator did not catch up.
+        var maxRounds = 16
+    }
+
+    /// How a live attempt ended, for the recognizer (`takeLiveEnd`).
+    struct LiveEnd: Sendable, Equatable {
+        var outcome: LivePromotion.Outcome
+        /// Its replay was the whole take.
+        var exact: Bool
+        var detail: String
+        /// An accelerator failure (`accel_failed`): its cause, the chunk, how long the call ran and its limit, and the
+        /// runtime's error.
+        var cause: FailoverCause?
+        var chunk: Int?
+        var elapsedMs: Double?
+        var deadlineMs: Double?
+        var errorDomain: String?
+        var errorCode: String?
+        /// A swap: the first accelerator chunk (`fromChunk`).
+        var fromChunk: Int?
+    }
+
+    /// Whether an attempt runs now (before its swap).
+    var liveRunning: Bool { liveTake?.live ?? false }
+    /// Whether one started in this take (one attempt per take, 30.2 item 4).
+    var liveAttempted: Bool { liveTake?.attempted ?? false }
+
+    /// Tests and measurements: where the attempt in flight stands.
+    var liveState: (state: String, plan: LiveRules.ReplayPlan?, windows: Int, rounds: Int, commitChunk: Int?, synced: Bool)? {
+        guard let t = liveTake, t.live else { return nil }
+        return (t.state.rawValue, t.plan, t.verdicts.count, liveRounds, t.commitChunk, liveSynced)
+    }
+
+    /// A take on the CPU engine gets its decide (30.11), after `start`: none for a take on the accelerator.
+    func liveBegin(_ i: LiveTake.Init) {
+        guard accelerator == nil else { return }
+        liveTake = LiveTake(i)
+    }
+
+    /// The accelerator's build of the take's key became ready (promoted, loaded, warm), or stopped being ready.
+    func liveReady() { liveFeed(.ready(t: liveClock(), n: ring.total)) }
+    func liveUnready(_ why: String) {
+        liveNote = why
+        liveFeed(.unready(t: liveClock()))
+    }
+
+    /// The pipeline's conditions or what the Session knows changed (30.2 items 6 to 8, 11, 12).
+    func liveConditions(_ c: LiveRules.DeviceChange) { liveFeed(.cond(t: liveClock(), c)) }
+
+    /// An interruption of the take began or ended (30.1: a stall while it lasts).
+    func liveInterrupted() { liveFeed(.interrupted(t: liveClock())) }
+    func liveResumed() { liveFeed(.resumed(t: liveClock())) }
+
+    /// The take's end in the decide (30.7): an attempt still running ends `aborted`, and the take's tally is kept for
+    /// `takeLiveTally`. `samples`: the take's audio (default: all it had).
+    func liveEndTake(samples n: Int? = nil, why: String = "finish") {
+        liveFeed(.end(t: liveClock(), n: n ?? ring.total, why: why))
+    }
+
+    /// How the last attempt ended, once (nil while it runs, or when none ended since the last call).
+    func takeLiveEnd() -> LiveEnd? {
+        defer { liveEndOut = nil }
+        return liveEndOut
+    }
+
+    /// The take's part of the day's `live` object (30.9), once, after its end.
+    func takeLiveTally() -> LiveTally? {
+        defer { liveTallyOut = nil }
+        return liveTallyOut
+    }
+
+    /// Whether the attempt took the build's lease since the last call (the recognizer ends it with the take).
+    func takeLiveLeased() -> Bool {
+        defer { liveLeased = false }
+        return liveLeased
+    }
+
+    /// The CPU engine a swap retired goes (its private weight pages go back to the OS).
+    func releaseRetiredCPU() { retiredCPU = nil }
+
+    /// Tests: waits until the attempt's replay or catch-up round on the accelerator's queue ended (at most `seconds`).
+    @discardableResult
+    func waitLiveFeed(_ seconds: TimeInterval) -> Bool { liveFeedRun?.wait(seconds) ?? true }
+
+    private func dropLive() {
+        liveFeedRun?.cancel()
+        liveExec?.reset()
+        liveFeedRun = nil
+        liveExec = nil
+        liveTake = nil
+        liveRounds = 0
+        liveNext = 0
+        liveReported = 0
+        liveSynced = false
+        liveCPUHeads = [:]
+        liveAccHeads = [:]
+        liveWarm = []
+        liveColdNext = false
+        liveFailure = nil
+        liveNote = nil
+        liveEndOut = nil
+        liveTallyOut = nil
+        liveLeased = false
+        liveFailoverFed = false
+        liveSwapFrom = nil
+        retiredCPU = nil
+    }
+
+    /// An event into the take's decide, and its actions carried out (a window's judgement feeds its verdict back).
+    private func liveFeed(_ e: LiveTake.Event) {
+        guard var t = liveTake else { return }
+        let actions = t.feed(e)
+        liveTake = t
+        for a in actions { livePerform(a) }
+    }
+
+    private func livePerform(_ a: LiveTake.Action) {
+        switch a {
+        case .emit(let k, let engine):
+            // only chunks this call's engines gave, or the accelerator's kept ones
+            if engine == .cpu, let c = liveCPUCall[k] {
+                liveEmitted.append(c)
+            } else if engine == .acc, let c = liveAccHeads[k] {
+                liveEmitted.append(c)
+            }
+        case .replay(let from, _, let first, _):
+            liveReplay(from: from, first: first)
+        case .judge(let lo, let hi):
+            liveJudge(lo, hi)
+        case .outcome(let name, _):
+            liveEnded(LivePromotion.Outcome(rawValue: name) ?? .aborted)
+        case .closeCPU:
+            liveSwap()
+        case .changed(let from):
+            liveSwapFrom = from
+        case .releaseAcc:
+            liveRelease()
+        case .tally(let t):
+            liveTallyOut = t
+        }
+    }
+
+    /// 30.3: the accelerator is leased, reset and replays the ring from `from` (and this call's audio) on its own queue
+    /// while the CPU engine goes on serving.
+    private func liveReplay(from: Int, first: Int) {
+        LiveDiagnosis.started()
+        let keepFrom = liveTake?.plan.map { LiveRules.comparableFrom($0) - first } ?? 0
+        guard from >= ring.oldest else {
+            liveUnready("the ring no longer holds the replay's start")
+            return
+        }
+        guard let exec = liveLease?(), !exec.abandoned else {
+            liveUnready("the build could not be leased for the replay")
+            return
+        }
+        liveLeased = true
+        guard let feed = AcceleratorFeed(exec, ring: ring, from: from, tail: livePiece, reset: true, piece: chunkSamples,
+                                         keepFrom: max(0, keepFrom), keepLast: .max) else {
+            liveUnready("the build was abandoned")
+            return
+        }
+        liveExec = exec
+        liveFeedRun = feed
+        liveRounds = 0
+        liveNext = first
+        liveReported = first
+        liveSynced = false
+        liveAccHeads = [:]
+        liveWarm = []
+        liveColdNext = false
+        liveFailure = nil
+        // the replay has no deadline and leaves the accelerator warm
+        _ = exec.takeCold()
+    }
+
+    /// 30.4: the window's compared heads, both engines, judged with the golden test's rule; the verdict goes back in.
+    private func liveJudge(_ lo: Int, _ hi: Int) {
+        var c = HeadsBuffer(), a = HeadsBuffer()
+        for k in lo...hi {
+            guard let x = liveCPUHeads[k], let y = liveAccHeads[k]?.heads else {
+                liveUnready("the window's chunk \(k) was not kept")
+                return
+            }
+            c.append(x)
+            a.append(y)
+        }
+        let v = LivePromotion.judge(cpu: c, accelerator: a, tolerance: livePolicy.tolerance)
+        liveNote = "window of chunks \(lo) to \(hi): \(v.rawValue) the build's golden tolerance"
+        liveFeed(.verdict(t: liveClock(), v))
+    }
+
+    /// 30.6: an attempt ended; the record's rule is the recognizer's to apply (`takeLiveEnd`).
+    private func liveEnded(_ o: LivePromotion.Outcome) {
+        var e = LiveEnd(outcome: o, exact: liveTake?.plan?.exact ?? true, detail: liveNote ?? o.rawValue)
+        switch o {
+        case .swapped:
+            e.fromChunk = liveTake?.fromChunk
+            e.detail = "the accelerator serves from chunk \(e.fromChunk ?? -1)"
+        case .accelFailed:
+            if let f = liveFailure {
+                e.cause = f.cause
+                e.detail = f.detail
+                e.chunk = f.chunk
+                e.elapsedMs = f.elapsedMs
+                e.deadlineMs = f.deadlineMs
+                e.errorDomain = f.ns?.domain
+                e.errorCode = f.ns.map { String($0.code) }
+            }
+        case .stalled:
+            e.detail = "the take was late for 20 s of audio from the commit's chunk on"
+        case .aborted:
+            e.detail = liveNote ?? "the take ended, the build stopped being ready, or the conditions stopped holding before the swap"
+        case .mismatch, .mismatchInexact:
+            break
+        }
+        LiveDiagnosis.ended(o, fromChunk: e.fromChunk)
+        liveEndOut = e
+    }
+
+    /// 30.5, the swap: the take is an accelerator take from here (the failover of 2.0.2 included); the CPU engine is
+    /// retired for the recognizer to close its recited journal on.
+    private func liveSwap() {
+        guard let exec = liveExec else { return }
+        liveFeedRun?.cancel()
+        liveFeedRun = nil
+        accelerator = exec
+        liveExec = nil
+        retiredCPU = cpu
+        cpu = nil
+        cpuHasWholeTake = false
+        coldNext = liveColdNext
+        takeWarmMs += liveWarm
+        blankRun = 0
+        liveCPUHeads = [:]
+    }
+
+    /// 30.6: nothing was taken from the accelerator; it is reset for the next take.
+    private func liveRelease() {
+        liveFeedRun?.cancel()
+        liveFeedRun = nil
+        liveExec?.reset()
+        liveExec = nil
+        liveSynced = false
+        liveAccHeads = [:]
+    }
+
+    /// The attempt's step for a piece the CPU engine ran (`cpuOut`, the take's chunks from `first`; their times from
+    /// `secondsFrom` in `chunkSeconds`). It never fails the take: any trouble on the accelerator ends the attempt, and the
+    /// CPU's chunks stand. `takenAtMs`: when the piece's audio was taken from its source (nil: read as fast as
+    /// possible, never late).
+    private func liveStep(_ s: [Float], cpu cpuOut: [HeadsBuffer], first: Int, secondsFrom: Int, takenAtMs: Int?) -> Output {
+        let now = liveClock()
+        let n = ring.total + s.count
+        let secs = Array(chunkSeconds.dropFirst(secondsFrom))
+        liveCPUCall = [:]
+        for (i, c) in cpuOut.enumerated() {
+            liveCPUCall[first + i] = (c, i < secs.count ? secs[i] : 0)
+            liveCPUHeads[first + i] = c
+        }
+        liveEmitted = []
+        livePiece = s
+        let swapBefore = liveSwapFrom
+        defer {
+            livePiece = []
+            liveCPUCall = [:]
+            liveEmitted = []
+        }
+        // the accelerator first (30.3, 30.4): the replay's chunks, the catch-up, or this piece beside the CPU engine; a
+        // failure ends the attempt before any of its chunks could be handed out
+        if liveRunning, liveExec != nil { liveAccelerator(s, now: now, first: first, cpuCount: cpuOut.count) }
+        // 30.1: late when handed out more than a chunk after its audio was taken
+        let late = takenAtMs.map { now - $0 > chunkMs } ?? false
+        for (i, c) in cpuOut.enumerated() {
+            let tail = Array(c.top1(.logProbs).suffix(LiveRules.pauseFrames))
+            liveFeed(.cpu(t: now, k: first + i, n: n, tail: tail, late: late))
+        }
+        livePrune()
+        // what was handed out: the CPU's chunks, then (after a swap in this call) the accelerator's, with their times
+        chunkSeconds.removeLast(chunkSeconds.count - secondsFrom)
+        chunkSeconds += liveEmitted.map { $0.seconds }
+        chunks = first + liveEmitted.count
+        let swapped = liveSwapFrom != swapBefore ? liveSwapFrom : nil
+        return Output(chunks: liveEmitted.map { $0.heads }, liveSwapFrom: swapped)
+    }
+
+    /// The accelerator's side of a call while an attempt runs: the replay's end, the catch-up, then each piece beside
+    /// the CPU engine. Its chunks go to the decide once the accelerator has every take chunk the CPU engine has
+    /// (caught up), so a window is judged, and a swap made, only on an accelerator that is in step with the take.
+    private func liveAccelerator(_ s: [Float], now: Int, first: Int, cpuCount: Int) {
+        guard let exec = liveExec else { return }
+        let cf = liveTake?.plan.map(LiveRules.comparableFrom) ?? 0
+        if !liveSynced {
+            guard let feed = liveFeedRun, feed.isDone else { return }
+            liveFeedRun = nil
+            let r = feed.take()
+            for x in r.kept { liveAccHeads[liveNext + x.index] = (x.heads, 0) }
+            if let f = r.failure {
+                liveFailure = (f.cause, f.detail, liveNext + f.at, nil, nil, f.ns)
+                liveFeed(.fail(t: now, cause: f.cause.rawValue))
+                return
+            }
+            liveNext += r.chunks
+            // 30.3: the audio that arrived meanwhile (the ring has not taken this call's piece yet)
+            guard feed.end >= ring.oldest else {
+                liveUnready("the ring no longer holds the audio since the replay")
+                return
+            }
+            if ring.total - feed.end + s.count > max(1, livePolicy.syncChunks) * chunkSamples {
+                liveRounds += 1
+                guard liveRounds <= livePolicy.maxRounds,
+                      let next = AcceleratorFeed(exec, ring: ring, from: feed.end, tail: s, reset: false, piece: chunkSamples,
+                                                 keepFrom: max(0, cf - liveNext), keepLast: .max) else {
+                    liveUnready("the accelerator did not catch up with the take in \(livePolicy.maxRounds) rounds")
+                    return
+                }
+                liveFeedRun = next
+                return
+            }
+            // a replay chunk has no deadline: the call is only bounded (the first-chunk limit per chunk)
+            let c = liveRun(exec, ring.samples(from: feed.end) + s, deadline: false)
+            if let f = c.failure {
+                liveFailure = (f.cause, f.detail, liveNext + f.at, f.elapsedMs, f.limitMs, f.ns)
+                liveFeed(.fail(t: now, cause: f.cause.rawValue))
+                return
+            }
+            for (i, h) in c.chunks.enumerated() { liveAccHeads[liveNext + i] = (h, c.seconds[i]) }
+            liveNext += c.chunks.count
+            // both engines have had the same audio: the same chunks from here on
+            guard liveNext == first + cpuCount else {
+                liveUnready("the engines' chunks do not line up after the replay (accelerator \(liveNext), CPU \(first + cpuCount))")
+                return
+            }
+            liveSynced = true
+        } else {
+            guard liveNext == first else {
+                liveUnready("the engines' chunks do not line up (accelerator \(liveNext), CPU \(first))")
+                return
+            }
+            // beside the CPU engine, with the take's deadline rule for later chunks
+            let c = liveRun(exec, s, deadline: true)
+            if let f = c.failure {
+                liveFailure = (f.cause, f.detail, liveNext + f.at, f.elapsedMs, f.limitMs, f.ns)
+                liveFeed(.fail(t: now, cause: f.cause.rawValue))
+                return
+            }
+            guard c.chunks.count == cpuCount else {
+                liveUnready("the engines' chunks do not line up (accelerator \(liveNext) + \(c.chunks.count), CPU \(first) + \(cpuCount))")
+                return
+            }
+            for (i, h) in c.chunks.enumerated() { liveAccHeads[liveNext + i] = (h, c.seconds[i]) }
+            liveNext += c.chunks.count
+        }
+        // the accelerator's chunks to the decide, in order (after a swap among them, the rest are handed out)
+        while liveReported < liveNext, let st = liveTake?.state, st == .rebuild || st == .committed || st == .accel {
+            let k = liveReported
+            liveReported += 1
+            liveFeed(.acc(t: now, k: k))
+        }
+    }
+
+    /// The heads kept for windows and the swap: the last chunks, and those of the window still to judge.
+    private func livePrune() {
+        guard let t = liveTake else { return }
+        var keep = t.cpuHave - 3 * t.w
+        if let nx = t.next { keep = min(keep, nx.lowerBound) }
+        liveCPUHeads = liveCPUHeads.filter { $0.key >= keep }
+        liveAccHeads = liveAccHeads.filter { $0.key >= keep }
+    }
+
+    private struct LiveRun {
+        var chunks: [HeadsBuffer] = []
+        var seconds: [Double] = []
+        var failure: (cause: FailoverCause, detail: String, at: Int, elapsedMs: Double?, limitMs: Double, ns: NSError?)?
+    }
+
+    /// `audio` through the attempt's accelerator on its queue, waited for: with `deadline`, the take's deadline rule
+    /// (2.0.2: a cold chunk its first-chunk limit, a later one the warm limit); without, the first-chunk limit per chunk
+    /// (the catch-up, part of the replay). Every chunk is checked as the failover checks it.
+    private func liveRun(_ exec: AcceleratorExecutor, _ audio: [Float], deadline: Bool) -> LiveRun {
+        if exec.takeCold() { liveColdNext = true }
+        let expected = max(1, audio.count / max(1, chunkSamples) + 1)
+        let later = deadline ? laterLimitMs(with: liveWarm) : policy.firstChunkMs
+        let firstLimit = liveColdNext || !deadline ? policy.firstChunkMs : later
+        var out = LiveRun()
+        let r = exec.run(timeout: (firstLimit + later * Double(expected - 1)) / 1000, grace: policy.hangGraceMs / 1000) {
+            (b: any AcceleratorBackend) throws(RecognizerError) -> [HeadsBuffer] in
+            try audio.withBuffer { (p) throws(RecognizerError) in try b.push(p) }
+        }
+        switch r {
+        case .threw(let e, let ns):
+            out.failure = (.exception, "the accelerator threw: \(e)", 0, nil, firstLimit, ns)
+        case .timedOut(let ms):
+            out.failure = (.deadline, String(format: "no answer within %.0f ms", ms), 0, ms, firstLimit, nil)
+        case .done(let chunks, let seconds):
+            for (i, c) in chunks.enumerated() {
+                let ms = i < seconds.count ? seconds[i] * 1000 : 0
+                let cold = i == 0 && liveColdNext
+                let limit = cold ? firstLimit : later
+                if let bad = HeadsCheck.check(c) {
+                    out.failure = (bad.0, bad.1, i, ms, limit, nil)
+                    return out
+                }
+                if deadline && ms > limit {
+                    out.failure = (.deadline, String(format: "a chunk took %.1f ms (deadline %.0f ms)", ms, limit), i, ms, limit, nil)
+                    return out
+                }
+                if deadline && !cold { liveWarm.append(ms) }
+            }
+            if !chunks.isEmpty { liveColdNext = false }
+            out.chunks = chunks
+            out.seconds = seconds.count == chunks.count ? seconds : Array(repeating: seconds.last ?? 0, count: chunks.count)
+        }
+        return out
+    }
+
+    /// After a swap, a failover of 2.0.2 took the take back to the CPU engine: the decide counts the accelerator's
+    /// audio to its chunk (30.9 `seconds_after_swap`).
+    private func liveNoteFailover() {
+        guard !liveFailoverFed, liveSwapFrom != nil, let f = failover else { return }
+        liveFailoverFed = true
+        liveFeed(.failover(t: liveClock(), k: f.chunk))
     }
 }

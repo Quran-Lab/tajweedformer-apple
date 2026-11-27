@@ -37,13 +37,21 @@ final class ProtectionClassTests: UnreadableStorageTestCase {
         let fm = FileManager.default
         let probe = fm.temporaryDirectory.appendingPathComponent("protection-probe-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: probe) }
-        try Data("probe".utf8).write(to: probe, options: [.atomic, .completeFileProtection])
-        let complete = ProtectionClassTests.protection(probe)
-        try Data("probe".utf8).write(to: probe, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        let named = ProtectionClassTests.protection(probe)
-        // what a replacement of that file shows when its write names no class
-        try Data("again".utf8).write(to: probe, options: [.atomic])
-        let replaced = ProtectionClassTests.protection(probe)
+        let complete: String?, named: String?, replaced: String?
+        do {
+            try Data("probe".utf8).write(to: probe, options: [.atomic, .completeFileProtection])
+            complete = ProtectionClassTests.protection(probe)
+            try Data("probe".utf8).write(to: probe, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            named = ProtectionClassTests.protection(probe)
+            // what a replacement of that file shows when its write names no class
+            try Data("again".utf8).write(to: probe, options: [.atomic])
+            replaced = ProtectionClassTests.protection(probe)
+        } catch {
+            // SDK 4.0.5: a Mac whose session is locked (a laptop with its lid closed, 2026-11-23 17:16 to 19:02) refuses a
+            // write of the class complete: it shows nothing about the classes, and the tests are skipped
+            print("PROTECTION-MEASURE: this machine refused the probe's write (\(error.localizedDescription)); a locked session refuses the class complete")
+            return false
+        }
         print("PROTECTION-MEASURE: on this machine a file written with the class complete shows \(complete ?? "no class"); "
             + "one written with the class complete until first user authentication shows \(named ?? "no class"); "
             + "after an atomic replacement that names no class it shows \(replaced ?? "no class")")

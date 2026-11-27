@@ -23,8 +23,10 @@ import BackgroundTasks
 // 3. The golden and measure stages run only while no session runs (a session starting aborts them without a
 //    failure), and the whole pipeline only in good conditions (not Low Power Mode, battery at least 20 % or charging,
 //    thermal nominal or fair).
-// 4. The swap happens at a session boundary only, to a build that is loaded and warm; a session that started before
-//    stays on the CPU engine.
+// 4. The swap is to a build that is loaded and warm: at a session boundary, and since SDK 4.0.5 also during a take
+//   : a take that runs on the CPU engine when the build becomes ready
+//    rebuilds the accelerator's state from its audio, checks it beside the CPU engine, and moves to it at a pause.
+//    (SDK 4.0.4 and before kept the sdk_2.0.1 rule "only at a session boundary, never mid-session".)
 // 5. Failures keep the CPU engine: retried for the same key after 1 h, 6 h, 24 h, then never; deterministic ones
 //    (golden_mismatch, cpu_mismatch, non_finite, crash) never.
 // 6. A failure in a session (Failover.swift) is handled by its cause (2.0.2, `failedOver`): a deadline miss switches
@@ -40,7 +42,8 @@ enum AcceleratorState: Sendable, Hashable, CustomStringConvertible {
     case cpu
     /// The promotion pipeline is running in the background; the CPU engine serves meanwhile.
     case preparing
-    /// Promoted, loaded and warm: sessions from the next one on run on the Neural Engine.
+    /// Promoted, loaded and warm: sessions from the next one on run on the Neural Engine, and a take on the CPU engine
+    /// may move to it (a live promotion, contract section 30).
     case ready
     /// Not used, and why (an older OS, a failed stage, a crash, the deny-list, a failover).
     case disabled(String)
@@ -161,8 +164,12 @@ final class AcceleratorController: @unchecked Sendable {
         /// This process; at most one new attempt per launch for a key.
         var launch: String = AcceleratorController.thisLaunch
         var clock: @Sendable () -> Date = { Date() }
-        var sleep: @Sendable (TimeInterval) async -> Void = { s in try? await Task.sleep(nanoseconds: UInt64(max(0, s) * 1e9)) }
+        /// The wait between two looks at the conditions; SDK 4.0.5: it ends early when the device is unlocked or the app
+        /// becomes active again (`InterruptionWatch`).
+        var sleep: @Sendable (TimeInterval) async -> Void = { s in await InterruptionWatch.shared.wait(upTo: s) }
         var conditions: @Sendable () async -> PromotionConditions = { await PromotionConditions.current() }
+        /// SDK 4.0.5: the locks and the app's leaving the foreground so far in this process (`InterruptionWatch`).
+        var interruptions: @Sendable () -> InterruptionWatch.Count = { InterruptionWatch.shared.now }
         /// Waits on bad conditions in one run before it gives up for now (no failure; the next trigger resumes).
         var maxConditionWaits = 30
         var thermal: @Sendable () -> ProcessInfo.ThermalState = { ProcessInfo.processInfo.thermalState }
@@ -275,7 +282,13 @@ final class AcceleratorController: @unchecked Sendable {
         // fresh and its process is there) is not judged: two processes of one app never poison each other's record
         if let s = store.sentinel(), !Self.underWayElsewhere(s, now: Date()) {
             store.clearSentinel()
-            stopFound(s)
+            if Self.writtenBefore40(s) {
+                // SDK 4.0.5: the stop of a process of an SDK before 4.0 (the app's version before its update): nothing
+                // tells a crash from a quit or the update itself, and its key is not one this SDK runs
+                SDKLatest.debugOnly("promotion: a stage of an SDK before 4.0 was under way when its process ended; not judged")
+            } else {
+                stopFound(s)
+            }
         }
         let r = store.record(key)
         if let why = leaseDenied() {
@@ -312,7 +325,8 @@ final class AcceleratorController: @unchecked Sendable {
     /// - In the background (`foreground` false; iOS only): counts nothing and the attempt goes on where it was, until
     ///   the `backgroundStopsCountedFrom`th in a row at the same stage, which counts as a stop in the foreground
     ///  . Reported as `crash_on_last_run` with `foreground` false.
-    /// - In the foreground, or where it is not known (macOS, a sentinel of 3.1.4): reason crash. At download, compile
+    /// - In the foreground, or where it is not known (macOS): reason crash. (A sentinel of an SDK before 4.0 never gets
+    ///   here since 4.0.5: `writtenBefore40`.) At download, compile
     ///   or warm-up within the retry budget, and a second at the same stage ends the key; at the golden test or the
     ///   measurement it ends the key.
     /// A quit or a stop in the background while a promoted build was being loaded again holds nothing against it.
@@ -545,12 +559,15 @@ final class AcceleratorController: @unchecked Sendable {
         // resumed after a restart past the warm-up: the build is loaded and warmed again, then the attempt goes on
         // where it stopped
         var afterRewarm: PromotionStage?
+        // SDK 4.0.5: the stages a lock or the app's leaving cut in this run, each run again once unlocked and in front
+        var notNowRuns = 0
         if stage > .warmup {
             afterRewarm = stage
             stage = .warmup
         }
         while true {
-            guard await waitConditions(stage) else { return set(.cpu) }
+            // 4.0.5: the warm-up of a build compiled in this run prepares nothing (the program is in memory already)
+            guard await waitConditions(stage, prepares: stage == .compile || (stage == .warmup && backend == nil)) else { return set(.cpu) }
             switch stage {
             case .download:
                 do throws(PromotionFailure) { try await stages.download() } catch { return fail(&rec, .download, error) }
@@ -558,19 +575,37 @@ final class AcceleratorController: @unchecked Sendable {
                 store.writeSentinel(key, .compile)
                 SDKLatest.debugOnly("promotion: compile begins (the first load of the build on this device)")
                 let t0 = env.clock()
+                let seen = env.interruptions()
+                // No background time is asked for around the compile (beginBackgroundTask). The Core c3 writes the
+                // package Core ML reads with complete file protection: about 10 s after a lock its files can no longer
+                // be read, and a mapped read then ends the process (SIGBUS). Without the system's extra time an app
+                // that leaves is suspended within seconds, before that, and the compile goes on once it is back. The
+                // time comes back with a Core that writes the package readable while locked (complete until the
+                // first unlock).
                 let r = await Self.race(env.timeouts.compile,
                                         onTimeout: PromotionFailure(.compileTimeout, "the compile took over \(Int(env.timeouts.compile)) s"),
                                         stages.compile)
                 store.clearSentinel()
                 switch r {
-                case .failure(let f): return fail(&rec, .compile, f)
+                case .failure(let f):
+                    if let why = await interrupted(since: seen, f) {
+                        guard notNow(&notNowRuns, .compile, why, f) else { return set(.cpu) }
+                        continue
+                    }
+                    return fail(&rec, .compile, f)
                 case .success(let b): backend = b
                 }
                 rec.compileMs = env.clock().timeIntervalSince(t0) * 1000
             case .warmup:
                 if backend == nil {
+                    let seen = env.interruptions()
                     switch await load(stages) {
-                    case .failure(let f): return fail(&rec, .warmup, f)
+                    case .failure(let f):
+                        if let why = await interrupted(since: seen, f) {
+                            guard notNow(&notNowRuns, .warmup, why, f) else { return set(.cpu) }
+                            continue
+                        }
+                        return fail(&rec, .warmup, f)
                     case .success(let b): backend = b
                     }
                 }
@@ -634,10 +669,18 @@ final class AcceleratorController: @unchecked Sendable {
     /// A key promoted in an earlier launch: load the compiled build again and warm it (the CPU engine serves meanwhile).
     private func reload(_ rec: inout PromotionRecord, _ stages: Stages) async {
         set(.preparing)
-        guard await waitConditions(.warmup) else { return set(.cpu) }
+        guard await waitConditions(.warmup, prepares: true) else { return set(.cpu) }
         let backend: UncheckedBox<any AcceleratorBackend>
+        let seen = env.interruptions()
         switch await load(stages) {
-        case .failure(let f): return fail(&rec, .warmup, f, reload: true)
+        case .failure(let f):
+            // SDK 4.0.5: a load the lock or the app's leaving cut leaves the promoted key as it is; the next run loads it
+            if let why = await interrupted(since: seen, f) {
+                var runs = Self.notNowRunsMax
+                _ = notNow(&runs, .warmup, why, f)
+                return set(.cpu)
+            }
+            return fail(&rec, .warmup, f, reload: true)
         case .success(let b): backend = b
         }
         if let f = await warm(backend, stages) { return fail(&rec, .warmup, f, reload: true) }
@@ -702,17 +745,47 @@ final class AcceleratorController: @unchecked Sendable {
         }
     }
 
-    /// Waits while conditions are bad (no failure counted); false when it gave up for now.
-    private func waitConditions(_ stage: PromotionStage) async -> Bool {
+    /// Waits while conditions are bad (no failure counted); false when it gave up for now. `prepares`: the stage makes
+    /// the Core prepare the program (the compile, a load), which waits for an unlocked device and the foreground.
+    private func waitConditions(_ stage: PromotionStage, prepares: Bool = false) async -> Bool {
         var waits = 0
         while true {
             if Task.isCancelled { return false }
             let c = await env.conditions()
-            guard c.blocker(for: stage) != nil else { return true }
+            guard c.blocker(for: stage, prepares: prepares) != nil else { return true }
             waits += 1
             if waits > env.maxConditionWaits { return false }
             await env.sleep(PromotionPolicy.conditionsRecheck)
         }
+    }
+
+    /// A stage cut this many times in one run by a lock or the app's leaving goes on at the next run instead.
+    static let notNowRunsMax = 3
+
+    /// SDK 4.0.5: why a stage that prepares the program ended, when it was not the build: the device locked while it ran
+    /// (`locked`: Core ML could no longer read the program the Core wrote with complete protection, "not a valid
+    /// .mlmodelc", or the process was suspended) or the app left the foreground (`background`); nil for any other end,
+    /// which counts as before. The Core busy (`notNow` already) is its own case.
+    private func interrupted(since seen: InterruptionWatch.Count, _ f: PromotionFailure) async -> String? {
+        guard !f.notNow, !f.leaseNoAccel else { return nil }
+        guard [PromotionReason.compileError, .compileTimeout, .loadError, .hang].contains(f.reason) else { return nil }
+        let now = env.interruptions()
+        let c = await env.conditions()
+        if now.locked != seen.locked || !c.protectedData { return "locked" }
+        if now.background != seen.background || c.background { return "background" }
+        return nil
+    }
+
+    /// A stage cut by a lock or the app's leaving: nothing counted against the build, no failure recorded, no backoff,
+    /// no incident; told apart in telemetry (`not_now`). True when the run goes on with the stage again (it waits for
+    /// an unlocked device and the foreground first), false when the run ends here and the next one goes on.
+    private func notNow(_ runs: inout Int, _ stage: PromotionStage, _ why: String, _ f: PromotionFailure) -> Bool {
+        runs += 1
+        promotion(.notNow(stage: stage, why: why))
+        let again = runs <= Self.notNowRunsMax
+        SDKLatest.debugOnly("promotion: \(stage.rawValue) not now (\(why)): \(f.reason.rawValue), nothing counted; "
+            + (again ? "it runs again once the device is unlocked and the app in the foreground" : "the next run goes on from here"))
+        return again
     }
 
     private func fail(_ rec: inout PromotionRecord, _ stage: PromotionStage, _ f: PromotionFailure, reload: Bool = false) {
@@ -721,6 +794,12 @@ final class AcceleratorController: @unchecked Sendable {
         // that allows programs takes it up again (`leaseAccepted`)
         if f.leaseNoAccel { return noteDenied(&rec, Self.leaseNoAccel + ": " + f.detail) }
         hold(nil)
+        // SDK 4.0.5: the Core busy with something else (`PromotionFailure.notNow`): nothing counted, reported or
+        // changed in the record; the attempt (or the reload of a promoted key) goes on at the next run
+        if f.notNow {
+            SDKLatest.debugOnly("promotion: \(stage.rawValue) not now (\(f.detail)); the next run goes on from here")
+            return set(.cpu)
+        }
         recordFailure(&rec, stage, f, reload: reload, sameKey: true)
     }
 
@@ -815,6 +894,17 @@ final class AcceleratorController: @unchecked Sendable {
         set(.disabled(rec.lastDetail ?? "slower_than_cpu"))
     }
 
+    /// SDK 4.0.5: a sentinel an SDK before 4.0 wrote (3.1.4: `{key, stage}` only, in the same file), found at the first
+    /// launch after the app's update to 4.0. Every 4.0 sentinel has the process id, the time, the OS build, a heartbeat
+    /// and the foreground (`PromotionStore.writeSentinel`). Its process ran the old SDK, often until the update ended
+    /// it; its key (no program digest) is never this SDK's, and MetricKit's diagnostic cannot be matched to it (no pid,
+    /// no time), so 4.0.0 to 4.0.4 counted it as a crash of the old key and reported `crash_on_last_run` with the bare
+    /// evidence `{"exit":"unknown"}` after waiting 60 s for a diagnostic: 5 of the 8 incidents of 11-24 and 11-25 (one
+    /// app's update from 3.1.4 to 4.0.2). Now it is removed with nothing counted and nothing reported.
+    static func writtenBefore40(_ s: PromotionStore.Sentinel) -> Bool {
+        s.pid == nil && s.at == nil && s.osBuild == nil && s.heartbeat == nil && s.foreground == nil && s.quit == nil
+    }
+
     /// Whether a sentinel belongs to a stage under way in another process of the app now: not this process, a heartbeat
     /// (every 2 s, SentinelWatch) in the last 10 s, and its process there (a process that died stops its heartbeat; a
     /// pid used again later is ruled out by the heartbeat's age). Such a sentinel is judged at a later launch.
@@ -832,14 +922,38 @@ final class AcceleratorController: @unchecked Sendable {
         set(.cpu)
     }
 
+    /// The reason `model.backend` names for this key's demoted or held build (the record's, the codes of the incident
+    /// reports). SDK 4.0.5 (ACCEL_40 21.2, 21.6): a lease without accelerator programs (an install that is not attested,
+    /// a command-line tool, an app without the App Attest capability, or a development key's) is `not_attested`, not
+    /// `denylist`: `denylist` means the config's deny list only.
+    var backendReason: String? {
+        guard let rec = record else { return nil }
+        if Self.isLeaseNoAccel(rec) { return Self.notAttested }
+        return rec.lastReason?.rawValue
+    }
+
+    static let notAttested = PromotionReason.notAttested.rawValue
+
+    /// A record held for a lease without accelerator programs (21.6).
+    static func isLeaseNoAccel(_ rec: PromotionRecord) -> Bool {
+        rec.lastReason == .notAttested || (rec.denied && rec.lastDetail?.hasPrefix(leaseNoAccel) == true)
+    }
+
+    /// SDK 4.0.5 (ACCEL_40 21.2): whether the telemetry names a lease without accelerator programs `not_attested`. ON:
+    /// qlab-api takes the 19th reason since 2026-11-23 13:55Z (4757fd5, version ac01594d; a reason outside the server's
+    /// list refuses the whole delta). Off, it is counted `denylist`, as 4.0.2 to 4.0.4 counted it.
+    static let sendsNotAttested = Locked(true)
+
     private func noteDenied(_ rec: inout PromotionRecord, _ why: String) {
         hold(nil)
         if !rec.denied {
+            // SDK 4.0.5 (21.2): a lease without accelerator programs is `not_attested` while the switch is on (it is)
+            let reason: PromotionReason = why.hasPrefix(Self.leaseNoAccel) && Self.sendsNotAttested.withLock({ $0 }) ? .notAttested : .denylist
             rec.denied = true
-            rec.lastReason = .denylist
+            rec.lastReason = reason
             rec.lastDetail = why
             store.save(rec)
-            promotion(.demoted(.denylist))
+            promotion(.demoted(reason))
             env.record(.fallback(.other, cohort: env.cohort()))
         }
         set(.disabled(why))
@@ -913,8 +1027,6 @@ final class AcceleratorController: @unchecked Sendable {
     ///   budget (2.0.1's rule).
     /// `session` identifies the take (deadline misses are counted per session).
     func failedOver(_ f: TakeRunner.Failover, session: String = UUID().uuidString) {
-        var rec = store.record(key) ?? PromotionRecord(key: key)
-        let now = env.clock()
         promotion(.failover(cause: f.cause, stallMs: f.stallMs))
         let reason: FallbackReason = f.cause == .nonFinite ? .nonFinite : f.cause == .deadline ? .deadline : .other
         env.record(.fallback(reason, cohort: env.cohort()))
@@ -924,13 +1036,21 @@ final class AcceleratorController: @unchecked Sendable {
                                          deadlineMs: f.deadlineMs, divergence: f.divergence, stallMs: f.stallMs,
                                          revision: named(env.revision).revision, build: named(env.revision).build,
                                          context: env.context, thermal: c.thermal, lowPower: c.lowPower))
-        switch f.cause {
+        trouble(f.cause, detail: f.detail, session: session)
+    }
+
+    /// The record of the key after trouble on the accelerator in a session, by its cause (2.0.2): the failover's rule,
+    /// and a live promotion's for the same kind of trouble.
+    private func trouble(_ cause: FailoverCause, detail: String, session: String) {
+        var rec = store.record(key) ?? PromotionRecord(key: key)
+        let now = env.clock()
+        switch cause {
         case .deadline:
             var misses = (rec.missSessions ?? []).filter { now.timeIntervalSince($0.at) < PromotionPolicy.missWindow }
             if !misses.contains(where: { $0.session == session }) { misses.append(.init(session: session, at: now)) }
             if Set(misses.map(\.session)).count >= PromotionPolicy.missSessions {
                 rec.missSessions = nil
-                demoteTransient(&rec, f, now)
+                demoteTransient(&rec, cause, detail, now)
             } else {
                 // one miss: this session is on the CPU, the build stays promoted for the next one
                 rec.missSessions = misses
@@ -939,16 +1059,16 @@ final class AcceleratorController: @unchecked Sendable {
         case .blank:
             let n = (rec.disagreements ?? 0) + 1
             rec.disagreements = n
-            if n >= PromotionPolicy.disagreementsOffForGood { offForGood(&rec, f, .failover) } else { demoteTransient(&rec, f, now) }
+            if n >= PromotionPolicy.disagreementsOffForGood { offForGood(&rec, cause, detail, .failover) } else { demoteTransient(&rec, cause, detail, now) }
         case .nonFinite, .outOfRange:
-            offForGood(&rec, f, .nonFinite)
+            offForGood(&rec, cause, detail, .nonFinite)
         case .exception:
             hold(nil)
             rec.failures += 1
             rec.lastStage = nil
             rec.lastReason = .failover
-            rec.lastCause = f.cause
-            rec.lastDetail = "failover: \(f.detail)"
+            rec.lastCause = cause
+            rec.lastDetail = "failover: \(detail)"
             rec.completed = nil
             rec.attemptStarted = nil
             if rec.failures > PromotionPolicy.backoff.count {
@@ -964,22 +1084,52 @@ final class AcceleratorController: @unchecked Sendable {
         }
     }
 
+    /// A live promotion ended without a swap. What it writes into the record is the failover's
+    /// rule for the same kind of trouble (30.6): `mismatch` as a confirmed blank disagreement, `mismatch_inexact` as a
+    /// deadline miss of this session, `accel_failed` by its cause; `stalled` and `aborted` nothing. No failover is
+    /// counted and no incident is reported: no take left the accelerator (until the swap the accelerator's chunks are
+    /// never the take's). When the record takes the build back, its program is released. It is counted with the take's
+    /// tally (`liveTally`).
+    func liveEnded(_ e: TakeRunner.LiveEnd, session: String) {
+        let cause: FailoverCause
+        switch LivePromotion.recordRule(e.outcome) {
+        case nil: return
+        case .disagreement?: cause = .blank
+        case .deadlineMiss?: cause = .deadline
+        case .byCause?: cause = e.cause ?? .exception
+        }
+        lock.lock()
+        let held = executor
+        lock.unlock()
+        trouble(cause, detail: "live promotion (\(e.outcome.rawValue)): \(e.detail)", session: session)
+        lock.lock()
+        let kept = held != nil && executor === held
+        lock.unlock()
+        if let held, !kept { held.enqueue { $0.release() } }
+    }
+
+    /// A take's part of the day's `live` object (30.9), at its end.
+    func liveTally(_ t: LiveTally) {
+        guard !t.isEmpty else { return }
+        promotion(.live(t))
+    }
+
     /// A transient demotion: the build stays promoted and verified, unused for `PromotionPolicy.transientBackoff`
     /// (then loaded and warmed again, no golden test); never off for good.
-    private func demoteTransient(_ rec: inout PromotionRecord, _ f: TakeRunner.Failover, _ now: Date) {
+    private func demoteTransient(_ rec: inout PromotionRecord, _ cause: FailoverCause, _ detail: String, _ now: Date) {
         hold(nil)
         let until = now.addingTimeInterval(PromotionPolicy.transientBackoff)
         rec.backoffUntil = until
-        rec.lastCause = f.cause
+        rec.lastCause = cause
         rec.lastReason = .failover
-        rec.lastDetail = "failover: \(f.detail)"
+        rec.lastDetail = "failover: \(detail)"
         store.save(rec)
         promotion(.demoted(.failover))
         set(.disabled(Self.backoffDetail(rec, until)))
     }
 
     /// A confirmed numeric fault: never again for the key (a new model revision or OS build tries again).
-    private func offForGood(_ rec: inout PromotionRecord, _ f: TakeRunner.Failover, _ reason: PromotionReason) {
+    private func offForGood(_ rec: inout PromotionRecord, _ cause: FailoverCause, _ detail: String, _ reason: PromotionReason) {
         hold(nil)
         rec.status = .failed
         rec.notBefore = nil
@@ -988,8 +1138,8 @@ final class AcceleratorController: @unchecked Sendable {
         rec.attemptStarted = nil
         rec.lastStage = nil
         rec.lastReason = reason
-        rec.lastCause = f.cause
-        rec.lastDetail = "failover: \(f.detail)"
+        rec.lastCause = cause
+        rec.lastDetail = "failover: \(detail)"
         store.save(rec)
         promotion(.demoted(.failover))
         set(.disabled(rec.lastDetail!))
@@ -1066,11 +1216,31 @@ final class AcceleratorController: @unchecked Sendable {
 
     // MARK: helpers
 
-    /// Runs `body` and gives up waiting for it after `seconds`: a body that never returns is abandoned (it may go on in
-    /// the background; its result is dropped), unlike a task group, which would wait for it.
+    /// The clock of a stage's time limit (`race`): it counts the time this process ran, in steps of `step` seconds, and
+    /// a step whose wait took more than `step + stalled` counts only `step`: the process did not run for the rest
+    /// (the app suspended in the background, the device asleep), and neither did the stage's work.
+    struct RunClock: Sendable {
+        var now: @Sendable () -> TimeInterval
+        var step: TimeInterval = 1
+        var stalled: TimeInterval = 5
+        static let live = RunClock(now: { ProcessInfo.processInfo.systemUptime })
+    }
+
+    /// The clock `race` uses (tests set a fake one).
+    static let runClock = Locked(RunClock.live)
+
+    /// Runs `body` and gives up waiting for it after `seconds` of the process's running time (`RunClock`): a body that
+    /// never returns is abandoned (it may go on in the background; its result is dropped), unlike a task group, which
+    /// would wait for it. SDK 4.0.5: until 4.0.4 the limit was wall time, so a compile the system suspended with the
+    /// app (the learner left the app for a few minutes) ended as `compile_timeout` or a 600 s load at the first moment
+    /// back. How many of the 4.0.x timeouts that explains is not known (a timeout report carries no foreground): of the
+    /// 14 compile timeouts of the 7 days to 2026-11-25, 7 were on A14 and A20, chips whose program never promotes
+    /// (A14) or fails the golden test (A20), so most look like a compile that does not end; 225 of the 235 compiles
+    /// that completed took 120 s or less. This makes the limit mean what it says; it is not the fix for those.
     static func race<T: Sendable>(_ seconds: TimeInterval, onTimeout: PromotionFailure,
                                   _ body: @escaping @Sendable () async throws(PromotionFailure) -> T) async -> Result<T, PromotionFailure> {
         let gate = Locked(false)
+        let clock = runClock.withLock { $0 }
         return await withCheckedContinuation { (c: CheckedContinuation<Result<T, PromotionFailure>, Never>) in
             let first: @Sendable (Result<T, PromotionFailure>) -> Void = { r in
                 let win = gate.withLock { (done: inout Bool) -> Bool in
@@ -1081,7 +1251,17 @@ final class AcceleratorController: @unchecked Sendable {
                 if win { c.resume(returning: r) }
             }
             let timer = Task {
-                try? await Task.sleep(nanoseconds: UInt64(max(0, seconds) * 1e9))
+                var counted: TimeInterval = 0
+                var last = clock.now()
+                while counted < seconds {
+                    let step = min(max(0.001, clock.step), seconds - counted)
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, step) * 1e9))
+                    if Task.isCancelled { return }
+                    let now = clock.now()
+                    let waited = max(0, now - last)
+                    last = now
+                    counted += waited > step + clock.stalled ? step : waited
+                }
                 if !Task.isCancelled { first(.failure(onTimeout)) }
             }
             Task {
@@ -1222,10 +1402,12 @@ enum AcceleratorRegistry {
 
 extension QuranLab {
     #if canImport(BackgroundTasks) && os(iOS)
-    /// Lets the app run the Neural Engine's promotion (download, compile, golden test) while the device is idle and
-    /// charging: call once at launch, before the app finishes launching, with an identifier listed in the app's
-    /// `BGTaskSchedulerPermittedIdentifiers`. Without it, the SDK runs it after the first finished session (or after a
-    /// short idle delay), at background priority.
+    /// Lets the app run the Neural Engine's promotion while the device is idle and charging: call once at launch, before
+    /// the app finishes launching, with an identifier listed in the app's `BGTaskSchedulerPermittedIdentifiers`. Without
+    /// it, the SDK runs it after the first finished session (or after a short idle delay), at background priority.
+    /// SDK 4.0.5: in such a task only the download runs; the compile and the load wait for the app in the foreground
+    /// with the device unlocked (`PromotionConditions.blocker`), which a task while charging seldom has. Until 4.0.4 the
+    /// task compiled too, and on a locked device that always failed.
     static func registerAcceleratorPreparation(identifier: String) {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
             let box = UncheckedBox(task)

@@ -86,28 +86,36 @@ struct CDNClient: Sendable {
     /// refusal and of a served request. `validator` is the ETag of the answer that started the partial file, sent
     /// as `If-Range`: a file that changed on the server then comes whole (a 200) and replaces the partial file.
     /// `hash`: the partial file's SHA-256 as its bytes are written (`HTTPClient.stream`).
+    /// SDK 4.0.5: `control` and `hedge`, see `HTTPClient.stream`. `exact`: a range of section 35, always
+    /// `bytes=lower-upper`, never `If-Range` (35.1).
     func stream(_ url: URL, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL, hash: PartHasher? = nil,
+                control: StreamControl? = nil, hedge: HedgeTicket? = nil, exact: Bool = false,
                 started: @Sendable (_ headers: [String: String], _ whole: Bool) -> Void,
                 received: @Sendable (Int64) -> Void) async throws(CloudError) -> HTTPClient.Streamed {
-        let range = Self.range(lower: lower, upper: upper, size: size)
+        let range = exact ? "bytes=\(lower)-\(upper)" : Self.range(lower: lower, upper: upper, size: size)
         func request(_ token: String) -> URLRequest {
-            Self.request(url, range: range, key: auth.key, token: token, ifRange: range == nil ? nil : validator)
+            Self.request(url, range: range, key: auth.key, token: token, ifRange: range == nil || exact ? nil : validator)
         }
         let token = try await auth.token(false)
         do throws(CloudError) {
-            let answer = try await http.stream(request(token), offset: lower, size: size, into: part, hash: hash, started: started, received: received)
+            let answer = try await http.stream(request(token), offset: lower, size: size, into: part, hash: hash, control: control, hedge: hedge,
+                                               started: started, received: received)
             accepted()
             if let p = answer.networkProtocol { protocolSeen(p) }
             return answer
         } catch {
             guard case .rejected(401, "invalid_token", _, let reason) = error, !ModelGate.stops(reason: reason) else {
+                // a request that lost its hedge, or that the installer ended, is no answer of the server
+                if case .offline(let m) = error, m == HTTPClient.hedgeLost { throw error }
+                if control?.cancelledByUs == true { throw error }
                 refused(error)
                 throw error
             }
         }
         let renewed = try await auth.token(true)
         do throws(CloudError) {
-            let answer = try await http.stream(request(renewed), offset: lower, size: size, into: part, hash: hash, started: started, received: received)
+            let answer = try await http.stream(request(renewed), offset: lower, size: size, into: part, hash: hash, control: control, hedge: hedge,
+                                               started: started, received: received)
             accepted()
             if let p = answer.networkProtocol { protocolSeen(p) }
             return answer
@@ -176,12 +184,24 @@ struct CDNClient: Sendable {
         // folder of the lease held for the build when there is one, else the build's folder under `base` (the path
         // every lease names for it; the Core accepts a lease against the signed manifest, so the first lease of a
         // build needs its manifest first). A manifest that does not verify is unreachable on that host (28.3).
+        // SDK 4.0.5: the signed manifest of the build asked for that does not run on this SDK (model_incompatible: a
+        // plain build for SDK 3, a newer minimum) is this host's answer. Its bytes are the build's own (their SHA-256
+        // starts with the build), the same on every host, so no other host is asked for it.
+        // Tried before (4.0.1 to 4.0.4): it was unreachable, so every other host was asked, and the call failed on the
+        // first host's answer with fallback true, as if that host had failed.
         let folder = build.flatMap { leaseFolder($0) }
         let url = folder.map { $0.appendingPathComponent(ModelManifest.fileName) } ?? fileURL(id, revision: revision, path: ModelManifest.fileName)
         let verifier = self.verifier
         do throws(CloudError) {
             resp = try await send(url, accept: { (a: HTTPClient.Response) -> Bool in
-                (200..<300).contains(a.status) && (try? ModelManifest.accept(a.body, verifier: verifier, build: build, version: version)) != nil
+                guard (200..<300).contains(a.status) else { return false }
+                do throws(RecognizerError) {
+                    _ = try ModelManifest.accept(a.body, verifier: verifier, build: build, version: version)
+                    return true
+                } catch {
+                    if build != nil, case .modelIncompatible(_) = error { return true }
+                    return false
+                }
             })
         } catch {
             if case .rejected(status: 404, _, _, _) = error {
@@ -197,8 +217,11 @@ struct CDNClient: Sendable {
     /// Stored files of one build, by HTTP Range, from `base`: the model folder the build's lease answer named (SDK 4.0,
     /// `ProtectedRuntime.acceptedBase`: https and Quran Lab's own hosts only). There is no other source of files.
     func source(_ id: ModelID, revision: String, base: URL) -> CDNFileSource {
-        CDNFileSource(client: self, id: id, revision: revision, base: base,
-                      hosts: http.endpoints.flatMap { e in Endpoints.origin(of: base).map { FileHosts(endpoints: e, base: $0) } })
+        let hosts = http.endpoints.flatMap { e in Endpoints.origin(of: base).map { FileHosts(endpoints: e, base: $0) } }
+        // SDK 4.0.5 (34.9.7): the moves and outcomes go where the per-host counts go
+        let sink = http.modelSink
+        hosts?.trace.tell.withLock { $0 = { e in sink.withLock { $0 }?(e) } }
+        return CDNFileSource(client: self, id: id, revision: revision, base: base, hosts: hosts)
     }
 }
 
@@ -229,32 +252,192 @@ struct CDNFileSource: StreamingModelFileSource {
         return (Endpoints.rehost(url(path), to: origin), host, HostValidator.etag(validator, for: host, legacyHost: own))
     }
 
+    /// SDK 4.0.5 (34.4 `HEDGE_S`): how long the file's request waits for its status before the same request also goes to
+    /// the next host of the order. A test build may set it; a released build may not.
+    static let hedgeAfter = Locked<TimeInterval>(1.5)
+
     /// One attempt of a range of `path`, written to `part` as it arrives. SDK 4.0.1: on the host `FileHosts` says;
     /// the validator kept is the answer's strong ETag with the host that gave it (`HostValidator`).
+    /// SDK 4.0.5 (34.4): when no status has come `hedgeAfter` after it was sent, the same request (without `If-Range`, 28.4)
+    /// also goes to the next host of the file's order, and the first status that is taken, a refusal or a slow down is
+    /// the attempt's; the other request is cancelled before it writes a byte. An unreachable status decides nothing.
+    /// When both are unreachable, the file's next attempt goes to the host after both.
     func stream(_ path: String, lower: Int64, upper: Int64, size: Int64, validator: String?, into part: URL, hash: PartHasher?,
-                started: @Sendable (_ validator: String?, _ whole: Bool) -> Void,
-                received: @Sendable (Int64) -> Void) async throws(RecognizerError) -> StreamedRange {
+                control: StreamControl?,
+                started: @escaping @Sendable (_ validator: String?, _ whole: Bool) -> Void,
+                received: @escaping @Sendable (Int64) -> Void) async throws(RecognizerError) -> StreamedRange {
         let (url, host, ifRange) = attempt(path, validator: validator)
         let keepsHost = hosts != nil
-        do throws(CloudError) {
-            let answer = try await client.stream(url, lower: lower, upper: upper, size: size, validator: ifRange, into: part, hash: hash,
-                                                 started: { headers, whole in
-                                                     let etag = Self.strong(HTTPClient.header(headers, "etag"))
-                                                     started(keepsHost ? HostValidator.make(host, etag) : etag, whole)
-                                                 },
-                                                 received: received)
-            hosts?.answered(path, .taken)
+        // SDK 4.0.5 (34.9.7): the attempt asks this host (a move when the file's order left another for it)
+        let name = Endpoints.asciiLower(host)
+        hosts?.trace.asking(path, name)
+        func once(_ url: URL, _ host: String, _ ifRange: String?, _ ticket: HedgeTicket?) async -> Result<HTTPClient.Streamed, CloudError> {
+            do throws(CloudError) {
+                return .success(try await client.stream(url, lower: lower, upper: upper, size: size, validator: ifRange, into: part, hash: hash,
+                                                        control: control, hedge: ticket,
+                                                        started: { headers, whole in
+                                                            let etag = Self.strong(HTTPClient.header(headers, "etag"))
+                                                            started(keepsHost ? HostValidator.make(host, etag) : etag, whole)
+                                                        },
+                                                        received: received))
+            } catch {
+                return .failure(error)
+            }
+        }
+        // 34.4: a second host to hedge to, when the order has one
+        guard let hosts, let second = hosts.next(path), second != Endpoints.origin(of: url) else {
+            return try finish(path, await once(url, host, ifRange, nil), control: control, first: nil, host: name, lower: lower, size: size)
+        }
+        let secondName = Endpoints.asciiLower(second.host ?? "")
+        let gate = HedgeGate()
+        let one = HedgeTicket(gate, 1), two = HedgeTicket(gate, 2)
+        let firstKey = SplitHosts.key(url)
+        // the hedged-away first host is out for the split's decide before the second's answer is taken (`host_out`)
+        gate.onSecond = { control?.hostOut(firstKey, "unreachable") }
+        let firstDone = Locked(false)
+        let firstTask = Task { () -> Result<HTTPClient.Streamed, CloudError> in
+            let r = await once(url, host, ifRange, one)
+            firstDone.withLock { $0 = true }
+            return r
+        }
+        gate.register(1) { firstTask.cancel() }
+        let wait = Self.hedgeAfter.withLock { $0 }
+        let began = Date()
+        var secondTask: Task<Result<HTTPClient.Streamed, CloudError>, Never>?
+        // the first request's status, its end, or the hedge's time, whichever comes first
+        while !Task.isCancelled, !one.answered.withLock({ $0 }), !firstDone.withLock({ $0 }) {
+            let left = wait - Date().timeIntervalSince(began)
+            if left <= 0 {
+                one.hedged.withLock { $0 = true }
+                let url2 = Endpoints.rehost(self.url(path), to: second)
+                let t = Task { await once(url2, second.host ?? "", nil, two) }
+                gate.register(2) { t.cancel() }
+                secondTask = t
+                break
+            }
+            try? await Task.sleep(nanoseconds: UInt64(min(left, 0.025) * 1_000_000_000))
+        }
+        let r1 = await withTaskCancellationHandler { await firstTask.value } onCancel: {
+            firstTask.cancel()
+        }
+        guard let secondTask else { return try finish(path, r1, control: control, first: nil, host: name, lower: lower, size: size) }
+        // the first ended unreachable while the second was out: the second decides in turn
+        let r2 = await withTaskCancellationHandler { await secondTask.value } onCancel: { secondTask.cancel() }
+        let winner = gate.decided
+        if winner == 2 {
+            // the first host had no status, or was unreachable: the file's next attempt is the second's host
+            // 34.9.7: a move to the second host: the first's class when it ended unreachable, else `hedge`
+            if case .failure(let e1) = r1, !Self.lost(e1), !Task.isCancelled {
+                hosts.failed(path, e1)
+                hosts.trace.moved(path, from: name, to: secondName, why: FailClass.ofFailure(e1) ?? "no_answer")
+            } else {
+                hosts.moved(path, to: second)
+                hosts.trace.moved(path, from: name, to: secondName, why: "hedge")
+            }
+            return try finish(path, r2, control: control, first: nil, host: secondName, lower: lower, size: size)
+        }
+        if winner == 1 { return try finish(path, r1, control: control, first: nil, host: name, lower: lower, size: size) }
+        // nothing decided: both were unreachable (or the call was cancelled); the order goes on after both
+        var e2: CloudError?
+        if case .failure(let e) = r2 { e2 = e }
+        if Task.isCancelled {
+            if case .failure(let e1) = r1 { throw e1.recognizerError }
+            throw RecognizerError.cancelled
+        }
+        // 34.9.7: the order went to the second host when the first ended unreachable, then on after both
+        if case .failure(let e1) = r1 { hosts.trace.moved(path, from: name, to: secondName, why: FailClass.ofFailure(e1) ?? "no_answer") }
+        return try finish(path, r1, control: control, first: e2, host: name, lower: lower, size: size, otherHost: secondName)
+    }
+
+    /// A request that lost its hedge: no answer of its host.
+    private static func lost(_ e: CloudError) -> Bool {
+        if case .offline(let m) = e { return m == HTTPClient.hedgeLost }
+        return false
+    }
+
+    /// What an attempt's answer is to the file's hosts (28.3, 28.4): taken, its host becomes P; failed, the next host.
+    /// `first`: the other request of a hedge whose host was unreachable too, so the next attempt goes after both.
+    /// SDK 4.0.5 (34.9.7): `host`, the name of the host whose answer `result` is (and `otherHost`, the other request's);
+    /// `lower` and `size`, so the request that brought the file's last byte is known.
+    private func finish(_ path: String, _ result: Result<HTTPClient.Streamed, CloudError>, control: StreamControl?,
+                        first other: CloudError?, host: String, lower: Int64, size: Int64,
+                        otherHost: String? = nil) throws(RecognizerError) -> StreamedRange {
+        switch result {
+        case .success(let answer):
+            if answer.whole || lower + answer.written >= size { hosts?.trace.lastByte(path, host) }
+            // a cut of section 35 is the request's end at its byte: its host answered, and is not failed; P stays what
+            // the decide made it (35.8)
+            hosts?.answered(path, .taken, settle: !answer.cut)
             if let hosts { RequestTrace.note(.models, fallback: hosts.fellBack) }
-            return StreamedRange(whole: answer.whole, written: answer.written)
-        } catch {
+            return StreamedRange(whole: answer.whole, written: answer.written, cut: answer.cut)
+        case .failure(let error):
             guard let hosts else { throw error.recognizerError }
+            // SDK 4.0.5: a request its caller cancelled (the call, the app leaving, a cut of section 35)
+            // is no answer of its host. It is not unreachable: the file stays on that host, and no failover is told.
+            // Until 4.0.4 a cancel moved the file to the next host and recorded a failover (`lastFailover`).
+            if Task.isCancelled || control?.cancelledByUs == true || Self.lost(error) { throw error.recognizerError }
             hosts.failed(path, error)
+            // 34.9.7: an unreachable host is left (a move when the next attempt asks another host); a refusal or a 429
+            // ends the file's request on its host
+            let unreachable = FileHosts.answerClass(error) == .unreachable
+            if other == nil {
+                if unreachable { hosts.trace.left(path, host, cls: FailClass.ofFailure(error)) } else { hosts.trace.failed(path, cls: FailClass.ofFailure(error)) }
+            }
+            if unreachable, let key = control?.host ?? hosts.lastAsked(path).map({ SplitHosts.key($0) }) {
+                control?.hostOut(key, "unreachable")
+            }
+            if let other {
+                hosts.failed(path, other)
+                hosts.trace.left(path, otherHost ?? host, cls: FailClass.ofFailure(other))
+            }
             // the cause of a download that fails names the files' role and whether a file was asked of more than one
             // host (24.2)
             RequestTrace.note(.models, fallback: hosts.fellBack)
             // 28.3: a redirect and a 4xx that is not the API's are unreachable, resumed on the next host like no answer
             throw FileHosts.resumable(error).recognizerError
         }
+    }
+
+    /// SDK 4.0.5 (STEERING_40 34.9.7): a file's download ended, and the download's.
+    func fileEnded(_ path: String, _ how: DownloadTrace.FileEnd) { hosts?.trace.fileEnded(path, how) }
+    func downloadEnded(ready: Bool) { hosts?.trace.downloadEnded(ready: ready) }
+    /// 34.5's cut for slowness moved the file from `from` to `to` (keys of `SplitHosts`).
+    func slowMove(_ path: String, from: String, to: String) {
+        hosts?.trace.moved(path, from: SplitHosts.name(from), to: SplitHosts.name(to), why: "slow")
+    }
+
+    /// SDK 4.0.5 (34.9.1): the host (its name) the last attempt of `path` went to, the one that brought its last byte.
+    func lastHost(_ path: String) -> String? {
+        guard let hosts else { return base.host }
+        return hosts.host(for: path).host
+    }
+
+    /// SDK 4.0.5 (section 35): the models order in force for `path` (28.3, as `FileHosts` fixed it), as origins.
+    func splitOrigins(_ path: String) -> [URL] {
+        guard let hosts else { return Endpoints.origin(of: base).map { [$0] } ?? [] }
+        return hosts.order(path)
+    }
+
+    /// SDK 4.0.5 (35.6 `host_out`): the hosts of the order a Retry-After holds for `path` now (28.11), as keys.
+    func heldKeys(_ path: String) -> [String] {
+        guard let hosts else { return [] }
+        let endpoints = hosts.endpoints
+        let route = RetryAfterHolds.route(of: url(path), role: .models)
+        return hosts.order(path).filter { endpoints.holds.hold(route, host: $0, now: endpoints.clock()) != nil }.map { SplitHosts.key($0) }
+    }
+
+    /// SDK 4.0.5 (35.6 `start`): a range of section 35 of `path` on `origin`: `Range: bytes=lower-(end-1)` of the
+    /// control, the request's usual headers, never `If-Range`; written to the control's own file. No bookkeeping of 28.3:
+    /// a range never makes its host P, and its failure moves no file to another host (the decide does).
+    func range(_ path: String, origin: URL, size: Int64, control: StreamControl,
+               received: @escaping @Sendable (Int64) -> Void = { _ in }) async throws(CloudError) -> HTTPClient.Streamed {
+        guard let side = control.side else { throw .invalid("a range without its file") }
+        let u = Endpoints.rehost(url(path), to: origin)
+        let answer = try await client.stream(u, lower: control.lower, upper: control.end - 1, size: size, validator: nil, into: side, hash: nil,
+                                             control: control, exact: true, started: { _, _ in }, received: received)
+        // 34.9.7: a range that ran to the end of the file brought its last byte
+        if control.end == size, control.lower + answer.written >= size, let h = origin.host { hosts?.trace.lastByte(path, Endpoints.asciiLower(h)) }
+        return answer
     }
 
     /// The request of one stretch of `path` for a background task: on the host the next attempt of the file asks, with

@@ -31,6 +31,8 @@ final class LeaseFailoverTests: XCTestCase {
 
         var servers: [String: HostServer] = [:]
         var runtime: ProtectedRuntime!
+        /// The Core's saved state of the rig's folder (a runtime made on it in a test shares the Core's lease).
+        var state: P.MemoryState!
         let manifest: ModelManifest
         let clocks: P.MovingClocks
         let answer: [String: Any]
@@ -44,6 +46,8 @@ final class LeaseFailoverTests: XCTestCase {
         /// new process on the same storage (a runtime over a new HTTP client that reads the holds back).
         let now = Locked(Date(timeIntervalSince1970: 1_800_000_000))
         var restart: (() -> ProtectedRuntime)?
+        /// Called with each request's route as a host gets it, before it answers (on the host's thread).
+        let onRequest = Locked<(@Sendable (String) -> Void)?>(nil)
 
         init(manifest: ModelManifest, clocks: P.MovingClocks, answer: [String: Any], lease: Data, key: SoftwareInstallKey,
              signer: (public: Data, private: Curve25519.Signing.PrivateKey)) {
@@ -138,7 +142,7 @@ final class LeaseFailoverTests: XCTestCase {
     /// the Core's test release. The install starts with its certificate (the vectors' attempts do); a new one (after
     /// install_cert_invalid) and a renewed token ask `POST /v1/attest` through the api order, as the Client's token
     /// provider does (the vector's `attest` and `token` routes).
-    func rig(holds: Bool = false) throws -> Rig {
+    func rig(holds: Bool = false, owed: Locked<Bool>? = nil) throws -> Rig {
         guard CoreHost.version.hasPrefix("4.0.0-c1 ") else {
             throw XCTSkip("the linked Core is \(CoreHost.version), not the test release 4.0.0-c1")
         }
@@ -166,6 +170,7 @@ final class LeaseFailoverTests: XCTestCase {
                     defer { l.append((name, route, r.json)) }
                     return l.filter { $0.route == route }.count
                 }
+                rig.onRequest.withLock { $0 }?(route)
                 return rig.answer(route, n, name)
             }
         }
@@ -184,7 +189,7 @@ final class LeaseFailoverTests: XCTestCase {
         let http = makeHTTP()
         let apiURL = try XCTUnwrap(rig.servers[Self.names[0]]).origin
         let certified = Locked(0)
-        let server = LeaseServer(transport: http, apiURL: apiURL, key: "qlk_v1_apps-one_sig", platform: "ios",
+        var server = LeaseServer(transport: http, apiURL: apiURL, key: "qlk_v1_apps-one_sig", platform: "ios",
                                  token: { (renew: Bool) async throws(CloudError) -> String in
                                      if renew { _ = try await http.send(URLRequest(url: apiURL.appendingPathComponent("v1/attest"))) }
                                      return "qlt_test"
@@ -195,10 +200,17 @@ final class LeaseFailoverTests: XCTestCase {
                                          return n > 0
                                      }
                                      if again { _ = try await http.send(URLRequest(url: apiURL.appendingPathComponent("v1/attest"))) }
+                                     // an attestation owed (40.2): the certificate's attestation pays it
+                                     owed?.withLock { $0 = false }
                                      return cert
                                  },
                                  trustedKeys: [signer.public])
+        if let owed {
+            server.attestationOwedAndDue = { _ in owed.withLock { $0 } }
+            server.attestationOwed = { owed.withLock { $0 } }
+        }
         rig.runtime = ProtectedRuntime(storage: storage, server: server, keys: P.FixedKeys(key), state: state, clocks: clocks)
+        rig.state = state
         rig.restart = {
             let next = LeaseServer(transport: makeHTTP(), apiURL: server.apiURL, key: server.key, platform: server.platform,
                                    token: server.token, certify: server.certify, trustedKeys: server.trustedKeys)
@@ -350,6 +362,209 @@ final class LeaseFailoverTests: XCTestCase {
         _ = try await slow.runtime.ensureLease(slow.manifest)
         let s = try XCTUnwrap(slowSilent.withLock { $0 }.last { $0.reason == "grace" }, "\(slowSilent.withLock { $0 })")
         XCTAssertEqual([s.hostRole ?? "-", s.fallback.map { $0 ? "true" : "false" } ?? "-"], ["api", "false"])
+    }
+
+    // MARK: SDK 4.0.5, contract ATTEST_40.md 40.5 and 40.6 (UNTESTED on the Mac when written, 11-25)
+
+    /// Every api host answers 200 with a lease the Core refuses (the 2026-11-24 reports, "lease, expired, -5", had no
+    /// more than that): each host is asked (28.5), and the cause names the check the Core's refusal is (not the status),
+    /// reason invalid_answer, status 200, role api, fallback true, and a chain with one hop per host (first, then the
+    /// standbys, never a name). The app's code is download_failed: an answer is never needs_connection (24.4 rule 2).
+    /// SDK 4.0.5 (ATTEST_40.md 40.2 item 4): no model on the device yet, the app asked for one that did not come, an
+    /// attestation owed: the network coming back attests and leases in the background, with no call of the app, for the
+    /// build the config names (its manifest found with no model file). Before the app asked for a model, nothing goes out.
+    func testTheNetworkBackLeasesBeforeAnyModelIsOnTheDevice() async throws {
+        let owed = Locked(true)
+        let rig = try rig(owed: owed)
+        defer { rig.stop() }
+        AttestPolicy.timeScale.withLock { $0 = 0.001 }
+        defer { AttestPolicy.timeScale.withLock { $0 = 1 } }
+        rig.serve(Self.healthy(rig))
+        let m = rig.manifest
+        let found = Locked(0)
+        rig.runtime.leaseManifest = { found.withLock { $0 += 1 }; return m }
+        // the app has not asked for a model in this process: nothing is asked
+        rig.runtime.attestIfOwed(nil, networkBack: true)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(found.withLock { $0 }, 0)
+        XCTAssertEqual(rig.asked(), [], "nothing before the app asked for a model")
+        // the app asked (its model() failed with no network); the network comes back
+        rig.runtime.modelWanted()
+        rig.runtime.networkBack()
+        let t0 = Date()
+        while !rig.runtime.status().valid, Date().timeIntervalSince(t0) < 20 { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertTrue(rig.runtime.status().valid, "the lease came by itself")
+        XCTAssertFalse(owed.withLock { $0 }, "the attestation was made")
+        XCTAssertEqual(found.withLock { $0 }, 1, "the manifest was found once")
+        XCTAssertEqual(rig.asked("model-key"), [Self.names[0]])
+        XCTAssertEqual(Set(rig.log.withLock { $0 }.map(\.route)).subtracting(["challenge", "model-key", "attest"]), [], "no model file")
+        // nothing more is owed: the next network back asks nothing
+        let before = rig.asked().count
+        rig.runtime.attestIfOwed(nil, networkBack: true)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(rig.asked().count, before)
+    }
+
+    /// SDK 4.0.5: a background try that finds no manifest (no config yet, the CDN unreachable) waits 30 s, doubling,
+    /// before the next of the minute's timer; the network coming back does not wait.
+    func testABackgroundTryWithNoManifestWaitsBeforeTheNext() async throws {
+        let owed = Locked(true)
+        let rig = try rig(owed: owed)
+        defer { rig.stop() }
+        rig.serve(Self.healthy(rig))
+        let found = Locked(0)
+        rig.runtime.leaseManifest = { found.withLock { $0 += 1 }; return nil }
+        rig.runtime.modelWanted()
+        rig.runtime.attestIfOwed(nil)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        rig.runtime.attestIfOwed(nil)
+        rig.runtime.attestIfOwed(nil)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(found.withLock { $0 }, 1, "the timer's tries wait 30 s after one that found none")
+        rig.runtime.attestIfOwed(nil, networkBack: true)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(found.withLock { $0 }, 2, "the network coming back tries at once")
+        XCTAssertEqual(rig.asked(), [], "no lease without a manifest")
+    }
+
+    func testALeaseEveryHostGaveAndTheCoreRefusedNamesItsCheckAndItsHops() async throws {
+        let rig = try rig()
+        defer { rig.stop() }
+        rig.serve(["challenge": [Self.names[0]: rig.reply("challenge", ["status": 200, "body": "json"])],
+                   "model-key": Dictionary(uniqueKeysWithValues: Self.names.map { ($0, rig.reply("model-key", ["status": 200, "body": "json", "core": "refused"])) })])
+        do {
+            _ = try await rig.runtime.ensureLease(rig.manifest)
+            XCTFail("no lease the Core takes")
+        } catch {}
+        XCTAssertEqual(rig.asked("model-key"), Self.names, "every host asked")
+        let c = try XCTUnwrap(rig.runtime.lastFailure.withLock { $0 }?.cause)
+        XCTAssertEqual([c.stage, c.reason, c.hostRole ?? "-"], ["lease", "invalid_answer", "api"])
+        XCTAssertEqual(c.httpStatus, 200)
+        XCTAssertEqual(c.fallback, true)
+        let check = try XCTUnwrap(c.errorCode)
+        XCTAssertTrue(AnswerCheck.isCheck(check) && !check.hasPrefix("-"), check)
+        let hops = try XCTUnwrap(c.chain).filter { $0.stage == "lease" && $0.reason == "invalid_answer" }
+        XCTAssertEqual(hops.map { $0.host ?? "-" }, ["first", "standby", "standby", "standby"])
+        XCTAssertTrue(hops.allSatisfy { $0.errorCode == check && $0.httpStatus == 200 })
+        XCTAssertEqual(ErrorRules.modelCallCode(c, onDevice: .complete), "download_failed")
+        // diagnose() names it too
+        let d = rig.runtime.diagnosis()
+        XCTAssertEqual(d.lastFailure?.errorCode, check)
+        XCTAssertEqual(d.lastFailure?.chain.count, 4)
+    }
+
+    // MARK: SDK 4.0.5, contract ATTEST_40.md 40.2 item 10 (UNTESTED on the Mac when written, 11-25)
+
+    /// Two install keys: the rig's (generation 1) and the next one (2), current once promoted.
+    final class TwoKeys: InstallKeySource, @unchecked Sendable {
+        let first: any InstallKey, second: any InstallKey
+        let promoted = Locked(false)
+        init(_ first: any InstallKey, _ second: any InstallKey) { self.first = first; self.second = second }
+        func current() -> (any InstallKey)? { promoted.withLock { $0 } ? second : first }
+        var generation: Int { promoted.withLock { $0 } ? 2 : 1 }
+        func makeNext() -> (key: any InstallKey, generation: Int)? { (second, 2) }
+        func promote(_ key: any InstallKey, generation: Int) { if generation == 2 { promoted.withLock { $0 = true } } }
+        func discard(generation: Int) {}
+    }
+
+    /// An App Attest certificate for `key`, signed by the contract's test signer.
+    static func attestedCertificate(for key: any InstallKey, signer: Curve25519.Signing.PrivateKey, now: Int64) throws -> String {
+        let text = "quranlab-install-cert 1\napp ios:ai.quranlab.sdk.tests\nplatform ios\nkey apps-one\ninstall \(key.installHash)\n"
+            + "sign \(Data(SHA256.hash(data: key.spki)).hex)\natt apple\nhw 1\niat \(now - 100)\nexp \(now + 30 * 86_400)\nrecheck 0\nbatch -\ndigest -\n"
+        return Data(text.utf8).base64URL + "." + (try signer.signature(for: Data(text.utf8))).base64URL
+    }
+
+    /// The upgrade of a capped install (an app whose lease needs no attestation): the attestation succeeds, the full lease
+    /// does not come (503 on every api host). The capped lease, its certificate and its key stay in force and keep the
+    /// model's lease valid; the full lease was asked with the NEXT key; the keys are not switched; the next try reuses the
+    /// attested certificate (no second attestation) and the attestation is owed again for a restart.
+    func testAnUpgradeWhoseFullLeaseFailsKeepsTheCappedLease() async throws {
+        let rig = try rig()
+        defer { rig.stop() }
+        rig.serve(Self.healthy(rig))
+        _ = try await rig.runtime.ensureLease(rig.manifest)
+        XCTAssertTrue(rig.runtime.hasValidLease(build: rig.manifest.build))
+        let next = SoftwareInstallKey(P256.KeyAgreement.PrivateKey())
+        let keys = TwoKeys(rig.key, next)
+        let attested = try Self.attestedCertificate(for: next, signer: rig.signer.private, now: rig.clocks.wallMs() / 1000)
+        let asked = Locked(0), owedAgain = Locked<[Int]>([])
+        var server = try XCTUnwrap(rig.runtime.server)
+        server.attestRequired = { false }
+        server.upgrade = { (_: any InstallKey) async throws(CloudError) -> String in
+            asked.withLock { $0 += 1 }
+            return attested
+        }
+        server.oweAttestationAfter = { (s: Int) in owedAgain.withLock { $0.append(s) } }
+        let runtime = ProtectedRuntime(storage: rig.runtime.storage, server: server, keys: keys, state: rig.state, clocks: rig.clocks)
+        rig.clear()
+        rig.serve(["challenge": [Self.names[0]: rig.reply("challenge", ["status": 200, "body": "json"])],
+                   "model-key": Dictionary(uniqueKeysWithValues: Self.names.map { ($0, HostServer.Reply.json(["error": "service_unavailable"], status: 503)) })])
+        for round in 1...2 {
+            do {
+                _ = try await runtime.upgradeLease(rig.manifest, server)
+                XCTFail("round \(round): no full lease")
+            } catch {}
+            XCTAssertFalse(keys.promoted.withLock { $0 }, "round \(round): the keys are not switched")
+            XCTAssertTrue(runtime.hasValidLease(build: rig.manifest.build), "round \(round): the capped lease is still in force")
+            XCTAssertTrue(runtime.leaseCanOpen(), "round \(round): the model still opens")
+        }
+        let sent = rig.log.withLock { $0.filter { $0.route == "model-key" }.compactMap { $0.body?["install_key"] as? String } }
+        XCTAssertFalse(sent.isEmpty)
+        XCTAssertTrue(sent.allSatisfy { $0 == next.spki.base64URL }, "the full lease is asked with the next key")
+        XCTAssertEqual(asked.withLock { $0 }, 1, "the next try reuses the attested certificate")
+        XCTAssertEqual(owedAgain.withLock { $0.count }, 2, "owed again after each failed try")
+        XCTAssertEqual(runtime.retryState, LeaseRetry(), "the capped lease's own row does not move")
+    }
+
+    /// 40.2 item 10 and Core c3's counter (CoreStateGate): while an upgrade try asks the full lease, the capped Core
+    /// writes nothing (its ticks during the request, two per request here, are held back), so the try's Core, made when
+    /// the try began, can never save below the counter. The try fails on every host: the held saves are written, the
+    /// gate is open again, and a Core made from the saved state over the capped key (a restart) holds the capped lease.
+    func testTheCappedCoreSavesNothingDuringAnUpgradeTryAndWritesItsSavesAfterIt() async throws {
+        let rig = try rig()
+        defer { rig.stop() }
+        rig.serve(Self.healthy(rig))
+        _ = try await rig.runtime.ensureLease(rig.manifest)
+        let next = SoftwareInstallKey(P256.KeyAgreement.PrivateKey())
+        let keys = TwoKeys(rig.key, next)
+        let attested = try Self.attestedCertificate(for: next, signer: rig.signer.private, now: rig.clocks.wallMs() / 1000)
+        var server = try XCTUnwrap(rig.runtime.server)
+        server.attestRequired = { false }
+        server.upgrade = { (_: any InstallKey) async throws(CloudError) -> String in attested }
+        server.oweAttestationAfter = { (_: Int) in }
+        let runtime = ProtectedRuntime(storage: rig.runtime.storage, server: server, keys: keys, state: rig.state, clocks: rig.clocks)
+        _ = rig.runtime.status()
+        let before = rig.state.counter()
+        let during = Locked<[UInt64]>([])
+        let capped = rig.runtime!, state = rig.state!
+        rig.onRequest.withLock {
+            $0 = { (route: String) in
+                guard route == "model-key" else { return }
+                XCTAssertTrue(capped.status().valid, "the capped lease is in force during the try")
+                _ = capped.status()
+                during.withLock { $0.append(state.counter()) }
+            }
+        }
+        rig.clear()
+        rig.serve(["challenge": [Self.names[0]: rig.reply("challenge", ["status": 200, "body": "json"])],
+                   "model-key": Dictionary(uniqueKeysWithValues: Self.names.map { ($0, HostServer.Reply.json(["error": "service_unavailable"], status: 503)) })])
+        do {
+            _ = try await runtime.upgradeLease(rig.manifest, server)
+            XCTFail("no full lease")
+        } catch {}
+        rig.onRequest.withLock { $0 = nil }
+        let seen = during.withLock { $0 }
+        XCTAssertFalse(seen.isEmpty)
+        XCTAssertTrue(seen.allSatisfy { $0 == before }, "the capped Core wrote nothing during the try: \(seen), before \(before)")
+        let after = rig.state.counter()
+        XCTAssertGreaterThan(after, before, "its saves held back are written when the try ends without a switch")
+        _ = rig.runtime.status()
+        XCTAssertGreaterThan(rig.state.counter(), after, "the gate is open again")
+        XCTAssertFalse(keys.promoted.withLock { $0 })
+        let restarted = try CoreHost(platform: CorePlatform(storage: CoreStorage(root: rig.runtime.storage), key: rig.key, state: rig.state,
+                                                            clocks: rig.clocks))
+        let s = restarted.tick()
+        XCTAssertTrue(s.hasLease && s.valid, "a restart finds the capped lease")
     }
 
     // MARK: 28.8 check 6, a lease whose base names a backup model host

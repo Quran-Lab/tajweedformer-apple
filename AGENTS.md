@@ -65,17 +65,17 @@ Copy the setup prompt from [sdk.quranlab.ai](https://sdk.quranlab.ai) and paste 
 - **Coming from 3.x:** [docs/migrating-to-4.md](docs/migrating-to-4.md) says what changes. SDK 3.x stops receiving
   the V4 model on 15 January 2027, 00:00 UTC, and model versions from V4.1 on are published only encrypted, for SDK 4.0.
 - **Platforms:** iOS 15 and macOS 12 on Apple silicon (arm64 devices, the arm64 Simulator, arm64 Macs).
-- **Status:** 4.0.3. Each release is compiled and its tests run on a Mac with Xcode
+- **Status:** 4.0.5. Each release is compiled and its tests run on a Mac with Xcode
   (docs/mac-checklist-4.0.md). It carries every fix of 3.1.5, the download work
   included. If Quran Lab's main servers can't be reached, the SDK uses backup servers automatically.
 
 ## Install
 
-In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.3. In a `Package.swift`:
+In Xcode: **File > Add Package Dependencies**, enter `https://github.com/Quran-Lab/tajweedformer-apple` and choose version 4.0.5. In a `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.3"),
+    .package(url: "https://github.com/Quran-Lab/tajweedformer-apple", from: "4.0.5"),
 ],
 // and in your target's dependencies:
 .product(name: "TajweedFormer", package: "tajweedformer-apple"),
@@ -161,8 +161,10 @@ rules over this output.
   with their log-probabilities and the margin; with `topK` above 0, the K best tokens of every frame. `settled`
   says how many tokens will not change any more; `isFinal` marks the take's last chunk. No known text is involved.
 - **Events** (`session.events`): `speechStarted` and `speechEnded` (a frame is speech within 12 frames of a token),
-  `interrupted` and `resumed` (a call, another app, a change of input device), `backendChanged` (a failover replaced
-  the chunks from an index on), and `ended` with its reason: `silence` (with `endOnSilenceMs`), `background`,
+  `interrupted` and `resumed` (a call, another app, a change of input device), `backendChanged` (the chunks from an
+  index on come from another Backend: a failover replaced them, or, from 4.0.5, a take that started on the CPU engine
+  moved to the Neural Engine at a pause once its build was ready, with nothing handed out again), and `ended` with its
+  reason: `silence` (with `endOnSilenceMs`), `background`,
   `interrupted`, `sourceEnd` (a clip ran out), `limit` (a take holds at most 20 minutes of audio) or `error`.
 
 A take is one Session. `model.listen()` asks for the microphone and captures at the device's own rate;
@@ -173,7 +175,9 @@ ran ended with `ended(.background)`.
 
 What waits for your app is bounded: at most 256 chunks and 64 events wait unread, and when you read late the oldest
 waiting ones are dropped. Nothing is lost with them: each chunk's `decoded` is the take so far, the last chunk and
-`ended` are never the ones dropped, and `finish()` returns the whole take. `diagnose().droppedChunks` counts them.
+`ended` are never the ones dropped, and `finish()` returns the whole take. `diagnose().droppedChunks` counts them. A
+drop shows at once as a gap in `chunk.index`: the indices of a take run 0, 1, 2, ..., so a chunk whose index is more
+than one past the last you read follows chunks that were dropped (there is no event for it).
 
 ## Calibration and reference data
 
@@ -197,15 +201,23 @@ short recitations of the model's self-test set, to run the whole path without a 
 ## The protected model
 
 What SDK 4.0 does, in the order a first `client.model()` does it (quranlab-contract `sdk_4.0.0/PROTECTED_MODEL.md`,
-section 18). Making the Client downloads nothing: the model downloads only when the app calls `client.model()` or
-`client.prefetch()`. A later start of the Client checks only for an update of a build it installed on this device.
+section 18). Making the Client starts no download: the model downloads only when the app calls `client.model()` or
+`client.prefetch()`. A later start of the Client checks for an update of a build it installed on this device, and
+(4.0.5) goes on at once with a download that an earlier process left unfinished (the app's call that started it was
+cut by the learner leaving, a kill or no network): from the bytes already on the device, with no call of the app.
+That holds for another context, the Neural Engine's build and the reference table too. When the lease has lapsed,
+it is asked beside the first request of that download, not before it, and nothing is installed until it is in.
 
 1. **The install's key.** A P-256 key made in the Secure Enclave (a software key in this device's Keychain on a Mac
    without one and on the Simulator, reported as such). It never leaves the key store: the Core gets one lease's
    shared secret and signatures, never the key.
 2. **The certificate.** `POST /v1/attest` with the key, its signature over the challenge (`install_sig`) and App
    Attest where the device has it. Quran Lab answers with an install certificate.
-   Every new certificate comes with a new key.
+   Every new certificate comes with a new key. When the network or Apple's App Attest service fails for a moment, the
+   SDK tries again with the same App Attest key, inside the call, in the background and as soon as the network comes
+   back, and keeps what it still has to do across launches. Where Quran Lab says the app's installs must be attested,
+   it never asks for the model without App Attest because of such a moment; for any other app the learner gets the
+   model at once and the install moves to the attested class once App Attest succeeds (4.0.5).
 3. **The lease.** The signed manifest of the build the config names, then `POST /v1/model-key` with the
    certificate and the Core's proof. The lease is wrapped for this install's key and for this Core release. After
    the first run the model works offline; when the device is online the SDK keeps itself up to date in the
@@ -227,19 +239,21 @@ and the next call goes on from what is on the device. Each file is asked for who
 the device as it arrives; a transfer that was cut is resumed with one request for the rest, from the last byte on the
 device. An answer is the file only as the whole file of the manifest's size, or, for a resume, as a 206 for the rest
 of it; anything else is a failed attempt and costs no stored byte. A partial file is continued only as the file it
-was started as (the server's ETag is sent back with the resume, and a file that changed comes whole and takes the
-partial file's place once all of it has arrived). Every download
+was started as (the server's ETag is sent back with the resume, and a file that changed comes whole and replaces the
+partial file; if that transfer is cut too, what arrived of it is kept and continued). The bytes already on the device
+are checked while the rest arrives, never before the first request. Every download
 and upload goes on whatever network the device has: a first install, an update, another context's files, the
 Neural Engine's build, `prefetch()` and shared recordings alike. Nothing waits for Wi-Fi, and there is no option for
 it; the system may still pause a transfer by its own settings (Low Data Mode, background limits). Cancelling a call
 ends that call's wait: the download goes on while another call waits for it or a `prefetch` asked for it.
 
 On iOS a download that is under way when the learner leaves the app gets the time the system gives a task under
-way (about half a minute), and when the app has entered the background what is left of it goes on in a background
-session while the app is suspended: one transfer per file, for the rest of it from the last byte on the device. The
-background session takes a file of any size, so a file is never cut into pieces. When the app is back the transfers
-still under way go on, and the app waits for each and joins what it brings, so nothing they fetched is fetched again;
-a transfer that brings nothing for a minute is given up and the app goes on with the file itself. The transfers are
+way (about half a minute), and when the app has entered the background what is left of every download under way
+(the model, another context, the Neural Engine's build, the reference table) goes on in a background session while
+the app is suspended, from the last byte on the device, in transfers of at most 64 MiB, so a transfer the system cuts
+costs one piece at most. When the app is back the transfers still under way go on, and the app waits for each and
+joins what it brings, so nothing they fetched is fetched again; a transfer that brings no byte within 2 seconds of
+the app's return is given up and the app fetches that part itself. The transfers are
 of the CDN form from the model folder the lease named, so nothing a background session keeps is plaintext. A
 background transfer's request is kept by the system in its own store until the transfer ends: it carries the
 install's token, which is not renewed while the app is away (the app fetches the file itself when the server refused
@@ -276,6 +290,16 @@ the next session. A lease that does not allow accelerator programs is not a fail
 CPU engine runs, nothing is counted against the build, and the preparation goes on from where it stood once a lease
 allows them (4.0.2). It needs iOS 18 or macOS 15, and the SDK never attempts it on the Simulator. Core ML keeps its own
 compiled form for the Neural Engine in the app's `Library/Caches`.
+
+Leases allow accelerator programs only to installs attested with App Attest. An app without the App Attest capability,
+and a command-line tool (which cannot attest), run every take on the CPU engine; `model.backend` then reads
+`demoted` with the reason `not_attested`.
+
+To have the Neural Engine ready before a take, await `model.prepare(options:)` with the options your takes use: it
+returns once that engine's build is loaded and warm (or will not be), and a second call with the same options returns
+at once. `model.backend` gives the stage while it waits (`loading` when a build promoted earlier is loaded again). A
+take with other options keeps the warm build of the same build (4.0.5). An engine of `backend: .cpu` runs its own
+takes on the CPU engine and prepares the default build in the background for the others.
 
 ## Quran Lab platform
 
@@ -412,8 +436,15 @@ give it its own `storage` folder (`TajweedClientOptions(storage:)`).
   `ended(.background)`.
 - **Privacy manifest.** The package and the Core's xcframework each carry a `PrivacyInfo.xcprivacy`; the SDK
   collects nothing linked to a person and uses no tracking. It declares the boot clock (the lease's clock).
-- **App Attest.** Recognition needs no capability. Uploads of shared recordings need an attested install, and every
-  app's learners are asked to share: add the App Attest capability. Without it the SDK still runs, unattested.
+- **App Attest.** Uploads of shared recordings and the Neural Engine need an attested install, and every app's
+  learners are asked to share: add the App Attest capability. For an app registered before 2026-11-23, without it
+  the SDK still runs, unattested, on the CPU engine; a command-line tool cannot attest and always runs there. An app
+  registered from 2026-11-23 on is strict: its production installs get the model only once attested, so without the
+  capability (or on a Mac, without a provisioning profile) `model()` fails with `server_rejected` and the reason
+  `lease_attestation_required`, whose fix says what to add (and the SDK attests and asks again by itself once it can,
+  4.0.5); a development key is never held to this (the Simulator
+  cannot attest). A release that adds the capability reaches its installs at their first launch: an unattested
+  install attests again when the app's version or build changes (4.0.5).
 - **The install key.** The protected model's key is in the Secure Enclave (this device only, after first unlock);
   on a Mac without a Secure Enclave and on the Simulator it is a software key in this device's Keychain, and a
   process the Keychain refuses (a command line tool, an unsigned test run) keeps it in a file of the SDK's folder.

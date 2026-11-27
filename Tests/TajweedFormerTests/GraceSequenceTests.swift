@@ -113,13 +113,43 @@ final class GraceSequenceTests: XCTestCase {
         XCTAssertGreaterThan(checks, 0)
     }
 
+    /// The sequences this Core is held to. A Core of spec fix 17 (quranlab-core clock-anchor; it has `qlc_lease_time`)
+    /// reads no wall clock: after a reboot the new boot's own time counts, never the time the device was off. Its own
+    /// grace.json (docs/spec-fixes/vectors at e9f498a, copied as grace_17.json) changes the two reboot sequences and no
+    /// other; those two are replayed from it, each lease's bytes taken from grace_seq.json by its iat and exp.
+    static func sequences(_ seq: [String: Any]) throws -> (sequences: [[String: Any]], names: [String?]) {
+        var sequences = try XCTUnwrap(seq["sequences"] as? [[String: Any]])
+        let contract = try XCTUnwrap(try V40.json("grace.json")["sequences"] as? [[String: Any]])
+        guard CoreOptional.leaseTime != nil else { return (sequences, contract.map { $0["name"] as? String }) }
+        let fixed = try XCTUnwrap(try V40.json("grace_17.json")["sequences"] as? [[String: Any]])
+        XCTAssertEqual(fixed.count, sequences.count)
+        var bytes: [String: String] = [:]
+        for s in sequences {
+            for st in (s["steps"] as? [[String: Any]]) ?? [] {
+                if let l = st["lease"] as? [String: Any], let hex = st["lease_hex"] as? String { bytes["\(l["iat"] ?? "") \(l["exp"] ?? "")"] = hex }
+            }
+        }
+        var replaced = 0
+        for (i, s) in fixed.enumerated() where (s["name"] as? String) != (sequences[i]["name"] as? String) {
+            var steps: [[String: Any]] = []
+            for var st in try XCTUnwrap(s["steps"] as? [[String: Any]]) {
+                XCTAssertNil(st["stop"], "a stop in a changed sequence has no refusal bytes here")
+                if let l = st["lease"] as? [String: Any] { st["lease_hex"] = try XCTUnwrap(bytes["\(l["iat"] ?? "") \(l["exp"] ?? "")"]) }
+                steps.append(st)
+            }
+            sequences[i] = ["name": s["name"] ?? "", "steps": steps]
+            replaced += 1
+        }
+        XCTAssertEqual(replaced, 2, "spec fix 17 changes the two reboot sequences")
+        return (sequences, fixed.map { $0["name"] as? String })
+    }
+
     func testSequences() throws {
         let seq = try V40.json("grace_seq.json")
         let challenge = try XCTUnwrap(seq["challenge"] as? String), apiKey = try XCTUnwrap(seq["key"] as? String)
-        let sequences = try XCTUnwrap(seq["sequences"] as? [[String: Any]])
+        let (sequences, names) = try Self.sequences(seq)
         XCTAssertEqual(sequences.count, 15)
-        // the same sequences as the contract's grace.json, by name
-        let names = try XCTUnwrap(try V40.json("grace.json")["sequences"] as? [[String: Any]]).map { $0["name"] as? String }
+        // the same sequences as the contract's grace.json (spec fix 17's on a Core of it), by name
         XCTAssertEqual(sequences.map { $0["name"] as? String }, names)
         var steps = 0
         for s in sequences {

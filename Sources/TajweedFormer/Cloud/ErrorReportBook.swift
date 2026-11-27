@@ -24,6 +24,8 @@ struct ErrorReportBook: Codable, Equatable, Sendable {
         /// 4.0.1 (24.2, 28.7): the role of the request the cause is, and whether it was asked of more than one host.
         var hostRole: String? = nil
         var fallback: Bool? = nil
+        /// SDK 4.0.5 (ATTEST_40.md 40.6): the occurrence's cause chain, the last 8 hops.
+        var chain: [CauseHop]? = nil
     }
 
     /// A signature the install has reported, with the last day one was accepted.
@@ -68,6 +70,7 @@ struct ErrorReportBook: Codable, Equatable, Sendable {
                 queue[i].retries = cause.retries
                 queue[i].hostRole = cause.hostRole
                 queue[i].fallback = cause.fallback
+                queue[i].chain = cause.chain.flatMap { CauseChain.last($0) }
                 if let r = snapshot.revision { queue[i].revision = r }
                 if let b = snapshot.build { queue[i].build = b }
             }
@@ -82,7 +85,7 @@ struct ErrorReportBook: Codable, Equatable, Sendable {
         queue.append(Entry(day: day, sig: sig, stage: cause.stage, reason: cause.reason, code: code, httpStatus: cause.httpStatus,
                            count: 1, firstReport: first, firstLaunch: firstLaunch, errorName: cause.errorName,
                            errorCode: cause.errorCode, retries: cause.retries, revision: snapshot.revision, build: snapshot.build,
-                           hostRole: cause.hostRole, fallback: cause.fallback))
+                           hostRole: cause.hostRole, fallback: cause.fallback, chain: cause.chain.flatMap { CauseChain.last($0) }))
         today[sig] = "queued"
         while queue.count > Self.queueMax {
             let old = queue.removeFirst()

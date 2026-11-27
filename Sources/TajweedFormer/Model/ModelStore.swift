@@ -159,6 +159,19 @@ struct ModelStore: Sendable {
             }
         }
         try InstallRecord.write(.downloading, build: build, in: folder, keys: installKeys)
+        Self.excludeFromBackup(root)
+    }
+
+    /// SDK 4.0.5: the models folder (the builds, their kept bytes and the owed records) is not
+    /// backed up: a model comes only from Quran Lab's hosts through the Client, and a backup restored elsewhere could
+    /// not open it (its install record is this device's). Nothing is made when the folder is not there yet.
+    static func excludeFromBackup(_ root: URL) {
+        guard FileManager.default.fileExists(atPath: root.path) else { return }
+        var url = root
+        if (try? url.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup == true { return }
+        var v = URLResourceValues()
+        v.isExcludedFromBackup = true
+        try? url.setResourceValues(v)
     }
 
     /// Every file of the download profile is on disk and verified: the record says `installed`.

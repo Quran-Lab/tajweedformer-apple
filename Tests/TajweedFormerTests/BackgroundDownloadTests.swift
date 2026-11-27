@@ -256,11 +256,14 @@ final class BackgroundDownloadTests: XCTestCase {
         XCTAssertEqual(left, [], "no partial file and no kept range is left")
     }
 
-    /// The task the app waits for after its return brings no byte for `stallLimit` (here 0.3 s): it is cancelled and
-    /// counted as abandoned, and the app resumes the file itself from its partial file, once, with the validator.
+    /// The task the app waits for after its return brings no byte within the probe (SDK 4.0.5, contract 38.4: 2 s; here
+    /// 0.3 s): it is cancelled and counted as abandoned, and the app resumes the file itself from its partial file,
+    /// once, with the validator.
     func testATaskThatBringsNothingAfterTheReturnIsGivenUpAndTheAppResumes() async throws {
-        ModelInstaller.stallLimit.withLock { $0 = 0.3 }
-        defer { ModelInstaller.stallLimit.withLock { $0 = 60 } }
+        XCTAssertEqual(ModelInstaller.probeLimit.withLock { $0 }, 2, "38.4's PROBE_MS")
+        XCTAssertEqual(ModelInstaller.stallLimit.withLock { $0 }, 30, "16.2's 30 s once a byte came")
+        ModelInstaller.probeLimit.withLock { $0 = 0.3 }
+        defer { ModelInstaller.probeLimit.withLock { $0 = Double(ContinuityRules.probeMs) / 1000 } }
         let (client, standIn, handOver, build, _) = try await leaveAt90Percent()
         defer { client.close() }
         handOver.set(away: false)
@@ -278,6 +281,47 @@ final class BackgroundDownloadTests: XCTestCase {
         let install: StubInstall
         let call: Task<(build: String?, error: TajweedError?), Never>
         func close() { install.close() }
+    }
+
+    /// SDK 4.0.5: every missing stretch is handed to the background in pieces of at most `PIECE` (64
+    /// MiB; here 16 bytes, so a 42-byte rest is three tasks); no piece covers a kept byte; a bounded piece sends its
+    /// Range alone, and none here is the open-ended resume of the partial file, so none sends If-Range. Back in the
+    /// foreground the app waits for the pieces, and no byte is fetched twice.
+    func testTheRestIsHandedOverInPiecesOfAtMostSixtyFourMiB() async throws {
+        XCTAssertEqual(ModelInstaller.pieceBytes.withLock { $0 }, 64 * 1024 * 1024)
+        ModelInstaller.pieceBytes.withLock { $0 = 16 }
+        defer { ModelInstaller.pieceBytes.withLock { $0 = Int64(ContinuityRules.piece) } }
+        let first = Locked(true)
+        let build = StubBuild.serve(cdn: { path, seen in
+            var reply = StubBuild.served(path, seen)
+            if path == Self.weights, first.withLock({ (f: inout Bool) -> Bool in defer { f = false }; return f }) { reply.stallAfter = 378 }
+            return reply
+        })
+        let standIn = StandIn()
+        let handOver = DownloadHandOver()
+        let storage = CloudFixtures.storage()
+        let install = try makeClient(storage, standIn, .whenLeaving, handOver)
+        defer { install.close() }
+        let call = Task { [install] in await install.model() }
+        try await Self.wait("the weights' request in flight") { !Self.foreground(StubProtocol.seen, of: Self.weights).isEmpty }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        standIn.finish(next: 0)
+        handOver.set(away: true)
+        // the weights' 42 bytes in 3 pieces, the tokens' 248 in 16
+        try await Self.wait("the hand-over") { standIn.started.count == 19 }
+        XCTAssertEqual(Self.ranges(standIn.started, of: Self.weights), ["378-393", "394-409", "410-419"])
+        XCTAssertEqual(Self.ranges(standIn.started, of: StubBuild.tokens).count, 16)
+        XCTAssertEqual(Self.ranges(standIn.started, of: StubBuild.tokens).first, "0-15")
+        let weights = standIn.requests.filter { $0.url?.lastPathComponent == Self.weights }
+        XCTAssertEqual(weights.map { $0.value(forHTTPHeaderField: "range") }, ["bytes=378-393", "bytes=394-409", "bytes=410-"])
+        XCTAssertTrue(weights.allSatisfy { $0.value(forHTTPHeaderField: "if-range") == nil }, "no piece is the partial file's open-ended resume")
+        // back: the app waits for the pieces, they land, the model opens and nothing was fetched twice
+        handOver.set(away: false)
+        standIn.endInFlight()
+        let got = await call.value
+        XCTAssertEqual(got.build, build, "\(String(describing: got.error))")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: Self.weights), ["whole"], "the app asked the weights once")
+        XCTAssertEqual(Self.foreground(StubProtocol.seen, of: StubBuild.tokens), [], "the tokens came by their pieces alone")
     }
 
     /// An install (policy `whenLeaving`, one file at a time) left when 90% of the weights file has arrived: its request

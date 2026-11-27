@@ -25,7 +25,9 @@ protocol AudioBufferSink: Sendable {
 /// Backends, CPU first: the exact CPU engine serves from the first take, always. With `.automatic` (the default)
 /// the Neural Engine is promoted in the background (`AcceleratorController`: its files downloaded after the first
 /// session, compiled, warmed, golden-tested on raw outputs against the CPU engine with the model folder's self-test
-/// set); once it is ready (`acceleratorState == .ready`), takes from the next one on run on it. A chunk that fails on
+/// set); once it is ready (`acceleratorState == .ready`), takes from the next one on run on it, and (SDK 4.0.5, contract
+/// section 30) a take running on the CPU engine then may move to it at a pause, after its state was rebuilt from the
+/// take's audio and checked beside the CPU engine (`liveCheck`, SDK 4.0.5). A chunk that fails on
 /// the Neural Engine (an exception, a NaN or inf, a head out of range, a missed deadline) switches the take to the CPU
 /// engine at that chunk: the take's recent audio is replayed through it, the chunks already handed out stay, the take
 /// continues, and the app gets no error (`activeBackend` and `fallbackReason` say what happened). Chunks that hear
@@ -102,6 +104,38 @@ actor TajweedRecognizer {
     private var stream: AsyncStream<RawChunk>.Continuation?
     private let created = Date()
     private static let firstSessionOfLaunch = Locked(true)
+
+    // live promotion
+    /// The device's conditions for the start rule (`env.conditions`), fetched off the audio path, at most every
+    /// `liveConditionsEvery` seconds while a take on the CPU engine may move.
+    private var liveConditions: (at: Date, value: PromotionConditions)?
+    private var liveConditionsFetching = false
+    static let liveConditionsEvery: TimeInterval = 5
+    /// What the take's Session says for the start rule: whether the app asked it to finish, the length of its source
+    /// (`listen(from:)`), seconds, and when the piece in hand was taken from its source.
+    private var takeLive = LiveInputs()
+    /// The take's decide was made (at its first piece), and what it was last told: the conditions, the build ready.
+    private var liveBegun = false
+    private var liveFedDevice: LiveRules.Device?
+    private var liveFedReady = false
+    /// The first accelerator chunk of a live swap in the last `append`, for the Session's step.
+    private var liveSwapNoted: Int?
+    /// The take's recited journal, closed at a live swap (30.5): counted or dropped when the take ends.
+    private var swapRecited: (take: UInt64, range: CoreRecited?)?
+    /// A take that ended at a chunk (`finish(atChunk:)`): the chunks after it are not the take's.
+    private var takeEndChunk: Int?
+    /// Tests: `flags.live_promotion` in place of the signed config's.
+    static let liveFlagOverride = Locked<(@Sendable () -> JSONValue?)?>(nil)
+
+    struct LiveInputs: Sendable, Equatable {
+        var finishing = false
+        var sourceSeconds: Double?
+        /// The source is read as fast as possible (a clip at `.fast` pace, audio pushed ahead of real time): never late.
+        var fast = false
+        /// When the piece's audio was taken from its source (`TakeRunner.liveClock`'s ms); nil: read as fast as
+        /// possible.
+        var takenAtMs: Int?
+    }
 
     /// - Parameters:
     ///   - context: the context to run; nil takes the config's, else the manifest's default.
@@ -258,7 +292,10 @@ actor TajweedRecognizer {
         guard !acceleratorSetUp else { return }
         acceleratorSetUp = true
         let ctx = context
-        guard Self.mayUseAccelerator(requested: requested, context: ctx) else { return }
+        // SDK 4.0.5 (developer report, item 2): a `.cpu` engine (`.exact`) still runs the default build's promotion in
+        // the background, so a later Session of `.auto` finds it promoted; its own takes stay on the CPU engine
+        // (`startTake` leases a build for `.automatic` only), and it never loads a build it will not use
+        guard Self.setsUpPromotion(requested: requested, context: ctx) else { return }
         guard DownloadProfile.osRunsCoreML else {
             // SDK 4.0: no accelerator here (the Simulator, a Core that does not open accelerator programs, an OS
             // before iOS 18 / macOS 15). The CPU engine runs; nothing is attempted, so no promotion incident is
@@ -316,8 +353,9 @@ actor TajweedRecognizer {
         // 21.6 item 2: at every lease the Core accepts, a key a lease without accelerator programs held goes on
         AcceleratorRegistry.watchLease(registryID) { [weak self] in await self?.leaseAccepted() }
         if controller.record?.status == .ready {
-            // promoted in an earlier launch: load and warm it now, so the first session normally starts on it
-            startPipeline(priority: .utility)
+            // promoted in an earlier launch: load and warm it now, so the first session normally starts on it (not for
+            // a `.cpu` engine, whose takes never run on it)
+            if Self.loadsPromotedBuild(requested: requested) { startPipeline(priority: .utility) }
         } else if controller.record != nil {
             // a key seen in an earlier launch: at launch, at low priority (the CPU engine serves until it is warm)
             startPipeline(priority: .background)
@@ -330,6 +368,22 @@ actor TajweedRecognizer {
             }
         }
     }
+
+    /// SDK 4.0.5: a `.cpu` engine, which promotes the default build and never runs a take on it.
+    private var promoteOnly: Bool { requested == .exact }
+    var isCPUOnlyEngine: Bool { requested == .exact }
+
+    /// The Neural Engine's controller, read without the actor (the Model keeps it warm across an options change).
+    nonisolated var acceleratorControllerNow: AcceleratorController? { controllerBox.withLock { $0 } }
+
+    /// SDK 4.0.5: whether an engine sets up the Neural Engine's promotion: an `.automatic` one as before, and a `.cpu`
+    /// one (`.exact`) too, for the default build (never for a CPU-only context).
+    static func setsUpPromotion(requested: Backend, context: String) -> Bool {
+        requested == .exact ? !ModelContexts.isCPUOnly(context) : mayUseAccelerator(requested: requested, context: context)
+    }
+
+    /// SDK 4.0.5: whether an engine loads and warms a build promoted earlier: not a `.cpu` one, whose takes never run on it.
+    static func loadsPromotedBuild(requested: Backend) -> Bool { requested != .exact }
 
     /// Whether the Neural Engine is considered at all. Never for a CPU-only context, even when it is asked for.
     static func mayUseAccelerator(requested: Backend, context: String) -> Bool {
@@ -478,6 +532,13 @@ actor TajweedRecognizer {
         if case .neuralEngineUnavailable(let why) = e, why.hasPrefix(CoreFailure.leaseNoAccelText) {
             var f = PromotionFailure(.loadError, why)
             f.leaseNoAccel = true
+            return f
+        }
+        // SDK 4.0.5: the Core busy with another model, take or prepare: not now, not a failure (4.0.1 and 4.0.2 counted
+        // 23 of these in 7 days as compile_error, "qlc_model_open: a model of this Core is open")
+        if CoreFailure.isBusy(e) {
+            var f = PromotionFailure(.compileError, "\(e)")
+            f.notNow = true
             return f
         }
         switch e {
@@ -681,7 +742,8 @@ actor TajweedRecognizer {
     // MARK: takes
 
     /// A new take (one recitation session): builds the CPU engine on first use, picks the backend (the Neural Engine
-    /// when it is promoted and warm, else the CPU engine; never decided during a take), resets every cache and the
+    /// when it is promoted and warm, else the CPU engine, which a live promotion may hand the take over from at a
+    /// pause, contract section 30), resets every cache and the
     /// kept heads, and starts sharing the session's audio when the learner agreed to share (2.0.3: a take that starts
     /// within a few seconds of the previous one continues its shared recording).
     func startTake() throws(RecognizerError) {
@@ -699,6 +761,12 @@ actor TajweedRecognizer {
         takeAudioMs = 0
         takeSamples = [:]
         lastFailover = nil
+        takeLive = LiveInputs()
+        liveBegun = false
+        liveFedDevice = nil
+        liveFedReady = false
+        liveSwapNoted = nil
+        takeEndChunk = nil
         takeID = UUID().uuidString
         var exec: AcceleratorExecutor?
         if let f = forced, !f.abandoned {
@@ -804,9 +872,11 @@ actor TajweedRecognizer {
     /// 16 kHz samples through the take's backend; a failover inside is handled here and invisible to the caller.
     private func push(_ s: [Float]) throws(RecognizerError) -> [RawChunk] {
         guard let runner else { throw .sessionClosed }
-        let out = try runner.push(s)
+        liveCheck(runner)
+        let out = try runner.push(s, takenAtMs: takeLive.fast ? nil : takeLive.takenAtMs)
         let chunks = apply(out)
         noteFailover()
+        noteLive()
         // the recited detector is fed after each chunk, off the audio thread (17.5)
         if !chunks.isEmpty { recitedFeed() }
         return chunks
@@ -822,7 +892,133 @@ actor TajweedRecognizer {
         }
         // a confirmed blank disagreement: the CPU's chunks are handed out again from the first one in question
         if let r = o.redeliverFrom { delivered = min(delivered, max(0, r)) }
+        // a live swap: nothing is replaced, the accelerator's chunks follow the CPU's (30.5)
+        if let f = o.liveSwapFrom { liveSwapNoted = f }
         return deliver(o.chunks)
+    }
+
+    // MARK: live promotion
+
+    /// 30.2 and 30.11, before each piece of a take: the take's decide is made at its first piece for a take on the CPU
+    /// engine (with the word bar, the Session's source, the config's flag and whether the app asked for the CPU engine),
+    /// and told what changed since the last piece: the pipeline's conditions and what the Session knows, and whether the
+    /// build of the take's key is ready (promoted, loaded and warm). The decide starts an attempt when its rule holds;
+    /// the runner then leases the build for the replay (the lease is held from there, so that nothing else runs on the
+    /// build meanwhile: no other session, no warm-up that would reset its stream).
+    private func liveCheck(_ runner: TakeRunner) {
+        guard forced == nil, !ModelContexts.isCPUOnly(context) else { return }
+        if !liveBegun {
+            liveBegun = true
+            guard !runner.onAccelerator, runner.chunks == 0 else { return }
+            var i = LiveTake.Init(context: context)
+            i.wordBar = model.vocabulary.symbols.firstIndex(of: "|")
+            i.fast = takeLive.fast
+            i.flagOn = liveFlagOn()
+            // 30.2 item 2: the app asked for the CPU engine (its accelerator is never loaded for it: nothing counted)
+            i.appCPU = requested == .exact
+            if let d = liveDevice() {
+                i.device = d
+                liveFedDevice = d
+            }
+            runner.liveBegin(i)
+            let box = controllerBox
+            runner.liveLease = { box.withLock { $0 }?.leaseForSession() }
+            var p = TakeRunner.LivePolicy()
+            p.tolerance = acceleratorModel.withLock { $0 }.manifest.rawTolerance(build: buildKey)
+            runner.livePolicy = p
+        }
+        guard let t = runner.liveTake, t.state != .ended, t.state != .accel, t.state != .failedOver else { return }
+        let c = controllerBox.withLock { $0 }
+        if let c { refreshLiveConditions(c) }
+        if let d = liveDevice(), d != liveFedDevice {
+            liveFedDevice = d
+            runner.liveConditions(LiveRules.DeviceChange(d))
+        }
+        // ready: only for an app that let the SDK choose, and once the conditions were read (the first reading is
+        // under way: a later piece tells it)
+        let ready = requested == .automatic && c?.state == .ready && liveConditions != nil
+        if ready != liveFedReady {
+            liveFedReady = ready
+            if ready { runner.liveReady() } else { runner.liveUnready("the build stopped being ready") }
+        }
+        noteLive()
+    }
+
+    /// What the Session knows for the start rule, before a piece.
+    func noteLiveInputs(_ l: LiveInputs) { takeLive = l }
+
+    /// 30.1: an interruption of the take (a call, another app's audio) began or ended: a stall while it lasts.
+    func liveInterrupted() { runner?.liveInterrupted() }
+    func liveResumed() { runner?.liveResumed() }
+
+    /// The first accelerator chunk of a live swap since the last call, once.
+    func takeLiveSwapNoted() -> Int? {
+        defer { liveSwapNoted = nil }
+        return liveSwapNoted
+    }
+
+    /// 30.8: `flags.live_promotion` of the signed config in force (or the tests' own).
+    private func liveFlagOn() -> Bool {
+        let flag: JSONValue?
+        if let f = Self.liveFlagOverride.withLock({ $0 }) { flag = f() } else { flag = QuranLab.cloud?.currentConfig?.flags.live_promotion }
+        return LivePromotion.configOn(flag)
+    }
+
+    /// The pipeline's conditions as last read, with what the Session knows; nil before the first reading.
+    private func liveDevice() -> LiveRules.Device? {
+        guard let now = liveConditions?.value else { return nil }
+        return LivePromotion.device(now, finishing: takeLive.finishing,
+                                    sourceLeftSeconds: takeLive.sourceSeconds.map { max(0, $0 - takeAudioSeconds) })
+    }
+
+    /// The pipeline's conditions (battery, Low Power Mode, thermal state) are read off the audio path: the battery is
+    /// read on the main actor on iOS. A piece uses the last reading; one older than `liveConditionsEvery` is renewed.
+    private func refreshLiveConditions(_ c: AcceleratorController) {
+        if let l = liveConditions, Date().timeIntervalSince(l.at) < Self.liveConditionsEvery { return }
+        guard !liveConditionsFetching else { return }
+        liveConditionsFetching = true
+        let probe = c.env.conditions
+        Task.detached(priority: .utility) { [weak self] in
+            let v = await probe()
+            await self?.setLiveConditions(v)
+        }
+    }
+
+    private func setLiveConditions(_ v: PromotionConditions) {
+        liveConditions = (Date(), v)
+        liveConditionsFetching = false
+    }
+
+    /// After the runner's call: the lease an attempt took is the take's; an attempt that ended; the take's tally. A
+    /// swap makes the take an accelerator take (its recited journal closed first, then the CPU engine let go); any
+    /// other outcome leaves it on the CPU engine, writes the record by the failover's rule for the same trouble, and
+    /// gives the build back. The tally (once, at the take's end) goes to the promotions entry of the key (30.9).
+    private func noteLive() {
+        guard let runner else { return }
+        if runner.takeLiveLeased() { leased = true }
+        if let e = runner.takeLiveEnd() {
+            if e.outcome == .swapped {
+                activeBackend = .neuralEngine
+                closeRecitedAtSwap(runner.retiredCPU)
+                runner.releaseRetiredCPU()
+                Self.debugLog("live promotion: swapped to the accelerator at chunk \(e.fromChunk ?? -1)")
+            } else {
+                Self.debugLog("live promotion: \(e.outcome.rawValue): \(e.detail)")
+                controllerBox.withLock { $0 }?.liveEnded(e, session: takeID)
+                endLease()
+            }
+        }
+        if let t = runner.takeLiveTally(), !t.isEmpty { controllerBox.withLock { $0 }?.liveTally(t) }
+    }
+
+    /// 30.5: what the CPU engine kept for the take (the Core's recited journal, on its stream) closes at the swap, as at
+    /// the end of a take, with the chunks it saw. Whether it counts is decided when the take ends (`recitedEnd`).
+    private func closeRecitedAtSwap(_ engine: (any CPUStreamEngine)?) {
+        guard let id = recitedTake else { return }
+        recitedTake = nil
+        let e = engine as? CoreStreamEngine
+        if let e { _ = e.withStream { e.model.host.recitedFeed($0) } }
+        swapRecited = (id, e?.model.host.recitedFinish(id, flags: RecitedSwitch.flags))
     }
 
     /// After a failover in this take: the CPU engine from here on, the build's fate by the cause (a single deadline miss
@@ -878,11 +1074,14 @@ actor TajweedRecognizer {
     func finish() async throws(RecognizerError) -> HeadsBuffer {
         guard takeOpen else { throw .sessionClosed }
         var out: [RawChunk] = []
+        // the resampler's tail is no piece of the source: never late (30.1)
+        takeLive.takenAtMs = nil
         do throws(RecognizerError) {
             if let tail = converter?.flush(), !tail.isEmpty { out += try push(tail) }
             guard let runner else { throw RecognizerError.sessionClosed }
             out += apply(try runner.finish())
             noteFailover()
+            noteLive()
         } catch {
             endTake(completed: false)
             throw error
@@ -904,6 +1103,9 @@ actor TajweedRecognizer {
         }
         lastChunks = []
         lastFlush = []
+        // a live swap after that chunk served nothing of the take: it is the CPU engine's (30.9)
+        if let from = runner?.liveSwapFrom, from > index { activeBackend = .exact }
+        takeEndChunk = index + 1
         endTake(completed: true)
         return take
     }
@@ -928,10 +1130,15 @@ actor TajweedRecognizer {
             // a cancelled take's verification stops; a session on the build adds its warm chunk times and counts the
             // blank suspicions the CPU engine confirmed as correct
             runner.dropVerification()
+            // 30.7: the take's end in its decide (a no-op after `finish`): an attempt still running ends (aborted), and
+            // the take's tally goes to the day's `live` object (30.9)
+            runner.liveEndTake(samples: takeEndChunk.map { $0 * runner.chunkSamples }, why: completed ? "finish" : "cancel")
+            noteLive()
             if leased, let c = controllerBox.withLock({ $0 }) {
                 c.sessionEnded(warmMs: runner.takeWarmMs, blankConfirmedOK: runner.blankConfirmedOK)
             }
         }
+        takeEndChunk = nil
         endLease()
         stream?.finish()
         stream = nil
@@ -945,7 +1152,8 @@ actor TajweedRecognizer {
         idleWaiters = []
         for w in waiting { w.resume() }
         // the promotion: a first run starts after the first finished session; later, a waiting run resumes
-        if completed, let c = controllerBox.withLock({ $0 }), c.state != .ready, !c.isRunning {
+        if completed, let c = controllerBox.withLock({ $0 }), c.state != .ready, !c.isRunning,
+           !(promoteOnly && c.record?.status == .ready) {
             startPipeline(priority: .background)
         }
         let first = Self.firstSessionOfLaunch.withLock { v -> Bool in defer { v = false }; return v }
@@ -983,6 +1191,7 @@ actor TajweedRecognizer {
     private func recitedBegin() {
         lastRecited = (nil, nil)
         recitedTake = nil
+        swapRecited = nil
         guard RecitedSwitch.detectorOn, let e = exact, ProtectedRuntime.current.withLock({ $0 })?.recitedReady(e.model.host) == true else { return }
         let id = UInt64.random(in: 1...UInt64.max)
         guard e.model.host.recitedBegin(id) else { return }
@@ -1000,6 +1209,16 @@ actor TajweedRecognizer {
     /// The end of the take in the journal: finished, and its range kept for the Session when it ended with its Heads;
     /// a cancelled or failed take is finished too (so it never comes back as an open take) and counts nothing.
     private func recitedEnd(completed: Bool) {
+        // closed at a live swap already (30.5): only whether it counts is left
+        if let s = swapRecited {
+            swapRecited = nil
+            if completed {
+                lastRecited = (s.take, s.range)
+            } else {
+                QuranLab.cloud?.analytics.recitedDropped(s.take)
+            }
+            return
+        }
         guard let id = recitedTake else { return }
         recitedTake = nil
         let e = exact

@@ -75,6 +75,17 @@ struct CoreFailure: Error, Equatable, Sendable {
     /// `qlc_install` or `qlc_model_open` while a model of this Core is open.
     var isBusy: Bool { status == QLC_E_BUSY }
 
+    /// SDK 4.0.5: whether an accelerator prepare (or the open before it) met a Core busy with something else: another
+    /// model open that a take holds (`sessionActive`, ProtectedRuntime.openModel), a model the Core would not close in
+    /// time, or a program already prepared or being prepared on the model (`QLC_E_BUSY`). Not a failure of the build.
+    static func isBusy(_ e: RecognizerError) -> Bool {
+        switch e {
+        case .sessionActive: return true
+        case .engineFailed(let code, _): return code == QLC_E_BUSY
+        default: return false
+        }
+    }
+
     /// Why `qlc_accel_prepare` left the device on the CPU engine (`QLC_D_ACCEL_*`), as the promotion reports it.
     static func accelName(_ detail: Int) -> String {
         switch detail {
@@ -144,10 +155,10 @@ final class CoreHost: @unchecked Sendable {
     let platform: CorePlatform
     private let core: OpaquePointer
     private let calls = NSLock()
-    /// Held by every call that names a build folder, and for the whole of a call on the open model's folder that runs
-    /// outside `calls` (the reference data at first use, an accelerator program's prepare): the storage callbacks find
-    /// one folder at a time.
-    private let buildLock = NSLock()
+    /// Every call that names a build folder holds it alone, and a call on the open model's folder that runs outside
+    /// `calls` (the reference data at first use, an accelerator program's prepare) shares it with other such calls on
+    /// the same folder: the storage callbacks find one folder at a time (`FolderGate`).
+    private let folders = FolderGate()
     /// SDK 4.0.3: the Core's one open model, the same for every runtime (Client) that holds this Core (`LiveCores`).
     let openSlot = OpenSlot()
     /// SDK 4.0.3: whether the build's recited index is in this Core (`ProtectedRuntime.prepareRecited`), whichever runtime
@@ -197,12 +208,12 @@ final class CoreHost: @unchecked Sendable {
     var installHash: String { platform.key.installHash }
 
     private func call<T>(_ build: URL?, _ body: () throws(CoreFailure) -> T) throws(CoreFailure) -> T {
-        if build != nil { buildLock.lock() }
+        if build != nil { folders.enterAlone() }
         calls.lock()
         defer {
             platform.storage.setBuild(nil)
             calls.unlock()
-            if build != nil { buildLock.unlock() }
+            if build != nil { folders.leaveAlone() }
         }
         platform.storage.setBuild(build)
         return try body()
@@ -210,14 +221,13 @@ final class CoreHost: @unchecked Sendable {
 
     /// A call on the open model that reads its build's files and may run long (the reference data at first use, an
     /// accelerator program's decryption and the runtime's compile): the folder is pinned for the storage callbacks, and
-    /// the Core's other calls (the timer, the lease) go on meanwhile; a call naming another folder waits.
+    /// the Core's other calls (the timer, the lease) go on meanwhile; a call naming another folder waits. SDK 4.0.5:
+    /// another call on the same folder does not wait (`FolderGate`): `reference.units()` no longer waits for the whole
+    /// of an accelerator prepare.
     func withModelFolder<T>(_ folder: URL, _ body: () -> T) -> T {
-        buildLock.lock()
-        platform.storage.setPinned(folder)
-        defer {
-            platform.storage.setPinned(nil)
-            buildLock.unlock()
-        }
+        let storage = platform.storage
+        folders.enterShared(folder) { storage.setPinned($0) }
+        defer { folders.leaveShared { storage.setPinned($0) } }
         return body()
     }
 
@@ -261,6 +271,18 @@ final class CoreHost: @unchecked Sendable {
             }
             guard Self.ok(st) else { throw failure(st, "qlc_lease_accept") }
             return (exp, ra)
+        }
+    }
+
+    /// Spec fix 17 (18.4.7.3): the answer's signed server time, handed over right before the accept of the same answer,
+    /// always. A Core of `QLC_CLOCK_ANCHOR` sets its clock to it when it answers this Core's own ask (forwards or back,
+    /// which repairs a clock that ran ahead) and otherwise moves it forward only; a time that does not verify changes
+    /// nothing. Core c3 has no `qlc_lease_time`: nil, and nothing is called. Never an error the app sees.
+    @discardableResult
+    func leaseTime(_ time: String) -> Int32? {
+        guard let f = CoreOptional.leaseTime else { return nil }
+        return try? call(nil) { () throws(CoreFailure) -> Int32 in
+            time.withCString { f(core, $0, strlen($0)) }
         }
     }
 
@@ -959,5 +981,73 @@ extension HeadsBuffer {
         chunk["boundary"] = copy(h.boundary, n20)
         chunk["conf"] = copy(h.conf, n20)
         self.init(chunk: chunk)
+    }
+}
+
+/// SDK 4.0.5: the order of the Core calls that name a build folder to the storage callbacks, which find one folder at
+/// a time (`CoreStorage`: the build folder of a serialised call, else the pinned one).
+/// - `enterAlone`/`leaveAlone`: a call that names its build (`CoreHost.call`: an install, an open) runs with no other
+///   such call and no pinned call under way.
+/// - `enterShared`/`leaveShared`: a call on the open model's folder that runs outside the Core host's call lock
+///   (`CoreHost.withModelFolder`: the reference data at its first use, an accelerator program's prepare) runs beside
+///   any other such call on the same folder, and waits only for a call alone or a call pinned to another folder. The
+///   first one in pins the folder, the last one out unpins it.
+///
+/// Until 4.0.4 one lock held them all, so `reference.units()` waited for the whole of an accelerator prepare: the
+/// program's decryption and Core ML's compile, 10 s to 10 min. Called on the main thread, as an app does for a table
+/// lookup, it froze the app, and the system ended it: SIGKILL, 0x8badf00d "failed to terminate gracefully", the main
+/// thread parked in `CoreModel.reference` on that lock 10.3 s into a compile (an iPhone 15 Pro Max on iOS 27.2.1, SDK
+/// 4.0.2, 2026-11-24). The Core allows both at once: `qlc_reference_expected` makes its table under the Core's own lock
+/// and then reads it lock-free, and `qlc_accel_prepare` lets that lock go before the runtime's compile (qlcore.h R2,
+/// core.c reference_ready).
+///
+/// A call alone that waits may wait for calls on the same folder that keep overlapping (no writer preference, as with
+/// the lock before): those are table lookups and one prepare, each finite.
+final class FolderGate: @unchecked Sendable {
+    private let cond = NSCondition()
+    /// The folder the shared calls hold (its standardized path), and how many hold it.
+    private var pinned: String?
+    private var holders = 0
+    private var alone = false
+
+    /// Waits until `folder` may be pinned and counts this call in; the first one in pins it (`pin(folder)`, under the
+    /// gate's lock, so no call on the folder runs before it is pinned).
+    func enterShared(_ folder: URL, pin: (URL?) -> Void) {
+        let path = folder.standardizedFileURL.path
+        cond.lock()
+        while alone || (holders > 0 && pinned != path) { cond.wait() }
+        if holders == 0 {
+            pinned = path
+            pin(folder)
+        }
+        holders += 1
+        cond.unlock()
+    }
+
+    /// The end of a shared call; the last one out unpins the folder (`pin(nil)`) and wakes the calls waiting.
+    func leaveShared(pin: (URL?) -> Void) {
+        cond.lock()
+        holders = max(0, holders - 1)
+        if holders == 0 {
+            pinned = nil
+            pin(nil)
+            cond.broadcast()
+        }
+        cond.unlock()
+    }
+
+    /// Waits until no call holds the gate, then holds it alone.
+    func enterAlone() {
+        cond.lock()
+        while alone || holders > 0 { cond.wait() }
+        alone = true
+        cond.unlock()
+    }
+
+    func leaveAlone() {
+        cond.lock()
+        alone = false
+        cond.broadcast()
+        cond.unlock()
     }
 }

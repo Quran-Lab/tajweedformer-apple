@@ -121,18 +121,26 @@ final class InstallKeyring: @unchecked Sendable {
     }
 
     private func readCurrent() -> Current? {
-        if let d = record.read() { return try? JSONDecoder().decode(Current.self, from: d) }
-        if let d = try? Data(contentsOf: fallbackFolder.appendingPathComponent("install-generation.json")) {
-            return try? JSONDecoder().decode(Current.self, from: d)
-        }
-        return nil
+        // SDK 4.0.5: the file's record when it names a key in the file (a process whose Keychain refuses items); else the
+        // Keychain's record, else the file's
+        let file = (try? Data(contentsOf: fallbackFolder.appendingPathComponent("install-generation.json")))
+            .flatMap { try? JSONDecoder().decode(Current.self, from: $0) }
+        if let file, file.inFile { return file }
+        if let d = record.read(), let c = try? JSONDecoder().decode(Current.self, from: d) { return c }
+        return file
     }
 
     private func writeCurrent(_ c: Current) {
         guard let d = try? JSONEncoder().encode(c) else { return }
-        if !record.write(d) {
+        // SDK 4.0.5: a key in the file has its record in the file too (a process whose Keychain refuses items; a test
+        // that stands in for one)
+        let file = fallbackFolder.appendingPathComponent("install-generation.json")
+        if c.inFile || !record.write(d) {
             try? StorageProtection.makeFolder(fallbackFolder)
-            try? d.write(to: fallbackFolder.appendingPathComponent("install-generation.json"), options: StorageProtection.atomic)
+            try? d.write(to: file, options: StorageProtection.atomic)
+        } else {
+            // the Keychain holds the record now: an older one in the file must not win over it (`readCurrent`)
+            try? FileManager.default.removeItem(at: file)
         }
     }
 
@@ -147,18 +155,39 @@ final class InstallKeyring: @unchecked Sendable {
     /// The generation of the current key (0 without one).
     var generation: Int { lock.lock(); defer { lock.unlock() }; return readCurrent()?.generation ?? 0 }
 
+    /// SDK 4.0.5: whether this process can keep an item of its own in the data protection Keychain: an item is written,
+    /// read back and deleted, once per process. A process without an application identifier (a command-line tool, an ad
+    /// hoc or unsigned build) cannot: the add answers `errSecMissingEntitlement`, and a read finds nothing.
+    static let keychainKeepsItems: Bool = {
+        let probe = KeychainItem(account: "quranlab.install.probe." + UUID().uuidString)
+        defer { probe.delete() }
+        return probe.write(Data([1])) && probe.read() == Data([1])
+    }()
+
+    /// For tests: in place of `keychainKeepsItems` (false: the path of a process the Keychain refuses).
+    static let keychainOverride = Locked<Bool?>(nil)
+
     /// A new key, not current yet: in the Secure Enclave where possible, else a Keychain software key, else (a process
     /// the Keychain refuses) a key in a file of the storage folder.
+    /// SDK 4.0.5: a process that cannot keep a Keychain item (`keychainKeepsItems`) keeps its key in the file too, and a
+    /// Keychain key is kept only when a fresh query finds it again. Until 4.0.5 such a process could be given a Secure
+    /// Enclave or Keychain key that no later process finds, while the record of the current generation (which the
+    /// Keychain refused) went to the file: every launch then found no key and attested a new install (production,
+    /// 11-23: a macOS tool made 2,338 install certificates from one address in 4.8 days).
     func makeNext() -> (key: any InstallKey, generation: Int)? {
         lock.lock()
         defer { lock.unlock() }
         let next = (readCurrent()?.generation ?? 0) + 1
         let tag = Self.tag(next)
         deleteKey(tag)
-        #if !targetEnvironment(simulator)
-        if let k = create(tag: tag, enclave: true) { return (k, next) }
-        #endif
-        if let k = create(tag: tag, enclave: false) { return (k, next) }
+        if Self.keychainOverride.withLock({ $0 }) ?? Self.keychainKeepsItems {
+            #if !targetEnvironment(simulator)
+            if let k = create(tag: tag, enclave: true), found(k, generation: next) { return (k, next) }
+            deleteKey(tag)
+            #endif
+            if let k = create(tag: tag, enclave: false), found(k, generation: next) { return (k, next) }
+            deleteKey(tag)
+        }
         let soft = P256.KeyAgreement.PrivateKey()
         try? StorageProtection.makeFolder(fallbackFolder)
         let f = fallbackFolder.appendingPathComponent("install-key-\(next).der")
@@ -187,6 +216,11 @@ final class InstallKeyring: @unchecked Sendable {
         guard readCurrent()?.generation != generation else { return }
         deleteKey(Self.tag(generation))
         try? FileManager.default.removeItem(at: fallbackFolder.appendingPathComponent("install-key-\(generation).der"))
+    }
+
+    /// Whether a fresh query of the Keychain finds the key just made under its generation's tag.
+    private func found(_ key: any InstallKey, generation: Int) -> Bool {
+        load(generation, hardware: key.hardware, inFile: false)?.spki == key.spki
     }
 
     private func load(_ generation: Int, hardware: Bool, inFile: Bool) -> (any InstallKey)? {

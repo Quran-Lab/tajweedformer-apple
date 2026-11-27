@@ -28,11 +28,21 @@ enum TwoContextBuild {
                 ("c16_l64/keeps.bin.qle", "c16_l64", "coreml-keeps", bytes(130))]
     }()
 
-    static func data(_ path: String) -> Data? { stored.first { $0.path == path }?.data ?? acceleratorFiles.first { $0.path == path }?.data }
+    /// SDK 4.0.5: the reference table of a build made `reference: true` (no profile downloads it: `TajweedModel.reference`).
+    static let referenceFile: (path: String, data: Data) = {
+        var g = SystemRandomNumberGenerator()
+        return ("reference/table.bin.qle", Data((0..<1200).map { _ in UInt8.random(in: 0...255, using: &g) }))
+    }()
+
+    static func data(_ path: String) -> Data? {
+        if path == referenceFile.path { return referenceFile.data }
+        return stored.first { $0.path == path }?.data ?? acceleratorFiles.first { $0.path == path }?.data
+    }
 
     /// The signed manifest.json of the build (signed with the fixtures' key, which the test Client trusts), its build id
     /// and the manifest. `revision` makes another build of the same files.
-    static func manifest(revision: String = "no-wait-40", accelerator: Bool = false) throws -> (data: Data, build: String, manifest: ModelManifest) {
+    static func manifest(revision: String = "no-wait-40", accelerator: Bool = false,
+                         reference: Bool = false) throws -> (data: Data, build: String, manifest: ModelManifest) {
         let url = try XCTUnwrap(SDKResources.bundle.url(forResource: tokensSHA256, withExtension: "txt", subdirectory: "Vocabulary"))
         let tokens = try Data(contentsOf: url)
         var files = stored.map { s -> ModelManifest.File in
@@ -50,6 +60,12 @@ enum TwoContextBuild {
                                           role: a.role, encoding: "qle1",
                                           decoded: .init(path: String(a.path.dropLast(4)), size: Int64(a.data.count - 20), sha256: sha))
             }
+        }
+        if reference {
+            let r = referenceFile
+            let sha = Data(SHA256.hash(data: r.data)).hex
+            files.append(ModelManifest.File(path: r.path, size: Int64(r.data.count), sha256: sha, role: "reference", need: .optional, encoding: "qle1",
+                                            decoded: .init(path: String(r.path.dropLast(4)), size: Int64(r.data.count - 20), sha256: sha)))
         }
         var m = ModelManifest(modelID: "v4.0", revision: revision, version: "4.0.0", minSDKVersion: "4.0.0", tokensSHA256: tokensSHA256,
                               defaultContext: "c16_l64", contexts: ["c16_l64", other], files: files)
@@ -117,8 +133,10 @@ enum NoWaitHarness {
 
     /// A Client on `storage` as an app makes it: the server client with the SDK's own network behaviour (no test
     /// switch of it), the fixtures' attester and key stores.
-    static func client(_ storage: URL) throws -> TajweedClient {
-        let o = options(storage)
+    static func client(_ storage: URL, options change: (inout QuranLab.Options) -> Void = { _ in }) throws -> TajweedClient {
+        var changed = options(storage)
+        change(&changed)
+        let o = changed
         return try TajweedClient(key: CloudFixtures.key, configuration: o, cloud: { (dir: URL) -> QuranLabCloud? in
             QuranLabCloud(key: CloudFixtures.key, options: o, storage: dir, attester: FakeAttester(isSupported: false),
                           attestKeys: MemoryAttestKeyStore(), installKeys: CloudFixtures.installKeys)

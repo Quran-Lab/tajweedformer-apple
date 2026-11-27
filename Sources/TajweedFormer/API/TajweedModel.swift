@@ -17,6 +17,11 @@ public final class TajweedModel: Sendable {
         var open: UUID?
         var closed = false
         var bounds = TakeBounds.standard
+        /// SDK 4.0.5 (developer report, item 3): the Neural Engine's controller of the engine an options change replaced,
+        /// kept with its loaded and warm build: the new engine of the same build gets the same controller
+        /// (`AcceleratorController.shared`) and runs on it at once. To 4.0.4 the warm build went with the old engine, and
+        /// a take with other options waited for it to load again.
+        var warm: AcceleratorController?
     }
 
     private let state: Locked<State>
@@ -108,7 +113,13 @@ public final class TajweedModel: Sendable {
         return ((try? SelfTestClips.load())?.clips ?? []).map { TajweedClip(name: $0.name, kind: "clean", samples: $0.samples) }
     }
 
-    /// The Backend the next Session will use.
+    /// The Backend the next take of the engine the Model holds now runs on: the engine of its last Session or
+    /// `prepare(options:)` (`cpu` before either). A Session with other options gets its own engine, which may start
+    /// elsewhere: await `prepare(options:)` with a take's options before the take to have its engine loaded and warm.
+    /// The stage says where the Neural Engine's build stands: `downloading`, `compiling` and `testing` while it is
+    /// promoted, `loading` while a build promoted earlier is loaded again, `promoted` once takes run on it, `demoted`
+    /// with a reason (`not_attested`: this install is not attested by App Attest, so it runs on the CPU engine). An
+    /// engine of `backend: .cpu` reads `cpu`: its takes always run on the CPU engine.
     public var backend: TajweedBackend {
         get async {
             guard let r = state.withLock({ $0.recognizer }) else { return .cpu }
@@ -152,6 +163,7 @@ public final class TajweedModel: Sendable {
                        options: TajweedSessionOptions = TajweedSessionOptions()) async throws(TajweedError) -> TajweedSession {
         try Self.check(sampleRate: sampleRate)
         let session = try await start(options, pushed: false)
+        session.noteSource(seconds: Double(samples.count) / sampleRate)
         let source = ClipSource()
         session.attach(source)
         source.start(samples: samples, rate: sampleRate, pace: options.pace, session: session)
@@ -217,7 +229,7 @@ public final class TajweedModel: Sendable {
     /// Releases the engine. An open Session is cancelled.
     public func close() async {
         let r = state.withLock { (s: inout State) -> TajweedRecognizer? in
-            defer { s.recognizer = nil; s.closed = true }
+            defer { s.recognizer = nil; s.closed = true; s.warm = nil }
             return s.recognizer
         }
         await r?.cancelTake()
@@ -350,11 +362,13 @@ public final class TajweedModel: Sendable {
     ///
     /// The preparation also runs by itself in the background (the first `.auto` engine of a launch starts it after the
     /// first take or 20 s without one); a process that ends during it simply goes on with it at a later launch. Call
-    /// this when the app needs the Neural Engine at a known point, or when its takes name `backend: .cpu` (an engine
-    /// for `.cpu` alone never prepares the Neural Engine). Returns `backend` as it stands when the build is ready, the
+    /// this when the app needs the Neural Engine at a known point and wants to wait for it (`prepare(options:)` waits
+    /// for the engine of given options). Returns `backend` as it stands when the build is ready, the
     /// preparation stopped (`demoted` with a reason, or `cpu` while it waits for power, a cooler device or a
     /// backoff), or `timeout` seconds passed; after a timeout the preparation goes on in the background. Throws
     /// `session_open` while a Session is open. Never needed for correctness: the CPU engine serves every take.
+    /// SDK 4.0.5: an engine of `backend: .cpu` also starts the default build's preparation in the background, and
+    /// keeps running its own takes on the CPU engine.
     public func prepareAccelerator(context: String? = nil, again: Bool = false, timeout: Double = 300) async throws(TajweedError) -> TajweedBackend {
         guard state.withLock({ $0.open }) == nil else { throw TajweedError(.sessionOpen) }
         var f = folder
@@ -385,8 +399,11 @@ public final class TajweedModel: Sendable {
                             selection: Set<HeadID>) throws(RecognizerError) -> TajweedRecognizer {
         let key = "\(folder.directory.path)|\(context)|\(backend.rawValue)|" + selection.map(\.rawValue).sorted().joined(separator: ",")
         if let r = state.withLock({ (s: inout State) -> TajweedRecognizer? in s.recognizerKey == key ? s.recognizer : nil }) { return r }
-        // the old engine goes before the new one opens
-        state.withLock { $0.recognizer = nil }
+        // the old engine goes before the new one opens; its warm build stays (`State.warm`)
+        state.withLock { (s: inout State) in
+            if let c = s.recognizer?.acceleratorControllerNow { s.warm = c }
+            s.recognizer = nil
+        }
         let r = try TajweedRecognizer(model: folder, context: context, backend: backend == .cpu ? .exact : .automatic,
                                       heads: HeadSelection(selection), compact: Self.namedCompact(backend))
         state.withLock { (s: inout State) in
@@ -567,7 +584,7 @@ final class ClipSource: SessionSource {
             var at = 0
             while at < samples.count, !Task.isCancelled {
                 let end = min(samples.count, at + piece)
-                session.feed(Array(samples[at..<end]), rate: rate)
+                session.feed(Array(samples[at..<end]), rate: rate, fast: pace == .fast)
                 at = end
                 if pace == .realTime {
                     // the wall clock catches up with the audio handed over

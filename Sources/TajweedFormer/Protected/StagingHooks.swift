@@ -36,5 +36,8 @@ struct CoreStandIn: Sendable {
     var lease: @Sendable (_ manifest: ModelManifest) async throws -> LeaseRecord
     var install: @Sendable (_ manifest: ModelManifest, _ decodedPath: String, _ folder: URL) throws -> Void
     var acceleratorAllowed: @Sendable () -> Bool? = { nil }
+    /// SDK 4.0.5: the lease in force for a build, read with no request (`ProtectedRuntime.leaseInForce`); none by default,
+    /// so a resume asks its lease beside its first request.
+    var inForce: @Sendable (_ manifest: ModelManifest) -> LeaseRecord? = { _ in nil }
 }
 #endif

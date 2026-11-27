@@ -1,28 +1,7 @@
 import Foundation
 import QuranLabCore
 
-/// What a failure was, as an error report names it: the
-/// stage where the CAUSE is (not the call that failed), a reason token, the HTTP status of the answer that failed, and
-/// the platform error's class and code. Never a message, a path, a URL or an identifier: every field is a token, a
-/// small number or absent.
-struct ErrorCause: Sendable, Equatable {
-    var stage: String
-    var reason: String
-    var httpStatus: Int? = nil
-    /// An `NSError` domain or a Swift error type.
-    var errorName: String? = nil
-    /// An `NSError` code, the server's `error` of a 4xx, a Core status.
-    var errorCode: String? = nil
-    /// The attempts the SDK made inside the failing call beyond the first.
-    var retries: Int? = nil
-    /// Part of the build was on the device when it failed (24.4's `partial`). Never sent.
-    var partial = false
-    /// SDK 4.0.1 (24.2, 28.7): the role of the request the cause is (`api`, `models`), on the stages of a request to a
-    /// host of 28.1; never a host name.
-    var hostRole: String? = nil
-    /// SDK 4.0.1: that request was asked of more than one host (a failover happened in it).
-    var fallback: Bool? = nil
-
+extension ErrorCause {
     /// What `HTTPClient.send` throws for a request that got no answer: the system's message, then the error's
     /// domain and code in brackets (` [NSURLErrorDomain -1009]`), which the report reads back. The message is never
     /// sent.
@@ -69,7 +48,10 @@ struct ErrorCause: Sendable, Equatable {
         // (24.4 rule 3: a refusal, never a stop)
         if why.contains("refused by the Core") { return ErrorCause(stage: stage, reason: "invalid") }
         if why.contains("unsigned stop") { return ErrorCause(stage: stage, reason: "refused") }
-        if why.contains("unexpected body") || why.contains("short range") { return ErrorCause(stage: stage, reason: "invalid_answer") }
+        // SDK 4.0.5 (ATTEST_40.md 40.5): with the check the answer failed
+        if why.contains("unexpected body") || why.contains("short range") {
+            return ErrorCause(stage: stage, reason: "invalid_answer", errorCode: AnswerCheck.file(fromWords: why))
+        }
         return ErrorCause(stage: stage, reason: "other")
     }
 
@@ -119,7 +101,10 @@ struct ErrorCause: Sendable, Equatable {
         case "timeout": return "the server did not answer in time"
         case "signature": return "Quran Lab's answer did not verify"
         case "expired": return "Quran Lab's config has expired"
-        case "parse", "invalid_answer": return "Quran Lab's answer could not be read"
+        // SDK 4.0.5 (ATTEST_40.md 40.5): the check the answer failed, a token of the contract's set
+        case "invalid_answer":
+            return errorCode.map { "Quran Lab's answer did not pass a check (\($0))" } ?? "Quran Lab's answer could not be read"
+        case "parse": return "Quran Lab's answer could not be read"
         case "invalid": return "the lease on this device was refused; a new one is needed"
         default: return "the request failed (\(stage), \(reason))"
         }
@@ -134,13 +119,13 @@ struct ErrorCause: Sendable, Equatable {
         case .offline(let why): return answer(why, stage: stage)
         case .rejected(let s, let code, _, let reason): return refusal(status: s, code: code, reason: reason, stage: stage)
         case .invalid(let why):
-            guard stage == "config" else { return ErrorCause(stage: stage, reason: "invalid_answer") }
+            guard stage == "config" else { return ErrorCause(stage: stage, reason: "invalid_answer", errorCode: AnswerCheck.named(in: why)) }
             if why.contains("sign") { return ErrorCause(stage: stage, reason: "signature") }
             return ErrorCause(stage: stage, reason: why.contains("expired") ? "expired" : "parse")
         case .noKey: return ErrorCause(stage: stage, reason: "other")
         // a model file the device could not keep; an answer that said success and was not the file (SPEC 16.1)
         case .storage: return ErrorCause(stage: stage, reason: "storage")
-        case .badAnswer: return ErrorCause(stage: stage, reason: "invalid_answer")
+        case .badAnswer(let why): return ErrorCause(stage: stage, reason: "invalid_answer", errorCode: AnswerCheck.file(fromWords: why))
         }
     }
 }
@@ -182,7 +167,9 @@ extension ErrorCause {
             // the download's answer said success and was not the file, or brought no byte (SPEC 16.1, the installer's
             // words): invalid_answer, as the CloudError it came from
             let answer = why.contains("was not the file") || why.contains("brought no new byte")
-            return ErrorCause(stage: stage ?? "download", reason: answer ? "invalid_answer" : "other")
+            // SDK 4.0.5 (ATTEST_40.md 40.5): with the check the answer failed
+            return ErrorCause(stage: stage ?? "download", reason: answer ? "invalid_answer" : "other",
+                              errorCode: answer ? AnswerCheck.file(fromWords: why) : nil)
         case .storageFailed(let why):
             if stage == "download" { return ErrorCause(stage: "download", reason: "storage") }
             return ErrorCause(stage: "storage", reason: why.contains("read") ? "read" : "write")

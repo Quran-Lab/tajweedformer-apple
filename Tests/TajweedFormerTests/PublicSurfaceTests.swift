@@ -32,6 +32,10 @@ final class PublicSurfaceTests: XCTestCase {
         "TajweedDiagnosis.Endpoints", "TajweedDiagnosis.Failover",
         // 4.0.2: the cause on the app's error
         "TajweedError.Cause",
+        // 4.0.5: the process's live promotions
+        "TajweedDiagnosis.Live",
+        // 4.0.5: the attestation and the last lease failure
+        "TajweedDiagnosis.Attestation", "TajweedDiagnosis.LeaseFailure",
     ]
 
     static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -229,8 +233,10 @@ final class PublicSurfaceTests: XCTestCase {
     /// sdk-4.0.0-protected 564c144, the same bytes as 7f097b9: 26 codes, the reasons of `server_rejected` with the two
     /// of a model request, the fix of `model_missing` without a folder to open, docs on sdk.quranlab.ai, the fix of
     /// `sharing_unavailable` that names Quran Lab's switch for a platform or for everyone, never one app, and the fix
-    /// of `reference_missing` that names web 4.0.0's bug). Recorded when the copy was made; the copy is never edited.
-    static let catalogueSHA256 = "9b6c034e8a2ec73080b2621aef821d5f7117fa828a27c5f6cf97e672e044c880"
+    /// of `reference_missing` that names web 4.0.0's bug). SDK 4.0.5: the file at quranlab-contract 1804140 (ERRORS_40
+    /// 24.14), with the reason `lease_attestation_required` and its fix per platform (the iOS one names the Simulator
+    /// first since 1804140). Recorded when the copy was made; the copy is never edited.
+    static let catalogueSHA256 = "8a13cc0a121ab6aa96cb6da808070702b90fbe7105ed11bb19d402396fdefa20"
 
     func embedded() throws -> Data { try Data(contentsOf: try XCTUnwrap(ErrorCatalogue.resource)) }
 

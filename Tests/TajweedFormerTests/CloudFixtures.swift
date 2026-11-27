@@ -30,12 +30,43 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
     }
 
     /// A gate an answer waits behind. Opening it lets every answer that waits, or comes later, go.
+    /// A held answer of the stub waits with `whenOpen`, which parks no thread. Until 4.0.5 it waited with `wait` on a
+    /// thread of the shared global queue, and a gate that never opened (a request its sender cancelled) kept that
+    /// thread for the rest of the process. That queue has at most 64 threads: once they are all parked, nothing else
+    /// sent to it runs in the process.
     final class Gate: @unchecked Sendable {
         private let semaphore = DispatchSemaphore(value: 0)
-        func open() { semaphore.signal() }
+        private let lock = NSLock()
+        private var isOpen = false
+        private var waiting: [@Sendable () -> Void] = []
+
+        func open() {
+            lock.lock()
+            let first = !isOpen
+            isOpen = true
+            let go = waiting
+            waiting = []
+            lock.unlock()
+            if first { semaphore.signal() }
+            for f in go { f() }
+        }
+
+        /// Blocks the calling thread until the gate opens (for an answer that runs on a thread of its own).
         func wait() {
             semaphore.wait()
             semaphore.signal()
+        }
+
+        /// Runs `f` on `queue` once the gate is open (at once when it is); no thread waits meanwhile.
+        func whenOpen(on queue: DispatchQueue, _ f: @escaping @Sendable () -> Void) {
+            lock.lock()
+            if isOpen {
+                lock.unlock()
+                queue.async(execute: f)
+                return
+            }
+            waiting.append { queue.async(execute: f) }
+            lock.unlock()
         }
     }
 
@@ -86,6 +117,10 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         return URLSession(configuration: c)
     }
 
+    /// Where a held or late answer of the stub is given: a serial queue of its own, never the shared global queue,
+    /// whose pool of threads a parked answer would take from every other user in the process.
+    static func heldQueue() -> DispatchQueue { DispatchQueue(label: "stub-held") }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
@@ -118,8 +153,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         }
         // held: the request is in flight until the gate opens; a sender that cancels it meanwhile gets no answer
         waiting.withLock { $0 = asked }
-        DispatchQueue.global().async { [self] in
-            gate.wait()
+        gate.whenOpen(on: Self.heldQueue()) { [self] in
             let still = waiting.withLock { (w: inout Seen?) -> Bool in
                 let had = w != nil
                 w = nil
@@ -142,8 +176,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
         Self.log.withLock { $0.append(started) }
         waiting.withLock { $0 = started }
         let rest = UncheckedBox(stream)
-        DispatchQueue.global().async { [self] in
-            gate.wait()
+        gate.whenOpen(on: Self.heldQueue()) { [self] in
             // cancelled while the server waited: no more of the body is taken
             let cancelled = waiting.withLock { (w: inout Seen?) -> Bool in w == nil }
             if cancelled {
@@ -186,7 +219,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             // the connection ends in the middle of the body: the bytes arrive, and a moment later the connection
             // is gone (a request that is failed in the same instant hands its sender none of the bytes)
             client?.urlProtocol(self, didLoad: Data(reply.body.prefix(max(0, n))))
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { [self] in
+            Self.heldQueue().asyncAfter(deadline: .now() + 0.3) { [self] in
                 client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
             }
             return
